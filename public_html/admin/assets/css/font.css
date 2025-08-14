@@ -1,0 +1,63 @@
+@font-face {
+    font-family: 'Yekan-Bakh-Medium';
+    font-style: normal;
+    font-weight: 400;
+    src: url("/admin/assets/fonts/Yekan-Bakh/Yekan-Bakh-FaNum-05-Medium.woff");
+    }
+    @font-face {
+    font-family: 'Yekan-Bakh-Regular';
+    font-style: normal;
+    font-weight: 400;
+    src: url("/admin/assets/fonts/Yekan-Bakh/Yekan-Bakh-FaNum-04-Regular.woff");
+    }
+    @font-face {
+    font-family: 'Yekan-Bakh-Bold';
+    font-style: normal;
+    font-weight: 400;
+    src: url("/admin/assets/fonts/Yekan-Bakh/Yekan-Bakh-FaNum-06-Bold.woff");
+    }
+    @font-face {
+    font-family: 'Yekan-Bakh-Heavy';
+    font-style: normal;
+    font-weight: 400;
+    src: url("/admin/assets/fonts/Yekan-Bakh/Yekan-Bakh-FaNum-07-Heavy.woff");
+    }
+    @font-face {
+    font-family: 'Yekan-Bakh-Fat';
+    font-style: normal;
+    font-weight: 400;
+    src: url("/admin/assets/fonts/Yekan-Bakh/Yekan-Bakh-FaNum-08-Fat.woff");
+    }
+
+    body {
+    font-family: "Yekan-Bakh-Medium"!important;
+    }
+    h1, h2, h3, h4, h5, h6 {
+    font-weight: 700;
+    font-family: "Yekan-Bakh-Fat"!important;
+    }
+    div, a, button, label, span{
+    font-family: "Yekan-Bakh-Medium"!important;
+    }
+
+    .font-fat {
+        font-weight: 700;
+        font-family: "Yekan-Bakh-Fat"!important;
+    }
+
+    .font-medium{
+        font-family: "Yekan-Bakh-Medium"!important;
+    }
+
+    .font-regular {
+        font-weight: 700;
+        font-family: "Yekan-Bakh-Regular"!important;
+    }
+
+    .font-heavy{
+        font-family: "Yekan-Bakh-Heavy"!important;
+    }
+
+    .font-bold{
+        font-family: "Yekan-Bakh-Heavy"!important;
+    }

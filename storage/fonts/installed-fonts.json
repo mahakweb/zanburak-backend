@@ -1,0 +1,29 @@
+{
+    "exo 2": {
+        "600": "exo_2_600_c84715614c38b85377325d7a0be7e8c3"
+    },
+    "lato": {
+        "normal": "C:\\Users\\MILAD MAHAKI\\Desktop\\laravel-project\\zanburak\\storage\\fonts\/lato_normal_1e76f4095824347c5952fde032e6e608",
+        "bold": "lato_bold_86e1573850012e2276a75106baf0c899"
+    },
+    "roboto": {
+        "normal": "C:\\Users\\MILAD MAHAKI\\Desktop\\laravel-project\\zanburak\\storage\\fonts\/roboto_normal_9fa47a070a8b30b595086d70bb7ac78c",
+        "500": "roboto_500_d0dcda9e813eb9b854a1cc044831f6fe"
+    },
+    "material icons": {
+        "normal": "material_icons_normal_473211febec5305261ba55b385968138"
+    },
+    "font awesome\\ 5 brands": {
+        "normal": "font_awesome__5_brands_normal_4e48841200a4da951671a7eac5eb9a6c"
+    },
+    "font awesome\\ 5 free": {
+        "900": "C:\\Users\\MILAD MAHAKI\\Desktop\\laravel-project\\zanburak\\storage\\fonts\/font_awesome__5_free_900_4ffc507ef8f578c0f80f9b0318bb9bcd",
+        "normal": "font_awesome__5_free_normal_ef7f83a42c395cb82967af5d742db21e"
+    },
+    "irannastaliq": {
+        "normal": "irannastaliq_normal_05dd0df10c018fc65a30d8349acda80e"
+    },
+    "bzar": {
+        "normal": "bzar_normal_c1d88892acf306b18c88db8c7f3fe3de"
+    }
+}

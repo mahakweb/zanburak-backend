@@ -1,0 +1,25 @@
+.plyr{
+    /* border-radius: 10px; */
+}
+
+.plyr--full-ui input[type=range] {
+    color: #fed700;
+}
+
+.plyr__control--overlaid {
+    background: rgba(255,255,255, .5);
+    border-radius: 10px!important;
+}
+
+.plyr--video .plyr__control.plyr__tab-focus,
+.plyr--video .plyr__control:hover,
+.plyr--video .plyr__control[aria-expanded=true] {
+    background: #fed700;
+    border-radius: 10px!important;
+}
+
+
+.plyr__menu__container .plyr__control[role=menuitemradio][aria-checked=true]::before {
+    background: #fed700;
+
+}

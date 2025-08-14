@@ -1,0 +1,82 @@
+{
+    "zanburak" : "زنبورک",
+    "Milad" : "میلاد",
+    "Mahaki" : "محکی",
+    "e.g" : "برای مثال",
+    "Register" : "ثبت نام",
+    "Login" : "ورود",
+    "Register with Github" : "ثبت نام با گیت هاب",
+    "Register with Google" : "ثبت نام با گوگل",
+    "Login with Github" : "ورود با گیت هاب",
+    "Login with Google" : "ورود با گوگل",
+    "Verify" : "تایید",
+    "Verify email" : "تایید ایمیل",
+    "Verify your email address" : "ایمیل خود را تایید کنید",
+    "Email confirmation link has been sent to you" : "لینک تایید ایمیل برای شما ارسال شد",
+    "Please check your email for a confirmation link before proceeding" : "قبل از ادامه، لطفاً ایمیل خود را برای لینک تأیید بررسی کنید",
+    "If you did not receive the email" : "اگر ایمیل را دریافت نکردید",
+    "Resend" : "ارسال مجدد",
+    "An error has occurred" : "خطایی رخ داده است",
+    "Login to zanburak" : "ورود به زنبورک",
+    "Register in zanburak" : "ثبت نام در زنبورک",
+    "Hello, dear friend, if you have an account in Mahek web, log in using the following methods" : "سلام دوست عزیز، اگه توی زنبورک اکانت داری از راه‌های زیر وارد شو",
+    "Hello dear friend, you can register in the following ways" : " سلام دوست عزیز، از راه‌های زیر میتونی ثبت نام کنی",
+    "Or enter from below" : "یا ورود از راه زیر",
+    "Or register from below" : "یا ثبت نام از راه زیر",
+    "First name" : "نام",
+    "Last name" : "نام خانوادگی",
+    "Email" : "پست الکترونیک",
+    "Mobile" : "موبایل",
+    "Password" : "رمز عبور",
+    "Confirm password" : "تایید رمز عبور",
+    "Accept the terms and conditions" : "شرایط و قوانین را میپذیرم",
+    "Forgot your password" : "رمز عبور خود را فراموش کرده اید",
+    "Remember me" : "من را بخاطر بسپار",
+
+
+
+
+    "Please confirm your password before continuing" : "لطفاً قبل از ادامه رمز عبور خود را تأیید کنید",
+
+
+
+    "Reset password" : "بازنشانی رمز عبور",
+    "Password reset link has been sent to you" : "لینک بازنشانی رمز عبور برای شما ارسال شد",
+    "Send link" : "ارسال لینک",
+
+    "New password" : "رمز عبور جدید",
+    "Change" : "تغییر",
+
+
+
+
+    "Hello!" : "سلام!",
+    "Whoops!" : "اوه!",
+
+    "Regards" : "با احترام",
+    "If you're having trouble clicking the ':actionText' button, copy and paste the URL below \n into your web browser:" : "اگر با کلیک کردن روی دکمه ':actionText' مشکل دارید، لینک زیر \n را کپی کرده و در مرورگر وب خود جایگذاری کنید:",
+    "Reset Password Notification" : "اعلان بازنشانی رمز عبور",
+    "You are receiving this email because we received a password reset request for your account." : "شما این ایمیل را دریافت می کنید زیرا ما یک درخواست بازنشانی رمز عبور برای حساب شما دریافت کردیم.",
+    "Reset Password" : "بازنشانی رمز عبور",
+    "If you did not request a password reset, no further action is required." : "اگر خودتان بازنشانی رمز عبور را درخواست نکردید، هیچ اقدام دیگری لازم نیست.",
+    "This password reset link will expire in :count minutes." : "این لینک بازنشانی رمز عبور :count دقیقه دیگر منقضی می شود.",
+    ":appName All rights reserved." : "تمامی حقوق برای :appName محفوظ است.",
+
+
+
+    "Verify Email Address" : "تأیید آدرس ایمیل",
+    "Please click the button below to verify your email address." : "لطفا روی دکمه زیر کلیک کنید تا آدرس ایمیل خود را تأیید کنید.",
+    "If you did not create an account, no further action is required." : "اگر حساب کاربری ایجاد نکردید، هیچ اقدام دیگری لازم نیست.",
+
+
+
+    "Verify mobile" : "تایید شماره موبایل",
+    "Verify your mobile number" : "شماره موبایل خود را تایید کنید.",
+    "You have not verified your mobile number" : "شما شماره موبایل خود را تایید نکرده اید",
+    "Click on the link below to confirm your mobile number" : "برای تایید شماره موبایل خود روی لینک زیر کلیک کنید"
+
+
+
+
+
+}

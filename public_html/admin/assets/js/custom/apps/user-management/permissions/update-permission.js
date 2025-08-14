@@ -1,0 +1,143 @@
+"use strict";
+var KTUsersUpdatePermission = function() {
+    const t = document.getElementById("kt_modal_update_permission"),
+        e = t.querySelector("#kt_modal_update_permission_form"),
+        n = new bootstrap.Modal(t);
+    return {
+        init: function() {
+            (() => {
+                var o = FormValidation.formValidation(e, {
+                    fields: {
+                        name: {
+                            validators: {
+                                notEmpty: {
+                                    message: "فیلد نام دسترسی ضروری است"
+                                },
+                                regexp: {
+                                    regexp: "^[a-zA-z\-]+$",
+                                    message: "لطفا فقط از حروف لاتین و علامت (-) استفاده کنید",
+                                },
+                            }
+                        },
+                        label: {
+                            validators: {
+                                notEmpty: {
+                                    message: "فیلد توضیح دسترسی ضروری است"
+                                },
+                                
+                            }
+                        }
+                    },
+                    plugins: {
+                        trigger: new FormValidation.plugins.Trigger,
+                        bootstrap: new FormValidation.plugins.Bootstrap5({
+                            rowSelector: ".fv-row",
+                            eleInvalidClass: "",
+                            eleValidClass: ""
+                        })
+                    }
+                });
+                t.querySelector('[data-kt-permissions-modal-action="close"]').addEventListener("click", (t => {
+                    t.preventDefault(), Swal.fire({
+                        text: "مطمئنی میخوای فرم رو ببندی؟",
+                        icon: "warning",
+                        showCancelButton: !0,
+                        buttonsStyling: !1,
+                        confirmButtonText: "بله!",
+                        cancelButtonText: "لغو",
+                        customClass: {
+                            confirmButton: "btn btn-primary",
+                            cancelButton: "btn btn-active-light"
+                        }
+                    }).then((function(t) {
+                        t.value && n.hide()
+                    }))
+                })), t.querySelector('[data-kt-permissions-modal-action="cancel"]').addEventListener("click", (t => {
+                    t.preventDefault(), Swal.fire({
+                        text: "مطمئنی میخوای فرم رو ببندی؟",
+                        icon: "warning",
+                        showCancelButton: !0,
+                        buttonsStyling: !1,
+                        confirmButtonText: "بله!",
+                        cancelButtonText: "لغو",
+                        customClass: {
+                            confirmButton: "btn btn-primary",
+                            cancelButton: "btn btn-active-light"
+                        }
+                    }).then((function(t) {
+                        t.value ? (e.reset(), n.hide()) : "cancel" === t.dismiss && Swal.fire({
+                            text: "فرم لغو نشد!",
+                            icon: "error",
+                            buttonsStyling: !1,
+                            confirmButtonText: "بسیار خب",
+                            customClass: {
+                                confirmButton: "btn btn-primary"
+                            }
+                        })
+                    }))
+                }));
+                const i = t.querySelector('[data-kt-permissions-modal-action="submit"]');
+                i.addEventListener("click", (function(t) {
+                    t.preventDefault(), o && o.validate().then((function(t) {
+                        console.log("validated!"), "Valid" == t ? (i.setAttribute("data-kt-indicator", "on"), i.disabled = !0, setTimeout((function() {
+                            
+
+
+                            $.ajaxSetup({
+                                headers: {
+                                    'X-CSRF-TOKEN' : $('meta[name="csrf-token"]').attr('content'),
+                                }
+                            });
+                            $.ajax({
+                                url: $(e).attr('action'),
+                                method: $(e).attr('method'),
+                                data: $(e).serialize(),
+                                datatype: "json",
+                                beforeSend: function (){
+                                    $(e).find("div.error_text div").text('');
+                                },
+                                success: function (data){
+                                    i.removeAttribute("data-kt-indicator"), i.disabled = !1
+                                    if(data.status == 0){
+                                    $.each(data.error, function (prefix, val){
+                                        $("div."+prefix+"_error div").text(val[0]);
+                                    })
+                                    }else if(data.status == 1){
+
+                                        Swal.fire({
+                                            text: "دسترسی با موفقیت ویرایش شد!",
+                                            icon: "success",
+                                            buttonsStyling: !1,
+                                            confirmButtonText: "بسیار خب!",
+                                            customClass: {
+                                                confirmButton: "btn btn-primary"
+                                            }
+                                        }).then((function(t) {
+                                            t.isConfirmed && n.hide()
+                                        }))
+
+                                    }
+                                                    
+                                }
+                                                    
+                            });
+
+
+                        }), 2e3)) : Swal.fire({
+                            text: "به نظر تعدادی خطا وجود داره. اونارو برطرف کن بعدا تلاش کن!",
+                            icon: "error",
+                            buttonsStyling: !1,
+                            confirmButtonText: "بسیار خب!",
+                            customClass: {
+                                confirmButton: "btn btn-primary"
+                            }
+                        })
+                    }))
+                }))
+            })()
+        }
+    }
+}();
+KTUtil.onDOMContentLoaded((function() {
+    KTUsersUpdatePermission.init()
+}));

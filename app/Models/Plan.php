@@ -1,0 +1,26 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class Plan extends Model
+{
+    use HasFactory;
+    protected $fillable = [
+        'title',
+        'english_title',
+        'period_time',
+        'price',
+        'icon',
+        'status',
+        'popular',
+        'description',
+    ];
+
+
+    public function users(){
+        return $this->belongsToMany(User::class)->withPivot(["payment_id","tracking_number","price","status","started_at","expired_at"]);
+    }
+}

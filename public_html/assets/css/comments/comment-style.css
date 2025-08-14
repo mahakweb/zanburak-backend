@@ -1,0 +1,110 @@
+.comments *,
+.comments *:before,
+.comments *:after {
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+
+}
+
+.comments * {
+    position: relative;
+    margin: 0;
+    padding: 0;
+
+
+    border: 0 none;
+
+    -webkit-transition: all .4s;
+    -moz-transition: all .4s;
+    transition: all .4s;
+}
+
+
+
+.comments {
+
+    min-height: auto;
+}
+
+.list,
+.list ul {
+    margin: 0;
+    padding: 0;
+    list-style-type: none;
+
+}
+
+.list ul {
+    position: relative;
+    margin-right: 20px;
+}
+
+.list ul:before {
+    content: "";
+    display: block;
+    position: absolute;
+    top: -25px;
+    right: 0;
+    bottom: 0;
+    width: 0;
+
+    border-right: 3px solid #ccc;
+}
+
+.list li {
+    position: relative;
+    margin: 0;
+    padding-right: 12px;
+
+    color: #ccc;
+    text-decoration: none;
+    text-transform: uppercase;
+}
+
+
+
+.list li div {
+    position: relative;
+
+    color: #ccc;
+    text-decoration: none;
+    text-transform: uppercase;
+}
+
+
+.list ul li:before {
+    content: "";
+    display: block;
+    position: absolute;
+    top: 30px;
+    right: 0;
+    width: 13px;
+    height: 0;
+
+    border-top: 3px solid #ccc;
+}
+
+.list ul li:last-child:before {
+    top: 30px;
+    bottom: 0;
+    height: auto;
+
+    background: #fff;
+}
+
+
+@media (max-width:575.98px) {
+    .list li {
+        padding-right: 0px;
+    }
+    .list ul {
+        margin-right: 0px;
+    }
+    .list ul:before {
+        right: 20px;
+    }
+    .list ul li:before {
+        width: 0px;
+    }
+}

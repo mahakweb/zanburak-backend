@@ -1,0 +1,15 @@
+{
+    "background_color": "red",
+    "description": "Shows random fox pictures. Hey, at least it isn't cats.",
+    "display": "fullscreen",
+    "icons": [
+      {
+        "src": "/assets/images/logo/logo-without-text.png",
+        "sizes": "256x256",
+        "type": "image/png"
+      }
+    ],
+    "name": "وب سایت آموزشی زنبورک",
+    "short_name": "زنبورک",
+    "start_url": "/localhost:8000"
+  }
