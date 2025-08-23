@@ -119,6 +119,7 @@ class Course extends Model implements Likeable
         return [
             'slug' => [
                 'source' => 'english_title',
+                'onUpdate' => true,
             ],
         ];
     }

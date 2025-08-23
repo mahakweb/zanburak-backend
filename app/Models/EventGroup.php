@@ -22,6 +22,7 @@ class EventGroup extends Model
         return [
             'slug' => [
                 'source' => 'english_title',
+                'onUpdate' => true,
             ],
         ];
     }

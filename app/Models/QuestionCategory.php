@@ -24,7 +24,8 @@ class QuestionCategory extends Model
     {
         return [
             'slug' => [
-                'source' => 'english_title'
+                'source' => 'english_title',
+                'onUpdate' => true,
             ]
         ];
     }

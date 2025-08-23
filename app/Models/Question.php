@@ -54,6 +54,7 @@ class Question extends Model implements Likeable
         return [
             'slug' => [
                 'source' => 'subject',
+                'onUpdate' => true,
             ],
         ];
     }

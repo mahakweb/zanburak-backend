@@ -64,7 +64,8 @@ class Episode extends Model implements Likeable
     {
         return [
             'slug' => [
-                'source' => 'english_title'
+                'source' => 'english_title',
+                'onUpdate' => true,
             ]
         ];
     }
