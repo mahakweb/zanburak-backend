@@ -66,6 +66,28 @@ class PanelController extends Controller
 
         $activePlan = $user->activeVipPlan();
 
+        // start chart whatched time
+        $watchedTimesChart = VideoView::getWatchedChartForUser($user->id, 7);
+        // end chart whatched time
+
+        // start chart purchased course
+        $purchasedCourseChart = $user->courses()
+            ->wherePivot('created_at', '>=', now()->subDays(7))
+            ->selectRaw('DATE(course_user.created_at) as date, COUNT(*) as count')
+            ->groupBy('date')
+            ->orderBy('date')
+            ->pluck('count', 'date');
+
+        $labels = collect(range(0, 7))->map(fn($i) => now()->subDays(7 - $i)->toDateString());
+        $data = $labels->map(fn($date) => $purchasedCourseChart[$date] ?? 0);
+
+        $resultChart = [
+            'labels' => $labels,
+            'data' => $data,
+        ];
+
+        // end chart purchased course
+
         if ($activePlan) {
             $activePlan = [
                 'title' => $activePlan->title,
@@ -81,6 +103,8 @@ class PanelController extends Controller
 
         return response()->json([
             'message' => 'success',
+            'watched_times_chart' => $watchedTimesChart,
+            'purchased_course_chart' => $resultChart,
             'courses' => $courses,
             'questions' => $questions,
             'numberOfCurrentCourse' => $numberOfCurrentCourse,

@@ -50,9 +50,6 @@ class User extends Authenticatable implements MustVerifyEmail
         'last_seen',
         'profile_pic',
         'cover_pic',
-        'provider_id',
-        'provider',
-        'access_token',
     ];
 
     /**
@@ -72,7 +69,81 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     protected $casts = [
         'email_verified_at' => 'datetime',
+        'mobile_verified_at' => 'datetime',
     ];
+
+
+    public function scopeStatus($query, $status)
+    {
+        if (empty($status) || $status === 'all') {
+            return $query;
+        }
+
+        return match ($status) {
+            'active' => $query->where('active', 1),
+            'inactive' => $query->where('active', 0),
+            default => $query,
+        };
+    }
+
+    public function scopeRole($query, $role)
+    {
+        if (empty($role) || $role === 'all') {
+            return $query;
+        }
+
+        return match ($role) {
+            'superuser' => $query->where('is_superuser', 1),
+            'administrator' => $query->where('is_staff', 1),
+            'user' => $query->where('is_staff', 0)->where('is_superuser', 0),
+            default => $query,
+        };
+    }
+
+    public function scopeSort($query, $value)
+    {
+        return match ($value) {
+            'oldest' => $query->orderBy('created_at', 'asc'),
+            'newest' => $query->orderBy('created_at', 'desc'),
+            default => $query->orderBy('created_at', 'desc'),
+        };
+    }
+
+    public function scopeSubscription($query, $subscription)
+    {
+        if (empty($subscription) || $subscription === 'all') {
+            return $query;
+        }
+
+        $vipCondition = function ($q) {
+            $q->where('expired_at', '>', now());
+        };
+
+        if ($subscription === 'vip') {
+            return $query->whereHas('plans', $vipCondition);
+        }
+
+        if ($subscription === 'normal') {
+            return $query->whereDoesntHave('plans', $vipCondition);
+        }
+
+        return $query;
+    }
+
+    public function scopeSearch($query, $term)
+    {
+        if (!$term)
+            return $query;
+
+        return $query->where(function ($q) use ($term) {
+            $q->where('first_name', 'like', "%{$term}%")
+                ->orWhere('last_name', 'like', "%{$term}%")
+                ->orWhere('email', 'like', "%{$term}%")
+                ->orWhere('username', 'like', "%{$term}%");
+        });
+    }
+
+
 
     public function notifications()
     {
@@ -153,7 +224,7 @@ class User extends Authenticatable implements MustVerifyEmail
         }
 
         $likeable->likes()
-            ->whereHas('user', fn ($q) => $q->whereId($this->id))
+            ->whereHas('user', fn($q) => $q->whereId($this->id))
             ->where('type', 'like')
             ->delete();
 
@@ -167,7 +238,7 @@ class User extends Authenticatable implements MustVerifyEmail
         }
 
         return $likeable->likes()
-            ->whereHas('user', fn ($q) => $q->whereId($this->id))
+            ->whereHas('user', fn($q) => $q->whereId($this->id))
             ->where('type', 'like')
             ->exists();
     }
@@ -211,7 +282,7 @@ class User extends Authenticatable implements MustVerifyEmail
         }
 
         $likeable->likes()
-            ->whereHas('user', fn ($q) => $q->whereId($this->id))
+            ->whereHas('user', fn($q) => $q->whereId($this->id))
             ->where('type', 'dislike')
             ->delete();
 
@@ -225,7 +296,7 @@ class User extends Authenticatable implements MustVerifyEmail
         }
 
         return $likeable->likes()
-            ->whereHas('user', fn ($q) => $q->whereId($this->id))
+            ->whereHas('user', fn($q) => $q->whereId($this->id))
             ->where('type', 'dislike')
             ->exists();
     }
@@ -315,13 +386,13 @@ class User extends Authenticatable implements MustVerifyEmail
                         // if course have any video but user didnt watch it
                         $subQuery->where('type', 'stream')
                             ->whereDoesntHave('VideoViews', function ($innerQuery) {
-                                $innerQuery->select('id')
-                                    ->whereColumn('video_id', 'videos.id')
-                                    ->where('user_id', $this->id)
-                                    ->orderByDesc('updated_at')
-                                    ->limit(1)
-                                    ->where('watched', true);
-                            });
+                            $innerQuery->select('id')
+                                ->whereColumn('video_id', 'videos.id')
+                                ->where('user_id', $this->id)
+                                ->orderByDesc('updated_at')
+                                ->limit(1)
+                                ->where('watched', true);
+                        });
                     });
             });
     }
@@ -339,12 +410,12 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function roles()
     {
-        return $this->belongsToMany(Role::class);
+        return $this->belongsToMany(Role::class)->withTimestamps();
     }
 
     public function permissions()
     {
-        return $this->belongsToMany(Permission::class);
+        return $this->belongsToMany(Permission::class)->withTimestamps();
     }
 
     public function hasRole($roles)
@@ -402,13 +473,20 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(ActiveCode::class);
     }
 
+    // public function hasVip()
+    // {
+    //     if ($userPlan = $this->plans()->wherePivot('expired_at', '>', Carbon::now())->first()) {
+    //         return Carbon::now()->diffInSeconds($userPlan->pivot->expired_at);
+    //     } else {
+    //         return false;
+    //     }
+    // }
+
     public function hasVip()
     {
-        if ($userPlan = $this->plans()->wherePivot('expired_at', '>', Carbon::now())->first()) {
-            return Carbon::now()->diffInSeconds($userPlan->pivot->expired_at);
-        } else {
-            return false;
-        }
+        return $this->plans()
+            ->wherePivot('expired_at', '>', now())
+            ->exists();
     }
 
     public function percentVip()
@@ -424,14 +502,21 @@ class User extends Authenticatable implements MustVerifyEmail
         }
     }
 
+    // public function activeVipPlan()
+    // {
+    //     if ($this->hasVip()) {
+    //         $activePlan = $this->plans()->wherePivot('expired_at', '>', Carbon::now())->first();
+    //         return $activePlan;
+    //     } else {
+    //         return false;
+    //     }
+    // }
+
     public function activeVipPlan()
     {
-        if ($this->hasVip()) {
-            $activePlan = $this->plans()->wherePivot('expired_at', '>', Carbon::now())->first();
-            return $activePlan;
-        } else {
-            return false;
-        }
+        return $this->plans()
+            ->wherePivot('expired_at', '>', now())
+            ->first();
     }
 
     public function expiredVipPlan()
@@ -525,7 +610,15 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
 
+    public function logins()
+    {
+        return $this->hasMany(UserLogin::class);
+    }
 
+    public function providers()
+    {
+        return $this->hasMany(UserProvider::class);
+    }
 
 
     public function sendEmailVerificationNotification()

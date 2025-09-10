@@ -70,7 +70,8 @@ return array(
         "array"   => ":attribute باسد شامل :size آیتم باشد.",
     ),
     "timezone"         => "The :attribute must be a valid zone.",
-    "unique"           => ":attribute قبلا انتخاب شده است.",
+    // "unique"           => ":attribute قبلا انتخاب شده است.",
+    "unique"           => ":attribute قبلا گرفته شده است.",
     "url"              => "فرمت آدرس :attribute اشتباه است.",
 
     /*
@@ -209,5 +210,10 @@ return array(
         'g-recaptcha-response' => "من ربات نیستم",
         'coverPic' => 'تصویر کاور',
         'profilePic' => 'تصویر پروفایل',
+        'verifyMobile' => 'تایید موبایل',
+        'verifyEmail' => 'تایید ایمیل',
+        'permissions' => 'دسترسی‌ها',
+        'roles' => 'نقش‌ها',
+        'is_superuser' => 'superuser',
     ),
 );

@@ -32,9 +32,6 @@ return new class extends Migration
             $table->string('role')->nullable();
             $table->rememberToken();
             $table->timestamp('last_seen')->nullable();
-            $table->string('provider', 20)->nullable();
-            $table->string('provider_id')->nullable();
-            $table->string('access_token')->nullable();
             $table->timestamps();
         });
 

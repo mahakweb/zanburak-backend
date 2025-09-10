@@ -167,4 +167,59 @@ class VideoView extends Model
         return (bool) $watched;
     }
 
+    public static function getWatchedChartForUser($userId, $days = 7)
+    {
+        $startDate = now()->subDays($days)->startOfDay();
+
+        $videoViews = self::where('user_id', $userId)
+            ->where('updated_at', '>=', $startDate)
+            ->get();
+
+        $watchedPerDay = [];
+
+        foreach ($videoViews as $videoView) {
+            $date = Carbon::parse($videoView->updated_at)->toDateString();
+            $videoId = $videoView->video_id;
+
+            if (!isset($watchedPerDay[$date][$videoId])) {
+                $watchedPerDay[$date][$videoId] = [];
+            }
+
+            $watchedTimes = json_decode($videoView->watched_times, true) ?? [];
+
+            $watchedPerDay[$date][$videoId] = array_merge(
+                $watchedPerDay[$date][$videoId],
+                $watchedTimes
+            );
+        }
+
+        $dailyTotals = [];
+        foreach ($watchedPerDay as $date => $videos) {
+            $dayTotal = 0;
+
+            foreach ($videos as $videoId => $times) {
+                $uniqueTimes = array_unique($times);
+                $dayTotal += count($uniqueTimes);
+            }
+
+            $dailyTotals[$date] = $dayTotal;
+        }
+
+        $labels = [];
+        $data = [];
+
+        $period = \Carbon\CarbonPeriod::create($startDate, now()->endOfDay());
+        foreach ($period as $date) {
+            $d = $date->toDateString();
+            $labels[] = $d;
+            $data[] = $dailyTotals[$d] ?? 0;
+        }
+
+        return [
+            'labels' => $labels,
+            'data' => $data,
+        ];
+    }
+
+
 }

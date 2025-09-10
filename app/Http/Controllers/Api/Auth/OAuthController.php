@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Models\UserLogin;
 use Illuminate\Auth\Events\Login;
 use Laravel\Socialite\Facades\Socialite;
 use App\Models\Info;
@@ -19,17 +20,21 @@ class OAuthController extends Controller
         $this->middleware('guest');
     }
     protected $providers = [
-        'github', 'google',
+        'github',
+        'google',
     ];
 
     public function redirect($driver, Request $request)
     {
-        $requestType = $request->input('type', 'web');
+        $state = base64_encode(json_encode([
+            'type' => $request->input('type', 'web'),
+            'redirect' => $request->input('redirect', '/')
+        ]));
         if (!$this->isProviderAllowed($driver)) {
             return "driver {$driver} is not currently supported";
         }
         try {
-            return Socialite::driver($driver)->stateless()->with(['state' => $requestType, 'prompt' => 'select_account'])->redirect();
+            return Socialite::driver($driver)->stateless()->with(['state' => $state, 'prompt' => 'consent select_account', 'access_type' => 'offline'])->redirect();
         } catch (\Exception $e) {
             // You should show something simple fail message
             return $e->getMessage();
@@ -42,14 +47,14 @@ class OAuthController extends Controller
         } catch (\Exception $e) {
             return $e->getMessage();
         }
-        
+
         // check for email in returned user
         return empty($user->email)
-        ? "No email id returned from {$driver} provider."
-        : $this->loginOrCreateAccount($user, $driver, $request);
+            ? "No email id returned from {$driver} provider."
+            : $this->loginOrCreateAccount($user, $driver, $request);
     }
 
-    
+
 
     protected function loginOrCreateAccount($providerUser, $driver, $request)
     {
@@ -64,14 +69,22 @@ class OAuthController extends Controller
             //     'provider_id' => $providerUser->id,
             //     'access_token' => $providerUser->token,
             // ]);
+            $user->providers()->updateOrCreate(
+                ['provider' => $driver],
+                [
+                    'provider_id' => $providerUser->getId(),
+                    'access_token' => $providerUser->token,
+                    'refresh_token' => $providerUser->refreshToken ?? null,
+                    'expires_at' => isset($providerUser->expiresIn) ? now()->addSeconds($providerUser->expiresIn) : null,
+                ]
+            );
             event(new Login(false, $user, false));
         } else {
             // create a new user
             $first_name = '';
-            if($driver == 'github'){
+            if ($driver == 'github') {
                 $first_name = $providerUser->getNickname();
-            }
-            elseif($driver == 'google'){
+            } elseif ($driver == 'google') {
                 $first_name = $providerUser->getName();
             }
             $user = User::create([
@@ -85,12 +98,19 @@ class OAuthController extends Controller
                 'username' => $this->checkUsername($providerUser->getEmail()),
                 'profile_pic' => $providerUser->getAvatar(),
                 'cover_pic' => 'https://static.zanburak.ir/images/cover/default.png',
+                'last_seen' => Carbon::now(),
+
+            ]);
+
+            $user->providers()->create([
                 'provider' => $driver,
                 'provider_id' => $providerUser->getId(),
                 'access_token' => $providerUser->token,
-                'last_seen'   => Carbon::now(),
-
+                'refresh_token' => $providerUser->refreshToken ?? null,
+                'expires_at' => isset($providerUser->expiresIn) ? now()->addSeconds($providerUser->expiresIn) : null,
             ]);
+
+
             $userInfo = Info::create([
                 'user_id' => $user->id,
             ]);
@@ -98,21 +118,34 @@ class OAuthController extends Controller
             event(new Registered($user));
         }
         // $token = $user->createToken('XSRF-TOKEN')->plainTextToken;
-        $requestType = $request->input('state', 'web');
+        $state = json_decode(base64_decode($request->input('state')), true);
+        $requestType = $state['type'] ?? 'web';
+        $redirect = $state['redirect'] ?? '/';
         $token = $user->createToken($request->userAgent());
         $user->tokens()->where('id', $token->accessToken->id)->update(['ip' => $request->ip()]);
+
+        UserLogin::create([
+            'user_id' => $user->id,
+            'device' => $request->header('User-Agent') ?? 'unknown',
+            'ip_address' => request()->ip(),
+            'token_id' => $token->accessToken->id,
+            'logged_in_at' => now(),
+            'login_type' => $driver,
+        ]);
+
         if ($requestType == 'web') {
-            return redirect()->away(env("FRONT_APP_URL")."/oauth/callback?token=" . $token->plainTextToken);
+            return redirect()->away(env("FRONT_APP_URL") . "/oauth/callback?token=" . $token->plainTextToken . "&redirect=" . $redirect);
         } else {
             return response()->json(['token' => $token->plainTextToken], 200);
         }
     }
 
 
-    public function checkUsername($email){
+    public function checkUsername($email)
+    {
         $username = Str::before($email, '@');
-        $check = !! User::where('username', '=', $username)->first();
-        return $check ? $username.'_'.time() : $username;
+        $check = !!User::where('username', '=', $username)->first();
+        return $check ? $username . '_' . time() : $username;
     }
 
 

@@ -8,6 +8,7 @@ use App\Models\ActiveCode;
 use App\Models\Event;
 use App\Models\EventGroup;
 use App\Models\NotificationPreference;
+use App\Models\UserLogin;
 use App\Notifications\ActiveCodeNotification;
 use App\Rules\CheckCurrentMobile;
 use App\Rules\MatchOldPassword;
@@ -52,6 +53,12 @@ class ProfileController extends Controller
 
         if ($token) {
             if ($diffInHours > 6) {
+
+                $login = UserLogin::where('token_id', $token->id)->latest()->first();
+                if ($login) {
+                    $login->update(['logged_out_at' => now()]);
+                }
+
                 $token->delete();
                 $access_tokens = $user->tokens()->select('id', 'name', 'last_used_at', 'ip', 'created_at', 'updated_at')->get();
                 foreach ($access_tokens as $accessToken) {
@@ -62,6 +69,12 @@ class ProfileController extends Controller
 
                 $tokenCreatedAt = Carbon::parse($token->created_at);
                 if ($tokenCreatedAt > $currentTokenCreatedAt) {
+
+                    $login = UserLogin::where('token_id', $token->id)->latest()->first();
+                    if ($login) {
+                        $login->update(['logged_out_at' => now()]);
+                    }
+
                     $token->delete();
                     $access_tokens = $user->tokens()->select('id', 'name', 'last_used_at', 'ip', 'created_at', 'updated_at')->get();
                     foreach ($access_tokens as $accessToken) {
@@ -89,10 +102,27 @@ class ProfileController extends Controller
 
         if ($diffInHours > 6) {
             if ($currentUserToken) {
-                $user->tokens()->whereNot('id', $currentUserToken->id)->delete();
+                $tokens = $user->tokens()->whereNot('id', $currentUserToken->id)->get();
+
+                foreach ($tokens as $token) {
+                    // ثبت logged_out_at قبل از حذف توکن
+                    $login = UserLogin::where('token_id', $token->id)->latest()->first();
+                    if ($login) {
+                        $login->update(['logged_out_at' => now()]);
+                    }
+                    $token->delete();
+                }
             } else {
-                $user->tokens()->delete();
+                $tokens = $user->tokens()->get();
+                foreach ($tokens as $token) {
+                    $login = UserLogin::where('token_id', $token->id)->latest()->first();
+                    if ($login) {
+                        $login->update(['logged_out_at' => now()]);
+                    }
+                    $token->delete();
+                }
             }
+
             $user->sessions()->delete();
             $access_tokens = $user->tokens()->select('id', 'name', 'last_used_at', 'ip', 'created_at', 'updated_at')->get();
             return response()->json(['message' => 'success', 'access_tokens' => $access_tokens], 200);
@@ -101,23 +131,39 @@ class ProfileController extends Controller
             $latestTokenCreatedAt = Carbon::parse($latestToken->created_at);
             if ($latestTokenCreatedAt > $currentTokenCreatedAt) {
                 if ($currentUserToken) {
-                    $user->tokens()->whereNot('id', $currentUserToken->id)->delete();
+                    $tokens = $user->tokens()->whereNot('id', $currentUserToken->id)->get();
+                    foreach ($tokens as $token) {
+                        // ثبت logged_out_at قبل از حذف توکن
+                        $login = UserLogin::where('token_id', $token->id)->latest()->first();
+                        if ($login) {
+                            $login->update(['logged_out_at' => now()]);
+                        }
+                        $token->delete();
+                    }
                 } else {
-                    $user->tokens()->delete();
+                    $tokens = $user->tokens()->get();
+                    foreach ($tokens as $token) {
+                        $login = UserLogin::where('token_id', $token->id)->latest()->first();
+                        if ($login) {
+                            $login->update(['logged_out_at' => now()]);
+                        }
+                        $token->delete();
+                    }
                 }
+
                 $user->sessions()->delete();
                 $access_tokens = $user->tokens()->select('id', 'name', 'last_used_at', 'ip', 'created_at', 'updated_at')->get();
                 foreach ($access_tokens as $accessToken) {
-                    $accessToken['country'] = collect(IP2LocationLaravel::get($accessToken['ip']))->only(['countryName', 'countryCode', 'cityName', 'regionName']);
+                    $accessToken['country'] = collect(IP2LocationLaravel::get($accessToken['ip']))
+                        ->only(['countryName', 'countryCode', 'cityName', 'regionName']);
                 }
                 return response()->json(['message' => 'success', 'access_tokens' => $access_tokens], 200);
             } else {
                 return response()->json(['message' => 'Error: Please use an older session'], 403);
             }
-
         }
-
     }
+
 
     public function getMobileInfo()
     {
@@ -253,8 +299,8 @@ class ProfileController extends Controller
         // $userData['info'] = $userInfo;
         if (!empty($userInfo['birth_date'])) {
             $userInfo['birth_date'] = Jalalian::fromCarbon(new \Carbon\Carbon($userInfo['birth_date']))->format('Y/m/d');
-        }else {
-            $userInfo['birth_date'] = null; 
+        } else {
+            $userInfo['birth_date'] = null;
         }
 
         return response()->json(['message' => 'Success', 'user' => $user, 'info' => $userInfo], 200);

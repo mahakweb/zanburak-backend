@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\UserLogin;
 use GuzzleHttp\Promise\Create;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -31,6 +32,15 @@ class LoginController extends Controller
             $user = auth()->user();
             $token = $user->createToken($request->userAgent());
             $user->tokens()->where('id', $token->accessToken->id)->update(['ip' => $request->ip()]);
+
+            UserLogin::create([
+                'user_id' => $user->id,
+                'device' => $request->header('User-Agent') ?? 'unknown',
+                'ip_address' => $request->ip(),
+                'token_id' => $token->accessToken->id,
+                'logged_in_at' => now(),
+            ]);
+
             $userData = [
                 'first_name' => $user->first_name,
                 'last_name' => $user->last_name,
@@ -43,15 +53,24 @@ class LoginController extends Controller
             ];
             return response()->json(['user' => $userData, 'token' => $token->plainTextToken], 200);
         } else {
-            return response()->json(['errors' => ['password'=> ['ایمیل و گذرواژه با هم تطابق ندارند']]], 401);
+            return response()->json(['errors' => ['password' => ['ایمیل و گذرواژه با هم تطابق ندارند']]], 401);
         }
     }
 
     public function logout(Request $request)
     {
         $user = auth('api')->user();
-        // dd($user);
-        $user->currentAccessToken()->delete();
+        $token = $user->currentAccessToken();
+
+        $login = UserLogin::where('token_id', $token->id)->latest()->first();
+        if ($login) {
+            $login->update([
+                'logged_out_at' => now(),
+            ]);
+        }
+
+        $token->delete();
+
         return response()->json(['message' => 'با موفقیت خارج شدید']);
     }
 }

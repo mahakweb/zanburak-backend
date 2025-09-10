@@ -30,6 +30,10 @@ Route::middleware('auth:sanctum')->group(function () {
             'cover_pic' => $user->cover_pic,
             'wallet_balance' => $user->wallet_balance,
             'last_seen' => $user->last_seen,
+            'active' => $user->active,
+            'is_superuser' => $user->is_superuser,
+            'permissions' => $user->permissions->pluck('name'),
+            'roles' => $user->roles->pluck('name'),
         ];
         return $userData;
     });
@@ -220,6 +224,32 @@ Route::middleware('auth:sanctum')->post('/panel/access-tokens/terminateAll', [\A
 // video routes
 
 // start admin routes
+Route::middleware('auth:sanctum')->post('/admin/users', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'users']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/base', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'base']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/details', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'details']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/toggleActive', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'toggleActive']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/removeProvider', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'removeProvider']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/updateSocial', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'updateSocial']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/updateCommunications', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'updateCommunications']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/updateInfo', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'updateInfo']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/updatePassword', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'updatePassword']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/access/addPermission', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'addPermission']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/access/removePermission', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'removePermission']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/access/addRole', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'addRole']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/access/removeRole', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'removeRole']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/toggleSuperUser', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'toggleSuperUser']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/removeLoginRecord', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'removeLoginRecord']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/clearLoginHistory', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'clearLoginHistory']);
+Route::middleware('auth:sanctum')->post('/admin/user/{username}/security', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'security']);
+Route::middleware('auth:sanctum')->post('/admin/security/access', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'allAccess']);
+Route::middleware('auth:sanctum')->post('/admin/levels', [\App\Http\Controllers\Api\Admin\Course\LevelController::class, 'levels']);
+Route::middleware('auth:sanctum')->post('/admin/level/create', [\App\Http\Controllers\Api\Admin\Course\LevelController::class, 'store']);
+Route::middleware('auth:sanctum')->post('/admin/level/{level}/update', [\App\Http\Controllers\Api\Admin\Course\LevelController::class, 'update']);
+Route::middleware('auth:sanctum')->delete('/admin/level/{level}/delete', [\App\Http\Controllers\Api\Admin\Course\LevelController::class, 'delete']);
+Route::middleware('auth:sanctum')->post('/admin/statuses', [\App\Http\Controllers\Api\Admin\Course\StatusController::class, 'statuses']);
+Route::middleware('auth:sanctum')->post('/admin/status/create', [\App\Http\Controllers\Api\Admin\Course\StatusController::class, 'store']);
+Route::middleware('auth:sanctum')->post('/admin/status/{status}/update', [\App\Http\Controllers\Api\Admin\Course\StatusController::class, 'update']);
+Route::middleware('auth:sanctum')->delete('/admin/status/{status}/delete', [\App\Http\Controllers\Api\Admin\Course\StatusController::class, 'delete']);
 Route::middleware('auth:sanctum')->post('/admin/categories', [\App\Http\Controllers\Api\Admin\Course\CategoryController::class, 'categories']);
 Route::middleware('auth:sanctum')->post('/admin/category/create', [\App\Http\Controllers\Api\Admin\Course\CategoryController::class, 'store']);
 Route::middleware('auth:sanctum')->post('/admin/category/edit', [\App\Http\Controllers\Api\Admin\Course\CategoryController::class, 'edit']);
