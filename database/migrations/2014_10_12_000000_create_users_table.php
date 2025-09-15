@@ -24,7 +24,6 @@ return new class extends Migration
             $table->timestamp('mobile_verified_at')->nullable();
             $table->string('username')->unique();
             $table->bigInteger('wallet_balance')->default(0);
-            $table->boolean('active')->default(1);
             $table->boolean('is_superuser')->default(0);
             $table->boolean('is_staff')->default(0);
             $table->text('profile_pic')->nullable();
@@ -32,6 +31,12 @@ return new class extends Migration
             $table->string('role')->nullable();
             $table->rememberToken();
             $table->timestamp('last_seen')->nullable();
+            $table->boolean('active')->default(true); 
+            // $table->unsignedBigInteger('deactivated_by')->nullable(); 
+            $table->foreignId('deactivated_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->string('deactivation_reason')->nullable(); 
+            $table->timestamp('deactivated_until')->nullable();
+            $table->integer('failed_login_attempts')->default(0);
             $table->timestamps();
         });
 

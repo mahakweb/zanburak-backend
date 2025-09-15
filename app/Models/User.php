@@ -40,7 +40,6 @@ class User extends Authenticatable implements MustVerifyEmail
         'mobile',
         'mobile_verified_at',
         'password',
-        'active',
         'is_superuser',
         'is_staff',
         'role',
@@ -50,6 +49,11 @@ class User extends Authenticatable implements MustVerifyEmail
         'last_seen',
         'profile_pic',
         'cover_pic',
+        'active',
+        'deactivated_by',
+        'deactivation_reason',
+        'deactivated_until',
+        'failed_login_attempts',
     ];
 
     /**
@@ -73,6 +77,19 @@ class User extends Authenticatable implements MustVerifyEmail
     ];
 
 
+    // public function scopeStatus($query, $status)
+    // {
+    //     if (empty($status) || $status === 'all') {
+    //         return $query;
+    //     }
+
+    //     return match ($status) {
+    //         'active' => $query->where('active', 1),
+    //         'inactive' => $query->where('active', 0),
+    //         default => $query,
+    //     };
+    // }
+
     public function scopeStatus($query, $status)
     {
         if (empty($status) || $status === 'all') {
@@ -80,11 +97,19 @@ class User extends Authenticatable implements MustVerifyEmail
         }
 
         return match ($status) {
-            'active' => $query->where('active', 1),
-            'inactive' => $query->where('active', 0),
+            'active' => $query->where('active', 1)
+                ->where(function ($q) {
+                        $q->whereNull('deactivated_until')
+                        ->orWhere('deactivated_until', '<=', now());
+                    }),
+            'inactive' => $query->where(function ($q) {
+                    $q->where('active', 0)
+                    ->orWhere('deactivated_until', '>', now());
+                }),
             default => $query,
         };
     }
+
 
     public function scopeRole($query, $role)
     {
@@ -635,5 +660,43 @@ class User extends Authenticatable implements MustVerifyEmail
         $apiVerificationUrl = str_replace('/email/verify', '/api/email/verify', $verificationUrl);
 
         $this->notify(new \App\Notifications\Auth\VerifyEmail($apiVerificationUrl));
+    }
+
+
+
+    public function deactivatedBy()
+    {
+        return $this->belongsTo(User::class, 'deactivated_by');
+    }
+
+    public function isDeactivated(): bool
+    {
+        if (!$this->active)
+            return true;
+        if ($this->deactivated_until && now()->lessThan($this->deactivated_until))
+            return true;
+        return false;
+    }
+
+    public function isTemporarilyDeactivated(): bool
+    {
+        return $this->deactivated_until !== null && Carbon::now()->lessThan($this->deactivated_until);
+    }
+
+    public function isPermanentlyDeactivated(): bool
+    {
+        return !$this->active;
+    }
+
+
+    public function deactivationMessage(): ?string
+    {
+        if (!$this->active)
+            return "Your account is permanently deactivated.";
+        if ($this->deactivated_until && now()->lessThan($this->deactivated_until)) {
+            $minutes = now()->diffInMinutes($this->deactivated_until);
+            return "Your account is temporarily locked for {$minutes} minutes.";
+        }
+        return null;
     }
 }

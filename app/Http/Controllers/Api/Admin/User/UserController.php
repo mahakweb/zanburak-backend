@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
+use App\Models\UserLogin;
 use App\Rules\JalalianBirthDateParts;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\Request;
@@ -68,7 +69,7 @@ class UserController extends Controller
                 'cover_pic' => $user->cover_pic,
                 'role' => $user->is_superuser ? 'superuser' : ($user->is_staff ? 'staff' : 'user'),
                 'info' => $user->info,
-                'status' => $user->active ? 'active' : 'inactive',
+                'status' => (!$user->active || ($user->deactivated_until && $user->deactivated_until > now())) ? 'inactive' : 'active',
 
                 'subscription' => $user->hasVip() ? 'vip' : 'normal',
                 'active_plan' => $user->activeVipPlan() ? $user->activeVipPlan() : null,
@@ -109,7 +110,8 @@ class UserController extends Controller
             return response()->json(['message' => 'Error: Not found'], 404);
         }
         $loginUser = auth('api')->user();
-        $user = $username->only('id', 'first_name', 'last_name', 'username', 'email', 'email_verified_at', 'profile_pic', 'mobile', 'mobile_verified_at', 'cover_pic', 'active', 'created_at', 'last_seen');
+        $user = $username->only('id', 'first_name', 'last_name', 'username', 'email', 'email_verified_at', 'profile_pic', 'mobile', 'mobile_verified_at', 'cover_pic', 'active', 'deactivation_reason', 'deactivated_until', 'deactivated_by', 'created_at', 'last_seen');
+        $user['deactivated_by'] = $user['deactivated_by'] ? $username->deactivatedBy->only('id', 'first_name', 'last_name', 'username', 'profile_pic') : null;
         $user['info'] = $username->info->only('about', 'job', 'birth_date', 'website', 'github', 'twitter', 'linkedin', 'telegram', 'instagram');
         $user['last_login'] = $username->logins()->latest()->first();
         $user['providers'] = $username->providers;
@@ -118,10 +120,62 @@ class UserController extends Controller
 
     public function toggleActive(Request $request, $username)
     {
-        $username->active = !$username->active;
+        $loginUser = auth('api')->user();
+
+        $isDeactivated = !$username->active || ($username->deactivated_until && $username->deactivated_until > now());
+
+        if (!$isDeactivated) {
+
+            $validator = Validator::make($request->all(), [
+                'deactivation_reason' => 'required|string',
+                'deactivated_until' => 'nullable|integer|min:1',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'message' => 'Validation error!',
+                    'errors' => $validator->errors()->toArray()
+                ], 422);
+            }
+
+            $validData = $validator->validated();
+
+            $username->active = $validData['deactivated_until'] ? true : false;
+            $username->deactivation_reason = $validData['deactivation_reason'];
+            $username->deactivated_until = $validData['deactivated_until']
+                ? now()->addHours($validData['deactivated_until'])
+                : null;
+            $username->deactivated_by = $loginUser->id;
+            $username->save();
+
+            $this->terminateAllSession($request, $username);
+
+            return response()->json([
+                'message' => 'User deactivated successfully',
+                'active' => $username->active,
+                'deactivation_reason' => $username->deactivation_reason,
+                'deactivated_until' => $username->deactivated_until,
+                'deactivated_by' => $username->deactivatedBy
+                    ? $username->deactivatedBy->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                    : null,
+            ]);
+        }
+
+        $username->active = true;
+        $username->deactivation_reason = null;
+        $username->deactivated_until = null;
+        $username->deactivated_by = null;
         $username->save();
-        return response()->json(['message' => 'Success', 'active' => $username->active]);
+
+        return response()->json([
+            'message' => 'User activated successfully',
+            'active' => $username->active,
+            'deactivation_reason' => null,
+            'deactivated_until' => null,
+            'deactivated_by' => null,
+        ]);
     }
+
 
     public function removeProvider(Request $request, $username)
     {
@@ -251,8 +305,7 @@ class UserController extends Controller
         $user['logins'] = $username->logins->sortByDesc('id')->values()->all();
         $user['roles'] = $username->roles;
         $user['permissions'] = $username->permissions;
-        // $access_tokens = $username->tokens()->select('id', 'name', 'last_used_at', 'ip', 'created_at', 'updated_at')->get();
-        $access_tokens = $username->tokens()->select('id', 'name', 'last_used_at', 'ip', 'created_at', 'updated_at')->get();
+        $access_tokens = $username->tokens()->select('id', 'name', 'last_used_at', 'ip', 'login_type', 'created_at', 'updated_at')->orderBy('id', 'desc')->get();
         foreach ($access_tokens as $accessToken) {
             $accessToken['ipInfo'] = collect(IP2LocationLaravel::get($accessToken['ip']))->only(['countryName', 'countryCode', 'cityName', 'regionName']);
         }
@@ -292,6 +345,44 @@ class UserController extends Controller
         $username->logins()->delete();
         return response()->json(['message' => 'Success, Login history for the user was cleared.']);
     }
+
+    public function terminateSession(Request $request, $username)
+    {
+        $loginUser = auth('api')->user();
+        $validator = Validator::make($request->all(), [
+            'id' => ['required', 'exists:personal_access_tokens,id'],
+        ]);
+
+        if (!$validator->passes()) {
+            return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
+        } else {
+            $validatedData = $validator->validated();
+            $login = UserLogin::where('token_id', $validatedData['id'])->whereNull('logged_out_at')->latest()->first();
+            if ($login) {
+                $login->update(['logged_out_at' => now()]);
+            }
+            $username->tokens()->where('id', $validatedData['id'])->delete();
+            return response()->json(['message' => 'Success, Session for the user was removed.']);
+        }
+    }
+    public function terminateAllSession(Request $request, $username)
+    {
+        $loginUser = auth('api')->user();
+
+        UserLogin::whereIn(
+            'token_id',
+            $username->tokens()->pluck('id')
+        )
+            ->whereNull('logged_out_at')
+            ->update(['logged_out_at' => now()]);
+
+        $username->tokens()->delete();
+
+        return response()->json([
+            'message' => 'Success, All sessions for the user were removed.'
+        ]);
+    }
+
 
     public function addPermission(Request $request, $username)
     {

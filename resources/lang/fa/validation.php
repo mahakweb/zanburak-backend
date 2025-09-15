@@ -215,5 +215,7 @@ return array(
         'permissions' => 'دسترسی‌ها',
         'roles' => 'نقش‌ها',
         'is_superuser' => 'superuser',
+        'deactivation_reason' => 'علت غیرفعال‌سازی',
+        'deactivated_until'> 'مدت غیرفعال‌سازی',
     ),
 );

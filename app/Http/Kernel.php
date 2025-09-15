@@ -70,5 +70,8 @@ class Kernel extends HttpKernel
         'student' => \App\Http\Middleware\IsStudent::class,
         'administrator' => \App\Http\Middleware\IsStaff::class,
         'permission.route' => \App\Http\Middleware\Permission::class,
+
+
+        'active' => \App\Http\Middleware\CheckActiveUser::class,
     ];
 }

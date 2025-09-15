@@ -69,6 +69,46 @@ class OAuthController extends Controller
             //     'provider_id' => $providerUser->id,
             //     'access_token' => $providerUser->token,
             // ]);
+
+            if ($user->isDeactivated()) {
+                $state = json_decode(base64_decode($request->input('state')), true);
+                $requestType = $state['type'] ?? 'web';
+                $redirect = $state['redirect'] ?? '/';
+
+                $errorData = [
+                    'message' => $user->deactivationMessage(),
+                    'reason' => $user->deactivation_reason,
+                    'until' => $user->isTemporarilyDeactivated() ? $user->deactivated_until : null,
+                ];
+
+                if ($requestType === 'web') {
+                    // redirect to frontend with error
+                    // return redirect()->away(env("FRONT_APP_URL") . "/auth/login?error=" . urlencode(json_encode($errorData)));
+
+                    return redirect()->away(
+                        env("FRONT_APP_URL") .
+                        "/auth/login?error_message=" . urlencode($user->deactivationMessage()) .
+                        "&error_reason=" . urlencode($user->deactivation_reason) .
+                        "&error_until=" . urlencode($user->isTemporarilyDeactivated() ? $user->deactivated_until : null)
+                    );
+                }
+
+
+
+                // API (mobile, postman, etc)
+                return response()->json([
+                    'errors' => $errorData
+                ], 403);
+            }
+
+
+            $user->update([
+                'failed_login_attempts' => 0,
+                'deactivated_until' => null,
+                'deactivation_reason' => null,
+                'deactivated_by' => null,
+            ]);
+
             $user->providers()->updateOrCreate(
                 ['provider' => $driver],
                 [
@@ -122,7 +162,14 @@ class OAuthController extends Controller
         $requestType = $state['type'] ?? 'web';
         $redirect = $state['redirect'] ?? '/';
         $token = $user->createToken($request->userAgent());
-        $user->tokens()->where('id', $token->accessToken->id)->update(['ip' => $request->ip()]);
+        // $user->tokens()->where('id', $token->accessToken->id)->update(['ip' => $request->ip()]);
+
+        $accessToken = $token->accessToken ?? $token->token;
+
+        $accessToken->ip = request()->ip();
+        $accessToken->login_type = $driver;
+
+        $accessToken->save();
 
         UserLogin::create([
             'user_id' => $user->id,

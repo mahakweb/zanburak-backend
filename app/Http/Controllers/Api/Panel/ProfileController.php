@@ -30,8 +30,8 @@ class ProfileController extends Controller
     public function accessTokens(Request $request)
     {
         $user = auth('api')->user();
-        $access_tokens = $user->tokens()->select('id', 'name', 'last_used_at', 'ip', 'created_at', 'updated_at')->get();
-        $current_token = $user->currentAccessToken()->only('id', 'name', 'last_used_at', 'ip', 'created_at', 'updated_at');
+        $access_tokens = $user->tokens()->select('id', 'name', 'last_used_at', 'ip', 'login_type', 'created_at', 'updated_at')->get();
+        $current_token = $user->currentAccessToken()->only('id', 'name', 'last_used_at', 'ip', 'login_type', 'created_at', 'updated_at');
         $current_token['ipInfo'] = collect(IP2LocationLaravel::get($current_token['ip']))->only(['countryName', 'countryCode', 'cityName', 'regionName']);
         foreach ($access_tokens as $accessToken) {
             $accessToken['ipInfo'] = collect(IP2LocationLaravel::get($accessToken['ip']))->only(['countryName', 'countryCode', 'cityName', 'regionName']);

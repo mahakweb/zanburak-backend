@@ -130,7 +130,7 @@ Route::middleware('auth:sanctum')->post('/discuss/{questionSlug}/newAnswer', [\A
 Route::middleware('auth:sanctum')->post('/discuss/layouts/like-dislike', [\App\Http\Controllers\Api\Discuss\DiscussController::class, 'likeDislike']);
 Route::middleware('auth:sanctum')->post('/discuss/layouts/toggle-pin', [\App\Http\Controllers\Api\Discuss\DiscussController::class, 'togglePin']);
 Route::post('/discuss/layouts/getInitData', [\App\Http\Controllers\Api\Discuss\DiscussController::class, 'getInitData']);
-Route::middleware('auth:sanctum')->post('/discuss/layouts/create', [\App\Http\Controllers\Api\Discuss\DiscussController::class, 'create']);
+Route::middleware('auth:sanctum')->middleware('auth:sanctum')->post('/discuss/layouts/create', [\App\Http\Controllers\Api\Discuss\DiscussController::class, 'create']);
 Route::post('/discuss/layouts/similarQuestions', [\App\Http\Controllers\Api\Discuss\DiscussController::class, 'similarQuestions']);
 
 // end discuss routes
