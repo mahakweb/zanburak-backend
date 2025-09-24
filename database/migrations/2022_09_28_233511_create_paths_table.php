@@ -19,7 +19,11 @@ return new class extends Migration
             $table->string('english_title');
             $table->string('slug');
             $table->text('description')->nullable();
-            $table->string('icon', 512)->nullable()->default('/assets/images/paths/default.png');
+            $table->json('faqs')->nullable();
+            $table->string('icon', 255)->nullable();
+            $table->string('trailer', 255)->nullable();
+            $table->string('poster', 255)->nullable();
+            $table->string('short_description', 255)->nullable();
             $table->boolean('status')->default(1);
             $table->timestamps();
         });

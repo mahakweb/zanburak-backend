@@ -9,6 +9,7 @@ use App\Models\Path;
 use App\Models\Mission;
 use App\Models\MissionCategory;
 use App\Models\Payment;
+use App\Models\Plan;
 use App\Models\Question;
 use App\Models\UserMission;
 use App\Models\VideoView;
@@ -40,14 +41,14 @@ class PanelController extends Controller
                 $query->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
             }
         ])->withCount('answers')->with([
-                    'latestAnswer' => function ($query) {
-                        $query->with([
-                            'user' => function ($query) {
-                                $query->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
-                            }
-                        ]);
+            'latestAnswer' => function ($query) {
+                $query->with([
+                    'user' => function ($query) {
+                        $query->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
                     }
-                ])->latest()->limit(7)->get();
+                ]);
+            }
+        ])->latest()->limit(7)->get();
         $startOfWeek = Carbon::now()->locale('fa')->startOfWeek(Carbon::SATURDAY);
         $endOfWeek = Carbon::now()->locale('fa')->endOfWeek(Carbon::FRIDAY);
         $score = $user->currentScore();
@@ -120,7 +121,7 @@ class PanelController extends Controller
         ], 200);
     }
 
-    public function financial(Request $request)
+    public function financial1(Request $request)
     {
         $filter = $request->input('filter', 'all');
         $type = $request->input('type', 'all');
@@ -175,6 +176,146 @@ class PanelController extends Controller
                 'amount' => $payment->amount,
                 'status' => $payment->status,
                 'created_at' => $payment->created_at,
+            ];
+        });
+
+        return response()->json([
+            'message' => 'Success',
+            'filter' => $filter,
+            'type' => $type,
+            'data' => $result,
+            'pagination' => [
+                'total' => $total,
+                'current_page' => intval($currentPage),
+                'per_page' => $perPage,
+                'last_page' => $lastPage,
+                'prev_page' => $prevPage,
+                'next_page' => $nextPage
+            ]
+        ], 200);
+    }
+
+    public function financial(Request $request)
+    {
+        $filter = $request->input('filter', 'all'); // deposit | failed | all
+        $type = $request->input('type', 'all');     // course | path | vip | wallet | all
+        $sort = $request->input('sort', 'newest');  // newest | oldest
+        $user = auth('api')->user();
+
+        $query = $user->payments()
+            ->select('id', 'uuid', 'tracking_number', 'reference_id', 'amount', 'driver', 'discount_amount', 'discount_code', 'status', 'paid_at', 'expired_at', 'created_at', 'updated_at')
+            ->with(['attempts', 'items.payable']);
+
+        $query = match ($filter) {
+            'deposit' => $query->where('status', 1),
+            'failed'  => $query->where('status', 0),
+            default   => $query,
+        };
+
+        if ($type !== 'all') {
+            $modelMap = [
+                'course' => \App\Models\Course::class,
+                'path'   => \App\Models\Path::class,
+                'vip'    => \App\Models\Plan::class,
+                'wallet' => \App\Models\Wallet::class,
+            ];
+
+            if (isset($modelMap[$type])) {
+                $query->whereHas('items', function ($q) use ($modelMap, $type) {
+                    $q->where('payable_type', $modelMap[$type]);
+                });
+            }
+        }
+
+        // Sorting
+        $sortOrder = $sort === 'oldest' ? 'asc' : 'desc';
+        $query->orderBy('created_at', $sortOrder);
+
+        // Pagination
+        $perPage = $request->input('perPage', 10);
+        $currentPage = $request->input('page', 1);
+        $total = $query->count();
+        $lastPage = ceil($total / $perPage);
+
+        $prevPage = $currentPage > 1 ? $currentPage - 1 : null;
+        $nextPage = $currentPage < $lastPage ? $currentPage + 1 : null;
+
+        $paginatedData = $query->skip(($currentPage - 1) * $perPage)
+            ->take($perPage)
+            ->get();
+
+        // Format result
+        $result = $paginatedData->map(function ($payment) {
+            return [
+                'id' => $payment->id,
+                'uuid' => $payment->uuid,
+                'tracking_number' => $payment->tracking_number,
+                'reference_id' => $payment->reference_id,
+                'driver' => $payment->driver,
+                'amount' => $payment->amount,
+                'discount_amount' => $payment->discount_amount,
+                'discount_code' => $payment->discount_code,
+                'status' => $payment->status,
+                'paid_at' => $payment->paid_at,
+                'expired_at' => $payment->expired_at,
+                'is_paid' => $payment->isPaid(),
+                'can_retry' => $payment->canRetry(),
+                'created_at' => $payment->created_at,
+                'updated_at' => $payment->updated_at,
+                'attempts' => $payment->attempts()->latest()->get(),
+                'items' => $payment->items->map(function ($item) {
+                    $base = [
+                        'id' => $item->id,
+                        'payable_type' => class_basename($item->payable_type),
+                        'payable_id' => $item->payable_id,
+                        'price' => $item->price,
+                        'discount_amount' => $item->discount_amount,
+                        'discount_code' => $item->discount_code,
+                        'final_price' => $item->final_price,
+                    ];
+
+                    if ($item->relationLoaded('payable') && $item->payable) {
+                        $payable = $item->payable;
+
+                        if ($payable instanceof \App\Models\Course) {
+                            $base['payable'] = [
+                                'id' => $payable->id,
+                                'title' => $payable->title,
+                                'english_title' => $payable->english_title,
+                                'slug' => $payable->slug,
+                                'poster' => $payable->poster,
+                                'price' => $payable->price,
+                            ];
+                        } elseif ($payable instanceof \App\Models\Path) {
+                            $base['payable'] = [
+                                'id' => $payable->id,
+                                'title' => $payable->title,
+                                'english_title' => $payable->english_title,
+                                'slug' => $payable->slug,
+                                'poster' => $payable->poster,
+                                'icon' => $payable->icon,
+                                'short_description' => $payable->short_description,
+                            ];
+                        } elseif ($payable instanceof \App\Models\Plan) {
+                            $base['payable'] = [
+                                'id' => $payable->id,
+                                'title' => $payable->title,
+                                'english_title' => $payable->english_title,
+                                'icon' => $payable->icon,
+                                'price' => $payable->price,
+                                'period_time' => $payable->period_time,
+                                'features' => $payable->features,
+                            ];
+                        }
+                        // elseif ($payable instanceof \App\Models\Wallet) {
+                        //     $base['payable'] = [
+                        //         'balance' => $payable->balance,
+                        //     ];
+                        // }
+                    }
+
+                    return $base;
+                }),
             ];
         });
 
@@ -297,7 +438,7 @@ class PanelController extends Controller
             'inactive' => $user->courses()->where('publish', 0),
             'completed' => $user->completedCourses(),
             'purchased' => $user->courses()->wherePivot('price', '>', 0),
-        // default => $user->courses(),   // default not re  because filter has default value
+            // default => $user->courses(),   // default not re  because filter has default value
         };
 
         $query = $query->orderBy('created_at', 'desc');
@@ -534,7 +675,6 @@ class PanelController extends Controller
                     ],
                 ];
             } else {
-
             }
         });
 
@@ -734,5 +874,4 @@ class PanelController extends Controller
             ]
         ], 200);
     }
-
 }

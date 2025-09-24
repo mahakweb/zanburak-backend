@@ -42,6 +42,9 @@ class Course extends Model implements Likeable
         'poster',
         'attached_file',
     ];
+    protected $casts = [
+        'publish' => 'boolean',
+    ];
 
     public function getCascadeRelations(): array
     {
@@ -58,7 +61,6 @@ class Course extends Model implements Likeable
             'ratings',
             'certificates',
         ];
-
     }
 
     public function deleteMediaFiles()
@@ -130,14 +132,14 @@ class Course extends Model implements Likeable
             'oldest' => $query->orderBy('created_at', 'asc'),
             'newest' => $query->orderBy('created_at', 'desc'),
             default => $query->whereHas('status', function ($query) use ($value) {
-                    $statusIds = Status::where('english_title', $value)->pluck('id');
+                $statusIds = Status::where('english_title', $value)->pluck('id');
 
-                    if ($statusIds->isEmpty()) {
-                        $query->whereRaw('1 = 0');
-                    } else {
-                        $query->whereIn('id', $statusIds)->orderBy('created_at', 'desc');
-                    }
-                }),
+                if ($statusIds->isEmpty()) {
+                    $query->whereRaw('1 = 0');
+                } else {
+                    $query->whereIn('id', $statusIds)->orderBy('created_at', 'desc');
+                }
+            }),
         };
     }
 

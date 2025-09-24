@@ -56,7 +56,7 @@ class VipController extends Controller
 
     public function getPlansList()
     {
-        $plans = Plan::select('id', 'title', 'english_title', 'icon', 'status', 'popular', 'price', 'period_time', 'description')->get();
+        $plans = Plan::select('id', 'title', 'english_title', 'icon', 'status', 'popular', 'price', 'period_time', 'description', 'features')->get();
         return response()->json(['message' => 'success', 'plans' => $plans], 200);
     }
 

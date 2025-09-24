@@ -156,28 +156,42 @@ Route::get('/course/{courseSlug}', [\App\Http\Controllers\Api\Course\CourseContr
 
 Route::get('/course/{courseSlug}/episode/{episodeSlug}', [\App\Http\Controllers\Api\Course\EpisodeController::class, 'getEpisode']);
 
-Route::middleware('auth:sanctum')->get('/cart', [\App\Http\Controllers\Api\CartController::class, 'cartDetails']);
-Route::middleware('auth:sanctum')->post('/cart/add/{course}', [\App\Http\Controllers\Api\CartController::class, 'addToCart']);
-Route::middleware('auth:sanctum')->delete('/cart/delete/{course}', [\App\Http\Controllers\Api\CartController::class, 'deleteFromCart']);
-Route::middleware('auth:sanctum')->post('/cart/payment', [\App\Http\Controllers\Api\CartController::class, 'payment']);
+// Route::middleware('auth:sanctum')->get('/cart', [\App\Http\Controllers\Api\CartController::class, 'cartDetails']);
+// Route::middleware('auth:sanctum')->post('/cart/add/{course}', [\App\Http\Controllers\Api\CartController::class, 'addToCart']);
+// Route::middleware('auth:sanctum')->delete('/cart/delete/{course}', [\App\Http\Controllers\Api\CartController::class, 'deleteFromCart']);
+// Route::middleware('auth:sanctum')->post('/cart/payment', [\App\Http\Controllers\Api\CartController::class, 'payment']);
 Route::get('/cart/payment/callback', [\App\Http\Controllers\Api\CartController::class, 'callback'])->name('api.payment-callback');
 
+Route::middleware('auth:sanctum')->prefix('cart')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Api\CartController::class, 'index']);
+    Route::post('/add', [\App\Http\Controllers\Api\CartController::class, 'add']);
+    Route::delete('/remove/{id}', [\App\Http\Controllers\Api\CartController::class, 'remove']);
+    Route::delete('/clear', [\App\Http\Controllers\Api\CartController::class, 'clear']);
+});
+
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/cart/pay', [\App\Http\Controllers\Api\PaymentController::class, 'store']);        // شروع پرداخت و گرفتن لینک
+    // Route::get('/payments/verify/{uuid}', [\App\Http\Controllers\Api\PaymentController::class, 'verify'])->name('api.payment.callback'); // بازگشت از درگاه و تایید
+    Route::post('/payment/retry/{uuid}', [\App\Http\Controllers\Api\PaymentController::class, 'retry']);  // پرداخت مجدد
+});
+Route::get('/payment/verify/{uuid}', [\App\Http\Controllers\Api\PaymentController::class, 'callback'])->name('api.payment.callback');
 
 // Get detail of receipt
 Route::middleware('auth:sanctum')->post('/payment/details', [\App\Http\Controllers\Api\PanelController::class, 'paymentDetails']);
 
 // Get detail of receipt
 Route::middleware('auth:sanctum')->post('/payment/receipt/detail', function (Request $request) {
-    $referenceId = $request->input('referenceId');
-    $payment = Payment::where('reference_id', $referenceId)->firstOrFail();
+    $uuid = $request->input('uuid');
+    $payment = Payment::where('uuid', $uuid)->firstOrFail();
     $user = auth('api')->user();
     if ($user->id == $payment->user_id) {
-        if (!$payment->visited_at) {
-            // if($payment->status == 1){
-            $payment->visited_at = now();
-            $payment->save();
+        // if (!$payment->visited_at) {
+        if (true) {
+            // if($payment->status){
+            // $payment->visited_at = now();
+            // $payment->save();
             //}
-            $paymentDetail = $payment->only(['status', 'tracking_number', 'reference_id', 'amount','created_at', 'updated_at']);
+            $paymentDetail = $payment->only(['status', 'uuid', 'tracking_number', 'reference_id', 'amount', 'paid_at', 'created_at', 'updated_at']);
             return response()->json(['message' => 'success', 'detail' => $paymentDetail], 200);
         } else
             return response()->json(['message' => 'Unknown error'], 400);

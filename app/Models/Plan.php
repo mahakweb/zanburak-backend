@@ -17,10 +17,18 @@ class Plan extends Model
         'status',
         'popular',
         'description',
+        'features',
+    ];
+
+    protected $casts = [
+        'status' => 'boolean',
+        'popular' => 'boolean',
+        'features' => 'array',
     ];
 
 
-    public function users(){
-        return $this->belongsToMany(User::class)->withPivot(["payment_id","tracking_number","price","status","started_at","expired_at"]);
+    public function users()
+    {
+        return $this->belongsToMany(User::class)->withPivot(["payment_id", "tracking_number", "price", "status", "started_at", "expired_at"]);
     }
 }

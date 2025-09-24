@@ -24,6 +24,11 @@ class Section extends Model
         'attached_file',
     ];
 
+    protected $casts = [
+        'publish' => 'boolean',
+        'status' => 'boolean',
+    ];
+
     public function getCascadeRelations(): array
     {
         return ['episode'];
@@ -64,19 +69,21 @@ class Section extends Model
             ]
         ];
     }
-    
 
 
-    public function course(){
+
+    public function course()
+    {
         return $this->belongsTo(Course::class);
     }
 
-    public function episode(){
+    public function episode()
+    {
         return $this->hasMany(Episode::class);
     }
 
-    public function totalTime(){
+    public function totalTime()
+    {
         return $this->episode->sum('total_time');
     }
-
 }

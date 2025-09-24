@@ -4,8 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Run the migrations.
      *
@@ -16,11 +15,15 @@ return new class extends Migration
         Schema::create('carts', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained('users', 'id')->onUpdate('cascade')->onDelete('cascade');
-            $table->foreignId('course_id')->constrained('courses', 'id')->onUpdate('cascade')->onDelete('cascade');
+            $table->morphs('cartable'); // course / path / vip
             $table->unsignedInteger('qty')->default(1);
             $table->integer('price')->default(0);
-            $table->unique(['user_id', 'course_id']);
+            $table->unsignedBigInteger('discount_id')->nullable();
+            $table->foreign('discount_id')->references('id')->on('discounts')->nullOnDelete();
+            $table->bigInteger('discount_amount')->default(0);
             $table->timestamps();
+
+            $table->unique(['user_id', 'cartable_type', 'cartable_id']);
         });
     }
 

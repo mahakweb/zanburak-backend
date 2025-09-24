@@ -19,10 +19,11 @@ return new class extends Migration
             $table->string('english_title');
             $table->integer('period_time');
             $table->bigInteger('price');
-            $table->text('icon')->nullable();
+            $table->string('icon')->nullable();
             $table->boolean('status')->default(1);
             $table->boolean('popular')->default(0);
             $table->text('description')->nullable();
+            $table->json('features')->nullable();
             $table->timestamps();
         });
 

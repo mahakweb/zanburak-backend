@@ -27,6 +27,11 @@ class Episode extends Model implements Likeable
         'publish',
     ];
 
+    protected $casts = [
+        'publish' => 'boolean',
+        'lock' => 'boolean',
+    ];
+
     public function getCascadeRelations(): array
     {
         return ['videos', 'comments', 'views', 'likes', 'bookmarkableBookmarks', 'attachs'];
@@ -81,12 +86,14 @@ class Episode extends Model implements Likeable
         return $this->views()->count();
     }
 
-    public function section(){
+    public function section()
+    {
         return $this->belongsTo(Section::class);
     }
 
 
-    public function lock(){
+    public function lock()
+    {
         return !! $this->lock;
     }
 
@@ -100,11 +107,13 @@ class Episode extends Model implements Likeable
     }
 
 
-    public function comments(){
+    public function comments()
+    {
         return $this->morphMany(Comment::class, 'commentable');
     }
 
-    public function videos(){
+    public function videos()
+    {
         return $this->morphMany(Video::class, 'videoable');
     }
 }

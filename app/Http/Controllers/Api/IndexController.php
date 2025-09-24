@@ -14,9 +14,11 @@ use Illuminate\Support\Facades\Validator;
 
 class IndexController extends Controller
 {
+    public $discountPercentForPath = 40;
+
     public function plansList()
     {
-        $plans = Plan::select('id', 'title', 'english_title', 'icon', 'status', 'popular', 'price', 'period_time', 'description')->get();
+        $plans = Plan::select('id', 'title', 'english_title', 'icon', 'status', 'popular', 'price', 'period_time', 'description', 'features')->where('status', true)->get();
         return response()->json(['message' => 'success', 'plans' => $plans], 200);
     }
 
@@ -66,6 +68,20 @@ class IndexController extends Controller
             'prerequisites.courses',
             'nextSteps.courses',
         ]);
+        
+        $courseIdsInCart = $user ? $user->carts->where('cartable_type', 'App\Models\Course')->pluck('cartable_id')->toArray() : [];
+
+
+        $userCourseIds = $user ? $user->courses->pluck('id')->toArray() : [];
+
+        $availableCourses = $path->courses->where('publish', true)->filter(function ($course) use ($userCourseIds, $courseIdsInCart) {
+            return $course->type !== 'free' && !in_array($course->id, $userCourseIds) && !in_array($course->id, $courseIdsInCart);
+        });
+
+        $totalPrice = $availableCourses->sum('price');
+
+
+        $finalPrice = $totalPrice - ($totalPrice * $this->discountPercentForPath / 100);
 
         $path = [
             'id' => $path->id,
@@ -78,7 +94,13 @@ class IndexController extends Controller
             'description' => $path->description,
             'short_description' => $path->short_description,
             'faqs' => json_decode($path->faqs, true),
-            'courses' => $path->courses->map(function ($course) use ($user) {
+            'user_courseIds' => $userCourseIds,
+            'user_courseIds_inCart' => $courseIdsInCart,
+            'available_courses' => $availableCourses->map->only(['id', 'title', 'english_title', 'short_description', 'profile_pic', 'type', 'poster'])->values(),
+            'total_price' => $totalPrice,
+            'discount_percent' => $this->discountPercentForPath,
+            'final_price' => $finalPrice,
+            'courses' => $path->courses->where('publish', true)->map(function ($course) use ($user) {
                 return [
                     'id' => $course->id,
                     'title' => $course->title,
@@ -93,7 +115,7 @@ class IndexController extends Controller
                     'teacher' => $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic'),
                     'user_has_liked' => $user ? $user->hasLiked($course) : false
                 ];
-            }),
+            })->values(),
 
             'prerequisites' => $path->prerequisites->map(function ($prerequisite) use ($user) {
                 return [
@@ -106,7 +128,7 @@ class IndexController extends Controller
                     'trailer' => $prerequisite->trailer,
                     'description' => $prerequisite->description,
                     'short_description' => $prerequisite->short_description,
-                    'courses' => $prerequisite->courses->map(function ($course) use ($user) {
+                    'courses' => $prerequisite->courses->where('publish', true)->map(function ($course) use ($user) {
                         return [
                             'id' => $course->id,
                             'title' => $course->title,
@@ -121,7 +143,7 @@ class IndexController extends Controller
                             'teacher' => $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic'),
                             'user_has_liked' => $user ? $user->hasLiked($course) : false
                         ];
-                    }),
+                    })->values(),
                 ];
             }),
 
@@ -136,7 +158,7 @@ class IndexController extends Controller
                     'trailer' => $nextStep->trailer,
                     'description' => $nextStep->description,
                     'short_description' => $nextStep->short_description,
-                    'courses' => $nextStep->courses->map(function ($course) use ($user) {
+                    'courses' => $nextStep->courses->where('publish', true)->map(function ($course) use ($user) {
                         return [
                             'id' => $course->id,
                             'title' => $course->title,
@@ -151,7 +173,7 @@ class IndexController extends Controller
                             'teacher' => $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic'),
                             'user_has_liked' => $user ? $user->hasLiked($course) : false
                         ];
-                    }),
+                    })->values(),
                 ];
             }),
         ];
@@ -173,7 +195,7 @@ class IndexController extends Controller
         if (!$validData->passes()) {
             return response()->json(['message' => 'Error', 'errors' => $validData->errors()->toArray()], 422);
         } else {
-            $storagePath  = Storage::disk('static')->url('');
+            $storagePath = Storage::disk('static')->url('');
             $path = Storage::disk('static')->put('/editor/' . now()->year . '/' . now()->month . '/' . now()->day, $request->image);
             return response()->json(['message' => 'Success, data has been successfully saved', 'path' => $storagePath . $path]);
         }
@@ -195,8 +217,8 @@ class IndexController extends Controller
 
         if (!$user->email_verified_at || !$user->mobile_verified_at) {
             return response()->json([
-                'email_verified' => (bool)$user->email_verified_at,
-                'mobile_verified' => (bool)$user->mobile_verified_at,
+                'email_verified' => (bool) $user->email_verified_at,
+                'mobile_verified' => (bool) $user->mobile_verified_at,
             ], 401);
         }
 

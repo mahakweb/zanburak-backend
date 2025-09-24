@@ -14,11 +14,17 @@ class Path extends Model
         'english_title',
         'slug',
         'description',
+        'short_description',
         'icon',
         'poster',
         'trailer',
         'faqs',
         'status',
+    ];
+
+    protected $casts = [
+        'status' => 'boolean',
+        'faqs' => 'array',
     ];
 
     public function sluggable(): array
