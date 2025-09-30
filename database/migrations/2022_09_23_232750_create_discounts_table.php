@@ -16,31 +16,51 @@ return new class extends Migration
         Schema::create('discounts', function (Blueprint $table) {
             $table->id();
             $table->string('code')->unique();
-            $table->integer('percentage');
-            $table->boolean('status')->default(true);
-            $table->string('icon', 512)->default('/assets/images/discount/default.png');
-            $table->text('description')->nullable();
-            $table->timestamp('expired_at')->nullable();
+            $table->string('title')->nullable();
+            $table->enum('type', ['percent', 'fixed', 'free'])->default('percent');
+            $table->integer('value')->nullable();
+
+            $table->unsignedInteger('usage_limit')->nullable();
+            $table->unsignedInteger('per_user_limit')->nullable();
+
+            $table->timestamp('starts_at')->nullable();
+            $table->timestamp('ends_at')->nullable();
+
+            $table->boolean('is_active')->default(true);
             $table->timestamps();
         });
 
 
-        Schema::create('course_discount', function (Blueprint $table) {
-            $table->unsignedBigInteger('course_id');
-            $table->foreign('course_id')->references('id')->on('courses')->onDelete('cascade')->onUpdate('cascade');
-            $table->unsignedBigInteger('discount_id');
-            $table->foreign('discount_id')->references('id')->on('discounts')->onDelete('cascade')->onUpdate('cascade');
-            $table->unique(['course_id', 'discount_id']);
+
+        Schema::create('discount_eligibilities', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('discount_id')->constrained()->cascadeOnDelete();
+            $table->enum('type', ['inclusion', 'exclusion']);
+            $table->string('target_type')->nullable(); // user, product, course, path, subscription, role ...
+            $table->unsignedBigInteger('target_id')->nullable();
+            $table->timestamps();
         });
 
 
+        Schema::create('discount_usages', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('discount_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+            $table->unsignedBigInteger('payment_id')->nullable();
+            $table->timestamp('used_at');
+            $table->timestamps();
+        });
 
-        Schema::create('discount_user', function (Blueprint $table) {
-            $table->unsignedBigInteger('user_id');
-            $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade')->onUpdate('cascade');
-            $table->unsignedBigInteger('discount_id');
-            $table->foreign('discount_id')->references('id')->on('discounts')->onDelete('cascade')->onUpdate('cascade');
-            $table->unique(['user_id', 'discount_id']);
+
+        Schema::create('discount_conditions', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('discount_id')->constrained()->cascadeOnDelete();
+            $table->string('item_type')->nullable(); // course | path | vip | null for all
+            $table->string('condition_type'); // min_cart_total, max_cart_total, first_purchase, ...
+            $table->string('operator')->nullable(); // >=, <=, =, != ...
+            $table->integer('value')->nullable();
+            $table->json('extra')->nullable(); // برای شرایط پیچیده (مثلا چند روز هفته)
+            $table->timestamps();
         });
     }
 
@@ -51,8 +71,9 @@ return new class extends Migration
      */
     public function down()
     {
-        Schema::dropIfExists('course_discount');
-        Schema::dropIfExists('discount_user');
+        Schema::dropIfExists('discount_conditions');
+        Schema::dropIfExists('discount_usages');
+        Schema::dropIfExists('discount_eligibilities');
         Schema::dropIfExists('discounts');
     }
 };

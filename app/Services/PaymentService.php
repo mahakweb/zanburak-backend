@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Payment;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentItem;
+use App\Models\Discount;
 use App\Models\Cart;
 use App\Models\Course;
 use App\Models\Path;
@@ -36,18 +37,25 @@ class PaymentService
                 'user_id'         => $user->id,
                 'driver'          => $options['driver'] ?? config('payment.default', 'zarinpal'),
                 'amount'          => 0,
-                'discount_amount' => $options['discount_amount'] ?? 0,
-                'discount_code'   => $options['discount_code'] ?? null,
+                'discount_amount' => 0,
+                'discount_code'   => null,
                 'expired_at'      => $options['expired_at'] ?? now()->addMinutes(60),
                 'status'          => 0,
             ]);
 
             $total = 0;
+            $totalCouponDiscount = 0;
+            $appliedCode = $options['discount_code'] ?? null;
 
             foreach ($carts as $cart) {
                 $item = $cart->cartable;
-                $price = (int) $item->price;
-                $discountAmount = 0;
+                $baseOriginalPrice = 0;
+                $internalDiscountAmount = 0; // e.g., path bundle discount
+                $couponDiscountAmount = $cart->discount_id ? (int) ($cart->discount_amount ?? 0) : 0;
+                $itemDiscountCode = $cart->discount_id ? ($cart->discount->code ?? null) : null;
+                if (!$appliedCode && $itemDiscountCode) {
+                    $appliedCode = $itemDiscountCode;
+                }
 
                 if ($cart->cartable_type === Path::class) {
                     $path = $cart->cartable;
@@ -58,11 +66,19 @@ class PaymentService
                         return $course->type !== 'free' && !in_array($course->id, $userCourseIds) && !in_array($course->id, $courseIdsInCart);
                     });
 
-                    $sum = $availableCourses->sum('price');
-                    $finalPrice = (int) round($sum - ($sum * $this->discountPercentForPath / 100));
+                    $sum = (int) $availableCourses->sum('price');
+                    $baseOriginalPrice = $sum; // original sum of courses
+                    $finalPriceAfterInternal = (int) round($sum - ($sum * $this->discountPercentForPath / 100));
+                    $internalDiscountAmount = $sum - $finalPriceAfterInternal;
 
-                    $price = $finalPrice;
-                    $discountAmount = $sum - $finalPrice;
+                    // apply coupon on top of internal discount
+                    $couponDiscountAmount = min($couponDiscountAmount, $finalPriceAfterInternal);
+                    $finalPrice = max(0, $finalPriceAfterInternal - $couponDiscountAmount);
+                } else {
+                    // course or vip
+                    $baseOriginalPrice = (int) $item->price;
+                    $couponDiscountAmount = min($couponDiscountAmount, $baseOriginalPrice);
+                    $finalPrice = max(0, $baseOriginalPrice - $couponDiscountAmount);
                 }
 
 
@@ -70,19 +86,20 @@ class PaymentService
                     'payment_id'      => $payment->id,
                     'payable_type'    => $cart->cartable_type,
                     'payable_id'      => $cart->cartable_id,
-                    'price'           => $price + $discountAmount,
-                    'discount_amount' => $discountAmount,
-                    'final_price'     => $price,
+                    'price'           => $baseOriginalPrice,
+                    'discount_amount' => $internalDiscountAmount + $couponDiscountAmount,
+                    'discount_code'   => $itemDiscountCode,
+                    'final_price'     => $finalPrice,
                 ]);
 
-                $total += $price;
+                $total += $finalPrice;
+                $totalCouponDiscount += $couponDiscountAmount;
             }
 
-            $finalTotal = max(0, $total - ($options['discount_amount'] ?? 0));
-
             $payment->update([
-                'amount'          => $finalTotal,
-                'discount_amount' => $options['discount_amount'] ?? 0,
+                'amount'          => $total,
+                'discount_amount' => $totalCouponDiscount,
+                'discount_code'   => $appliedCode,
             ]);
 
             return $payment;
@@ -194,5 +211,27 @@ class PaymentService
                     ]);
             }
         }
+
+		// Record discount/coupon usage(s) for this successful payment
+		$codes = collect();
+		if ($payment->discount_code) {
+			$codes->push($payment->discount_code);
+		}
+		foreach ($payment->items as $item) {
+			if (!empty($item->discount_code)) {
+				$codes->push($item->discount_code);
+			}
+		}
+		$codes = $codes->filter()->unique();
+		foreach ($codes as $code) {
+			$discount = Discount::where('code', $code)->first();
+			if ($discount) {
+				$discount->usages()->create([
+					'user_id' => $payment->user_id,
+					'payment_id' => $payment->id,
+					'used_at' => now(),
+				]);
+			}
+		}
     }
 }

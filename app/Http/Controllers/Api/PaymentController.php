@@ -135,6 +135,91 @@ class PaymentController extends Controller
     }
 
 
+    public function receipt(Request $request)
+    {
+        $uuid = $request->input('uuid');
+        $payment = Payment::with(['items.payable', 'attempts'])->where('uuid', $uuid)->firstOrFail();
+
+        $user = auth('api')->user();
+
+        if ($user->id == $payment->user_id) {
+            if ($payment->visited_at) {
+                return response()->json(['message' => 'Unknown error'], 400);
+            }
+
+            $payment->visited_at = now();
+            $payment->save();
+
+            $paymentDetail = [
+                'id'              => $payment->id,
+                'status'          => $payment->status,
+                'uuid'            => $payment->uuid,
+                'tracking_number' => $payment->tracking_number,
+                'reference_id'    => $payment->reference_id,
+                'amount'          => $payment->amount,
+                'discount_amount' => $payment->discount_amount,
+                'driver'          => $payment->driver,
+                'paid_at'         => $payment->paid_at,
+                'created_at'      => $payment->created_at,
+                'updated_at'      => $payment->updated_at,
+
+                'attempts'        => $payment->attempts()->latest()->get(),
+                'items'           => $payment->items->map(function ($item) {
+                    $base = [
+                        'id'             => $item->id,
+                        'payable_type'   => class_basename($item->payable_type),
+                        'payable_id'     => $item->payable_id,
+                        'price'          => $item->price,
+                        'discount_amount' => $item->discount_amount,
+                        'discount_code'  => $item->discount_code,
+                        'final_price'    => $item->final_price,
+                    ];
+
+                    if ($item->relationLoaded('payable') && $item->payable) {
+                        $payable = $item->payable;
+
+                        if ($payable instanceof \App\Models\Course) {
+                            $base['payable'] = [
+                                'id'            => $payable->id,
+                                'title'         => $payable->title,
+                                'english_title' => $payable->english_title,
+                                'slug'          => $payable->slug,
+                                'poster'        => $payable->poster,
+                                'price'         => $payable->price,
+                            ];
+                        } elseif ($payable instanceof \App\Models\Path) {
+                            $base['payable'] = [
+                                'id'                => $payable->id,
+                                'title'             => $payable->title,
+                                'english_title'     => $payable->english_title,
+                                'slug'              => $payable->slug,
+                                'poster'            => $payable->poster,
+                                'icon'              => $payable->icon,
+                                'short_description' => $payable->short_description,
+                            ];
+                        } elseif ($payable instanceof \App\Models\Plan) {
+                            $base['payable'] = [
+                                'id'            => $payable->id,
+                                'title'         => $payable->title,
+                                'english_title' => $payable->english_title,
+                                'icon'          => $payable->icon,
+                                'price'         => $payable->price,
+                                'period_time'   => $payable->period_time,
+                                'features'      => $payable->features,
+                            ];
+                        }
+                    }
+
+                    return $base;
+                }),
+            ];
+
+            return response()->json(['message' => 'success', 'detail' => $paymentDetail], 200);
+        }
+
+        return response()->json(['message' => 'error: Not found'], 404);
+    }
+
 
     public function index(Request $request)
     {

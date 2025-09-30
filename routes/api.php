@@ -167,37 +167,19 @@ Route::middleware('auth:sanctum')->prefix('cart')->group(function () {
     Route::post('/add', [\App\Http\Controllers\Api\CartController::class, 'add']);
     Route::delete('/remove/{id}', [\App\Http\Controllers\Api\CartController::class, 'remove']);
     Route::delete('/clear', [\App\Http\Controllers\Api\CartController::class, 'clear']);
+    Route::post('/discount/apply', [\App\Http\Controllers\Api\DiscountController::class, 'applyDiscount']);
+    Route::post('/discount/remove', [\App\Http\Controllers\Api\DiscountController::class, 'removeDiscount']);
 });
 
 Route::middleware('auth:sanctum')->group(function () {
-    Route::post('/cart/pay', [\App\Http\Controllers\Api\PaymentController::class, 'store']);        // شروع پرداخت و گرفتن لینک
-    // Route::get('/payments/verify/{uuid}', [\App\Http\Controllers\Api\PaymentController::class, 'verify'])->name('api.payment.callback'); // بازگشت از درگاه و تایید
-    Route::post('/payment/retry/{uuid}', [\App\Http\Controllers\Api\PaymentController::class, 'retry']);  // پرداخت مجدد
+    Route::post('/cart/pay', [\App\Http\Controllers\Api\PaymentController::class, 'store']);        
+    Route::post('/payment/retry/{uuid}', [\App\Http\Controllers\Api\PaymentController::class, 'retry']);  
 });
 Route::get('/payment/verify/{uuid}', [\App\Http\Controllers\Api\PaymentController::class, 'callback'])->name('api.payment.callback');
 
 // Get detail of receipt
-Route::middleware('auth:sanctum')->post('/payment/details', [\App\Http\Controllers\Api\PanelController::class, 'paymentDetails']);
+Route::middleware('auth:sanctum')->post('/payment/receipt/detail', [\App\Http\Controllers\Api\PaymentController::class, 'receipt']);
 
-// Get detail of receipt
-Route::middleware('auth:sanctum')->post('/payment/receipt/detail', function (Request $request) {
-    $uuid = $request->input('uuid');
-    $payment = Payment::where('uuid', $uuid)->firstOrFail();
-    $user = auth('api')->user();
-    if ($user->id == $payment->user_id) {
-        // if (!$payment->visited_at) {
-        if (true) {
-            // if($payment->status){
-            // $payment->visited_at = now();
-            // $payment->save();
-            //}
-            $paymentDetail = $payment->only(['status', 'uuid', 'tracking_number', 'reference_id', 'amount', 'paid_at', 'created_at', 'updated_at']);
-            return response()->json(['message' => 'success', 'detail' => $paymentDetail], 200);
-        } else
-            return response()->json(['message' => 'Unknown error'], 400);
-    }
-    return response()->json(['message' => 'error: Not found'], 404);
-});
 
 
 // Panel routes
@@ -300,6 +282,14 @@ Route::middleware('auth:sanctum')->post('/admin/course/uploadPoster', [\App\Http
 Route::middleware('auth:sanctum')->post('/admin/course/uploadAttachedFile', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'uploadAttachedFile']);
 Route::middleware('auth:sanctum')->post('/admin/video/upload', [\App\Http\Controllers\Api\Admin\Course\VideoController::class, 'upload']);
 Route::middleware('auth:sanctum')->post('/admin/video/process/{video}', [\App\Http\Controllers\Api\Admin\Course\VideoController::class, 'process']);
+
+// Discount management routes
+Route::middleware('auth:sanctum')->get('/admin/discounts', [\App\Http\Controllers\Api\Admin\Discount\DiscountController::class, 'index']);
+Route::middleware('auth:sanctum')->get('/admin/discount/{id}', [\App\Http\Controllers\Api\Admin\Discount\DiscountController::class, 'show']);
+Route::middleware('auth:sanctum')->post('/admin/discount/create', [\App\Http\Controllers\Api\Admin\Discount\DiscountController::class, 'store']);
+Route::middleware('auth:sanctum')->put('/admin/discount/{id}', [\App\Http\Controllers\Api\Admin\Discount\DiscountController::class, 'update']);
+Route::middleware('auth:sanctum')->post('/admin/discount/{id}/toggle-status', [\App\Http\Controllers\Api\Admin\Discount\DiscountController::class, 'toggleStatus']);
+Route::middleware('auth:sanctum')->delete('/admin/discount/{id}', [\App\Http\Controllers\Api\Admin\Discount\DiscountController::class, 'destroy']);
 // end admin routes
 
 Route::get('episode/{episode}/playlist', [\App\Http\Controllers\Api\VideoController::class, 'episodeVideo'])->name('api.episode-video');

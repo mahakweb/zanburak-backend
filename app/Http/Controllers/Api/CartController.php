@@ -1,16 +1,21 @@
 <?php
+
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\CartService;
 use Illuminate\Http\Request;
 use App\Models\Cart;
 use App\Models\Course;
+use App\Models\Discount;
 use App\Models\Path;
 use App\Models\Plan;
+use App\Services\DiscountService;
 
 class CartController extends Controller
 {
     public $discountPercentForPath = 40;
+    protected $cartService;
     protected $typeMap = [
         'course' => Course::class,
         'path' => Path::class,
@@ -26,110 +31,129 @@ class CartController extends Controller
         return $this->typeMap[$type];
     }
 
-    protected function getCartItemsResponse($user)
+
+    public function __construct(CartService $cartService)
     {
-        $carts = $user->carts()->with('cartable')->get();
-
-        $cartItems = $carts->map(function ($cart) use ($user) {
-            $item = $cart->cartable;
-
-            if ($cart->cartable_type === Course::class) {
-                return [
-                    'id' => $cart->id,
-                    'type' => 'course',
-                    'course' => [
-                        'id' => $item->id,
-                        'title' => $item->title,
-                        'english_title' => $item->english_title,
-                        'short_description' => $item->short_description,
-                        'slug' => $item->slug,
-                        'poster' => $item->poster,
-                        'price' => $item->price,
-                        'teacher' => [
-                            'id' => $item->teacher->id,
-                            'first_name' => $item->teacher->first_name,
-                            'last_name' => $item->teacher->last_name,
-                            'username' => $item->teacher->username,
-                            'profile_pic' => $item->teacher->profile_pic ?? null,
-                        ]
-                    ],
-                    'cart_price' => $cart->price,
-                    'price' => $item->price,
-                    'discount_amount' => $cart->discount_amount
-                ];
-            } elseif ($cart->cartable_type === Path::class) {
-
-                $courseIdsInCart = $user->carts->where('cartable_type', 'App\Models\Course')->pluck('cartable_id')->toArray();
-                $userCourseIds = $user->courses->pluck('id')->toArray();
-                $availableCourses = $item->courses->where('publish', true)->filter(function ($course) use ($userCourseIds, $courseIdsInCart) {
-                    return $course->type !== 'free' && !in_array($course->id, $userCourseIds) && !in_array($course->id, $courseIdsInCart);
-                });
-                $totalPrice = $availableCourses->sum('price');
-
-
-                $finalPrice = $totalPrice - ($totalPrice * $this->discountPercentForPath / 100);
-                return [
-                    'id' => $cart->id,
-                    'type' => 'path',
-                    'path' => [
-                        'id' => $item->id,
-                        'title' => $item->title,
-                        'english_title' => $item->english_title,
-                        'slug' => $item->slug,
-                        'icon' => $item->icon,
-                        'poster' => $item->poster,
-                        'short_description' => $item->short_description,
-                        'courses' => $availableCourses->map(function ($course) {
-                            return [
-                                'id' => $course->id,
-                                'title' => $course->title,
-                                'english_title' => $course->english_title,
-                                'short_description' => $course->short_description,
-                                'slug' => $course->slug,
-                                'poster' => $course->poster,
-                                'type' => $course->type,
-                                'price' => $course->price,
-                            ];
-                        })->values(),
-                    ],
-                    'price' => $finalPrice,
-                    'cart_price' => $cart->price,
-                    'discount_amount' => $cart->discount_amount
-                ];
-            } elseif ($cart->cartable_type === Plan::class) {
-                return [
-                    'id' => $cart->id,
-                    'type' => 'vip',
-                    'vip' => [
-                        'id' => $item->id,
-                        'title' => $item->title,
-                        'english_title' => $item->english_title,
-                        'price' => $item->price,
-                        'description' => $item->description,
-                        'period_time' => $item->period_time,
-                        'icon' => $item->icon,
-                    ],
-                    'cart_price' => $cart->price,
-                    'price' => $item->price,
-                    'discount_amount' => $cart->discount_amount
-                ];
-            }
-        });
-
-        $totalPriceOfCart = $cartItems->sum('price');
-        $totalDiscountCart = $cartItems->sum('discount_amount');
-
-    return [
-        'items' => $cartItems,
-        'total_price' => $totalPriceOfCart,
-        'total_discount' => $totalDiscountCart,
-    ];
+        $this->cartService = $cartService;
     }
+
+    // protected function getCartItemsResponse($user)
+    // {
+    //     $carts = $user->carts()->with('cartable')->get();
+
+    //     $cartItems = $carts->map(function ($cart) use ($user) {
+    //         $item = $cart->cartable;
+
+    //         if ($cart->cartable_type === Course::class) {
+    //             return [
+    //                 'id' => $cart->id,
+    //                 'type' => 'course',
+    //                 'course' => [
+    //                     'id' => $item->id,
+    //                     'title' => $item->title,
+    //                     'english_title' => $item->english_title,
+    //                     'short_description' => $item->short_description,
+    //                     'slug' => $item->slug,
+    //                     'poster' => $item->poster,
+    //                     'price' => $item->price,
+    //                     'teacher' => [
+    //                         'id' => $item->teacher->id,
+    //                         'first_name' => $item->teacher->first_name,
+    //                         'last_name' => $item->teacher->last_name,
+    //                         'username' => $item->teacher->username,
+    //                         'profile_pic' => $item->teacher->profile_pic ?? null,
+    //                     ]
+    //                 ],
+    //                 'cart_price' => $cart->price,
+    //                 'price' => $item->price,
+    //                 'discount_amount' => $cart->discount_amount
+    //             ];
+    //         } elseif ($cart->cartable_type === Path::class) {
+
+    //             $courseIdsInCart = $user->carts->where('cartable_type', 'App\Models\Course')->pluck('cartable_id')->toArray();
+    //             $userCourseIds = $user->courses->pluck('id')->toArray();
+    //             $availableCourses = $item->courses->where('publish', true)->filter(function ($course) use ($userCourseIds, $courseIdsInCart) {
+    //                 return $course->type !== 'free' && !in_array($course->id, $userCourseIds) && !in_array($course->id, $courseIdsInCart);
+    //             });
+    //             $totalPrice = $availableCourses->sum('price');
+
+
+    //             $finalPrice = $totalPrice - ($totalPrice * $this->discountPercentForPath / 100);
+    //             return [
+    //                 'id' => $cart->id,
+    //                 'type' => 'path',
+    //                 'path' => [
+    //                     'id' => $item->id,
+    //                     'title' => $item->title,
+    //                     'english_title' => $item->english_title,
+    //                     'slug' => $item->slug,
+    //                     'icon' => $item->icon,
+    //                     'poster' => $item->poster,
+    //                     'short_description' => $item->short_description,
+    //                     'courses' => $availableCourses->map(function ($course) {
+    //                         return [
+    //                             'id' => $course->id,
+    //                             'title' => $course->title,
+    //                             'english_title' => $course->english_title,
+    //                             'short_description' => $course->short_description,
+    //                             'slug' => $course->slug,
+    //                             'poster' => $course->poster,
+    //                             'type' => $course->type,
+    //                             'price' => $course->price,
+    //                         ];
+    //                     })->values(),
+    //                 ],
+    //                 'price' => $finalPrice,
+    //                 'cart_price' => $cart->price,
+    //                 'discount_amount' => $cart->discount_amount
+    //             ];
+    //         } elseif ($cart->cartable_type === Plan::class) {
+    //             return [
+    //                 'id' => $cart->id,
+    //                 'type' => 'vip',
+    //                 'vip' => [
+    //                     'id' => $item->id,
+    //                     'title' => $item->title,
+    //                     'english_title' => $item->english_title,
+    //                     'price' => $item->price,
+    //                     'description' => $item->description,
+    //                     'period_time' => $item->period_time,
+    //                     'icon' => $item->icon,
+    //                 ],
+    //                 'cart_price' => $cart->price,
+    //                 'price' => $item->price,
+    //                 'discount_amount' => $cart->discount_amount
+    //             ];
+    //         }
+    //     });
+
+    //     $totalPriceOfCart = $cartItems->sum('price');
+    //     $totalDiscountCart = $cartItems->sum('discount_amount');
+
+    // return [
+    //     'items' => $cartItems,
+    //     'total_price' => $totalPriceOfCart,
+    //     'total_discount' => $totalDiscountCart,
+    // ];
+    // }
+
 
     public function index(Request $request)
     {
         $user = auth('api')->user();
-        $cartResponse = $this->getCartItemsResponse($user);
+        
+        // پاک کردن کدهای تخفیف موجود و بازگردانی قیمت اصلی
+        $carts = $user->carts()->with('cartable')->get();
+        foreach ($carts as $cart) {
+            $originalPrice = $this->cartService->calculateOriginalPrice($cart);
+            $cart->update([
+                'discount_id' => null,
+                'discount_amount' => 0,
+                'price' => $originalPrice
+            ]);
+        }
+        
+        $cartResponse = $this->cartService->getCartItemsResponse($user);
         return response()->json([
             'message' => 'Success',
             'cartItems' => $cartResponse['items'],
@@ -216,7 +240,7 @@ class CartController extends Controller
                 }
 
 
-                
+
 
                 $finalPrice = $total - ($total * $this->discountPercentForPath / 100);
 
@@ -232,7 +256,7 @@ class CartController extends Controller
                 return response()->json(['error' => 'نوع آیتم نامعتبر است.'], 422);
         }
 
-        $cartResponse = $this->getCartItemsResponse($user);
+        $cartResponse = $this->cartService->getCartItemsResponse($user);
         return response()->json([
             'message' => 'با موفقیت به سبد اضافه شد.',
             'cartItems' => $cartResponse['items'],
@@ -251,7 +275,7 @@ class CartController extends Controller
             $cart->delete();
         }
 
-        $cartResponse = $this->getCartItemsResponse($user);
+        $cartResponse = $this->cartService->getCartItemsResponse($user);
         return response()->json([
             'message' => 'آیتم با موفقیت از سبد حذف شد.',
             'cartItems' => $cartResponse['items'],

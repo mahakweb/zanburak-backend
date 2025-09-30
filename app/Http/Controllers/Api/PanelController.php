@@ -405,29 +405,6 @@ class PanelController extends Controller
         }
     }
 
-    public function paymentDetails(Request $request)
-    {
-        $user = auth('api')->user();
-        $reference_id = $request->input('referenceId');
-        $payment = Payment::where('reference_id', $reference_id)->firstOrFail();
-        if ($user->id == $payment->user_id) {
-            $paymentInfo = json_decode($payment->payment_info, true);
-            $courses = collect();
-            if (isset($paymentInfo['courses'])) {
-                foreach ($paymentInfo['courses'] as $courseData) {
-                    $courseId = $courseData['course_id'];
-                    $purchased_price = $courseData['price'];
-                    $course = Course::find($courseId);
-                    $course = $course->only('id', 'title', 'english_title', 'slug', 'price', 'poster');
-                    $course['purchased_price'] = $purchased_price;
-                    $courses->add($course);
-                }
-            }
-            return response()->json(['message' => 'success', 'paymentDetails' => $courses], 200);
-        }
-        return response()->json(['message' => 'Error: Not found'], 404);
-    }
-
     public function courses(Request $request)
     {
         $filter = $request->input('filter', 'current');

@@ -9,35 +9,37 @@ use Illuminate\Database\Eloquent\Model;
 class Discount extends Model
 {
     use HasFactory;
+
     protected $fillable = [
         'code',
-        'percentage',
-        'status',
-        'expired_at',
+        'title',
+        'type',
+        'value',
+        'usage_limit',
+        'per_user_limit',
+        'starts_at',
+        'ends_at',
+        'is_active'
     ];
 
-    public function users(){
-        return $this->belongsToMany(User::class);
+    protected $casts = [
+        'starts_at' => 'datetime',
+        'ends_at'   => 'datetime',
+        'is_active' => 'boolean',
+    ];
+
+    public function eligibilities()
+    {
+        return $this->hasMany(DiscountEligibility::class);
     }
 
-
-    public function courses(){
-        return $this->belongsToMany(Course::class);
+    public function usages()
+    {
+        return $this->hasMany(DiscountUsage::class);
     }
 
-    public function isActive(){
-        return ($this->status == 1 && $this->expired_at > Carbon::now()) ? true : false;
+    public function conditions()
+    {
+        return $this->hasMany(DiscountCondition::class);
     }
-
-
-    public function isAvailableUser($id){
-        if ( $this->users()->count() ){
-            if ( ! in_array($id, $this->users->pluck('id')->toArray()) ){
-                return false;
-            }
-            return true;
-        }
-        return true;
-    }
-
 }
