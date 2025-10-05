@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use App\Services\UploadTokenService;
 
 class EpisodeController extends Controller
 {
@@ -179,7 +180,9 @@ class EpisodeController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'episode_id' => ['required', 'exists:episodes,id'],
-            'attached_file' => ['required', 'mimes:txt,jpg,svg,png,jpeg,webp,mp4,mkv,webm,zip,rar,pdf,doc,docx', 'max:204800'],
+            'filename' => ['required', 'string'],
+            'mime' => ['required', 'string'],
+            'size' => ['required', 'integer', 'min:1'],
         ]);
         if (!$validator->passes()) {
             return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
@@ -190,13 +193,37 @@ class EpisodeController extends Controller
             if (!$episode) {
                 return response()->json(['message' => 'Error! episode not found'], 404);
             }
-            $this->removeAttachedFile($episode);
-            $file = $request->file('attached_file');
+            if ($episode->section->course->id != $course->id) {
+                return response()->json(['message' => 'Validation error!', 'errors' => ['episode_id' => ['the selected episode not belong to this course.']]], 422);
+            }
+
             $disk = 'static';
             $folder = "attach/" . date('Y/m/d');
-            $filePath = $file->store($folder, $disk);
-            $attach = $episode->attachs()->create(['title' => 'پیوست', 'url' => Storage::disk($disk)->url($filePath)]);
-            return response()->json(['message' => "Attach File uploaded successfully", 'attached_file' => $episode->attach], 200);
+            $ext = pathinfo($validData['filename'], PATHINFO_EXTENSION);
+            $generated = Str::uuid()->toString();
+            $filePath = "{$folder}/{$generated}.{$ext}";
+
+            $claims = [
+                'sub' => 'upload',
+                'type' => 'attachment',
+                'disk' => $disk,
+                'path' => $filePath,
+                'mime' => $validData['mime'],
+                'size' => (int) $validData['size'],
+                'courseId' => $course->id,
+                'episodeId' => $episode->id,
+                'userId' => optional($user)->id,
+            ];
+
+            $tokenData = UploadTokenService::generate($claims);
+
+            return response()->json([
+                'message' => 'Upload initialized. Use worker to upload the file.',
+                'uploadPath' => $filePath,
+                'uploadToken' => $tokenData['token'],
+                'workerUploadUrl' => rtrim(config('upload.worker_base_url'), '/') . '/api/upload/attachment',
+                'expiresAt' => $tokenData['expires_at'],
+            ], 200);
 
         }
     }
@@ -243,4 +270,60 @@ class EpisodeController extends Controller
 
 
 
+    public function episodeStatus(Request $request, Course $course)
+    {
+        $validator = Validator::make($request->all(), [
+            'episode_id' => ['required', 'exists:episodes,id'],
+        ]);
+        if (!$validator->passes()) {
+            return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
+        }
+
+        $episode = Episode::with(['videos', 'attachs'])->find($request->input('episode_id'));
+        if (!$episode) {
+            return response()->json(['message' => 'Error! episode not found'], 404);
+        }
+        if ($episode->section->course->id != $course->id) {
+            return response()->json(['message' => 'Validation error!', 'errors' => ['episode_id' => ['the selected episode not belong to this course.']]], 422);
+        }
+
+        $raw = $episode->videos?->where('type', 'raw')->first();
+        $stream = $episode->videos?->where('type', 'stream')->first();
+
+        $status = 'pending';
+        if ($stream) {
+            $status = 'processed';
+        } elseif ($raw) {
+            $status = 'uploaded';
+        }
+
+        $videos = $episode->videos?->map(function ($vid) {
+            return [
+                'id' => $vid->id,
+                'type' => $vid->type,
+                'quality' => $vid->quality,
+                'path' => $vid->path,
+                'url' => Storage::disk($vid->disk)->url($vid->path),
+                'disk' => $vid->disk,
+                'duration' => $vid->duration,
+                'status' => $vid->status ?? 'queued',
+            ];
+        })->values() ?? collect([]);
+
+        $attach = null;
+        $rowAttach = $episode->attachs?->first();
+        if ($rowAttach) {
+            $attach = [
+                'url' => $rowAttach->url,
+                'size' => $this->urlDetails($rowAttach->url)['size'] ?? null,
+            ];
+        }
+
+        return response()->json([
+            'message' => 'Success',
+            'status' => $status,
+            'videos' => $videos,
+            'attach' => $attach,
+        ], 200);
+    }
 }

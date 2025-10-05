@@ -10,8 +10,10 @@ use App\Models\Cart;
 use App\Models\Course;
 use App\Models\Path;
 use App\Models\Plan;
+use App\Models\Wallet;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Shetabit\Multipay\Invoice;
 use Shetabit\Payment\Facade\Payment as ShetabitPayment;
 use Shetabit\Multipay\Exceptions\InvalidPaymentException;
@@ -145,13 +147,28 @@ class PaymentService
                 'expired_at'   => null,
             ]);
 
-            $this->handleSuccessfulPayment($payment);
+            // تشخیص نوع پرداخت و پردازش مناسب
+            if ($this->isWalletPayment($payment)) {
+                $this->handleSuccessfulWalletPayment($payment, $receipt);
+            } else {
+                $this->handleSuccessfulPayment($payment);
+            }
 
             return ['status' => 'paid'];
         } catch (InvalidPaymentException $e) {
             $payment->update(['status' => 'failed']);
             return ['status' => 'failed', 'error' => $e->getMessage()];
         }
+    }
+
+    /**
+     * تشخیص اینکه آیا پرداخت مربوط به کیف پول است یا نه
+     */
+    protected function isWalletPayment(Payment $payment): bool
+    {
+        // اگر description شامل "کیف پول" باشد یا items نداشته باشد
+        return str_contains($payment->description ?? '', 'کیف پول') || 
+               $payment->items()->count() === 0;
     }
 
 
@@ -173,7 +190,14 @@ class PaymentService
 
             switch ($item->payable_type) {
                 case Course::class:
-                    $user->courses()->syncWithoutDetaching([$payable->id]);
+                    // Find the corresponding payment item for this course
+                    $itemFinalPrice = $item->final_price ?? $item->price ?? 0;
+                    $user->courses()->syncWithoutDetaching([
+                        $payable->id => [
+                            'price' => $itemFinalPrice,
+                            'payment_id' => $payment->id,
+                        ]
+                    ]);
                     break;
 
                 case Path::class:
@@ -234,4 +258,99 @@ class PaymentService
 			}
 		}
     }
+
+	/**
+	 * ایجاد پرداخت برای افزایش موجودی کیف پول
+	 */
+	public function createWalletPayment($user, array $options = []): Payment
+	{
+		return DB::transaction(function () use ($user, $options) {
+			$payment = Payment::create([
+				'user_id'         => $user->id,
+				'driver'          => $options['driver'] ?? config('payment.default', 'zarinpal'),
+				'amount'          => $options['amount'],
+				'discount_amount' => 0,
+				'discount_code'   => null,
+				'expired_at'      => $options['expired_at'] ?? now()->addMinutes(60),
+				'status'          => 0,
+				'description'     => 'افزایش موجودی کیف پول',
+			]);
+
+			return $payment;
+		});
+	}
+
+	/**
+	 * شروع پرداخت کیف پول
+	 */
+	public function startWalletPurchase(Payment $payment, PaymentAttempt $attempt, ?string $callbackUrl = null, array $options = [])
+	{
+		if ($payment->status && $payment->paid_at) {
+			throw new \RuntimeException('این پرداخت قبلاً تکمیل شده است.');
+		}
+		if ($payment->isExpired()) {
+			throw new \RuntimeException('این پرداخت منقضی شده است.');
+		}
+
+		$callbackUrl = $callbackUrl ?? route('api.wallet-callback');
+		$driver = $options['driver'] ?? $payment->driver ?? config('payment.default', 'zarinpal');
+
+		$invoice = (new Invoice)->amount((int) $payment->amount);
+
+		return ShetabitPayment::via($driver)
+			->callbackUrl($callbackUrl)
+			->purchase($invoice, function ($driver, $transactionId) use ($payment, $attempt) {
+				$attempt->update(['transaction_id' => $transactionId]);
+				$payment->update(['tracking_number' => $transactionId, 'resnumber' => $transactionId]);
+			});
+	}
+
+	/**
+	 * تایید پرداخت کیف پول و ایجاد رکورد wallet
+	 */
+	public function verifyWalletPayment(Payment $payment): array
+	{
+		try {
+			$receipt = ShetabitPayment::via($payment->driver)
+				->amount((int) $payment->amount)
+				->transactionId($payment->tracking_number)
+				->verify();
+
+			$payment->update([
+				'status'       => true,
+				'paid_at'      => now(),
+				'expired_at'   => null,
+			]);
+
+			$this->handleSuccessfulWalletPayment($payment, $receipt);
+
+			return ['status' => 'paid'];
+		} catch (InvalidPaymentException $e) {
+			$payment->update(['status' => 'failed']);
+			return ['status' => 'failed', 'error' => $e->getMessage()];
+		}
+	}
+
+	/**
+	 * پردازش پرداخت موفق کیف پول
+	 */
+	protected function handleSuccessfulWalletPayment(Payment $payment, $receipt): void
+	{
+		$user = $payment->user;
+
+		// ایجاد رکورد wallet (uuid و reference_id خودکار ایجاد می‌شود)
+		$wallet = $user->wallets()->create([
+			'description' => 'افزایش موجودی کیف پول',
+			'amount' => $payment->amount,
+			'after_balance' => $user->wallet_balance + $payment->amount,
+			'type' => 'increase',
+			'payment_id' => $payment->id,
+			'tracking_number' => $receipt->getReferenceId(),
+		]);
+
+		// آپدیت موجودی کاربر
+		$user->update([
+			'wallet_balance' => $wallet->after_balance,
+		]);
+	}
 }

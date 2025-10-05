@@ -3,12 +3,13 @@
 namespace App\Http\Controllers\Api\Admin\Course;
 
 use App\Http\Controllers\Controller;
-use App\Jobs\ProcessVideo;
 use App\Models\Course;
 use App\Models\Episode;
 use Illuminate\Http\Request;
-use App\Models\Video;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use App\Services\UploadTokenService;
 
 class VideoController extends Controller
 {
@@ -17,7 +18,9 @@ class VideoController extends Controller
         $request->validate([
             'course_id' => 'required|integer|exists:courses,id',
             'episode_id' => 'nullable|integer|exists:episodes,id',
-            'video' => 'required|file|mimetypes:video/mp4,video/mkv',
+            'filename' => 'required|string',
+            'mime' => 'required|string',
+            'size' => 'required|integer|min:1',
         ]);
 
         $courseId = $request->input('course_id');
@@ -31,38 +34,37 @@ class VideoController extends Controller
             }
         }
 
-        if ($episodeId)
-            $this->removeFile(Episode::find($episodeId));
-        else
-            $this->removeFile($course);
-
-        $file = $request->file('video');
         $disk = 'static';
-        $folder = "raw/{$course->slug}" . ($episodeId ? "/{$episodeId}" : "");
+        if ($episodeId) {
+            $folder = "raw/{$course->slug}/episodes/{$episodeId}";
+        } else {
+            $folder = "raw/{$course->slug}/trailer";
+        }
 
-        $extension = $file->getClientOriginalExtension();
-        $hashName = md5_file($file->getRealPath()) . '.' . $extension;
-        $filePath = "{$folder}/{$hashName}";
+        $ext = pathinfo($request->input('filename'), PATHINFO_EXTENSION);
+        $generated = Str::uuid()->toString();
+        $filePath = "{$folder}/{$generated}.{$ext}";
 
-        $stream = fopen($file->getRealPath(), 'rb');
-        Storage::disk($disk)->writeStream($filePath, $stream);
-        fclose($stream);
-
-        $duration = $this->getVideoDuration($file->getRealPath());
-
-        $video = Video::create([
-            'type' => 'raw',
-            'path' => $filePath,
+        $claims = [
+            'sub' => 'upload',
+            'type' => 'video',
             'disk' => $disk,
-            'duration' => $duration,
-            'videoable_id' => $episodeId ? $episodeId : $courseId,
-            'videoable_type' => $episodeId ? get_class($episode) : get_class($course),
-        ]);
+            'path' => $filePath,
+            'mime' => $request->input('mime'),
+            'size' => (int) $request->input('size'),
+            'courseId' => $courseId,
+            'episodeId' => $episodeId,
+            'userId' => optional(auth('api')->user())->id,
+        ];
+
+        $tokenData = UploadTokenService::generate($claims);
 
         return response()->json([
-            'message' => 'File uploaded successfully.',
-            'video_id' => $video->id,
-            'path' => Storage::disk($disk)->url($filePath),
+            'message' => 'Upload initialized. Use worker to upload the file.',
+            'uploadPath' => $filePath,
+            'uploadToken' => $tokenData['token'],
+            'workerUploadUrl' => rtrim(config('upload.worker_base_url'), '/') . '/api/upload/video',
+            'expiresAt' => $tokenData['expires_at'],
         ], 200);
     }
 
@@ -78,53 +80,33 @@ class VideoController extends Controller
 
             return 0;
         } catch (\Exception $e) {
-            \Log::error("Error getting video duration: " . $e->getMessage());
+            Log::error("Error getting video duration: " . $e->getMessage());
             return 0;
         }
     }
 
 
 
-    public function process(Video $video)
+    // Proxy to worker reprocess endpoint for backward compatibility
+    public function process(\App\Models\Video $video)
     {
-        if ($video->type !== 'raw') {
-            return response()->json([
-                'message' => 'Invalid video type for processing.',
-            ], 400);
+        try {
+            $worker = rtrim(config('upload.worker_base_url'), '/');
+            $url = $worker . '/api/process/' . $video->id;
+            $client = new \GuzzleHttp\Client();
+            $client->post($url, ['timeout' => 30]);
+            return response()->json(['message' => 'Processing started on worker.'], 200);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Failed to start processing', 'error' => $e->getMessage()], 500);
         }
-
-        ProcessVideo::dispatch($video);
-
-        return response()->json([
-            'message' => 'Video processing ended.',
-            'video_id' => $video->id,
-        ], 200);
     }
 
 
 
     public function removeFile($model)
     {
-        $videos = $model->videos;
-        if ($videos) {
-            foreach ($videos as $vid) {
-                $folderPath = dirname($vid->path);
-                $storage = Storage::disk($vid->disk);
-                if ($vid->type == 'trailer' || $vid->type == 'stream' && Storage::disk($vid->disk)->exists($vid->path)) {
-                    if ($storage->exists($folderPath)) {
-                        $files = $storage->allFiles($folderPath);
-                        foreach ($files as $file) {
-                            $storage->delete($file);
-                        }
-                        // $storage->deleteDirectory($folderPath);
-                    }
-                } else if (Storage::disk($vid->disk)->exists($vid->path)) {
-                    Storage::disk($vid->disk)->delete($vid->path);
-                    // $storage->deleteDirectory($folderPath);
-                }
-            }
-            $model->videos()->delete();
-        }
+        // File removal will be handled by the worker.
+        return;
     }
 }
 

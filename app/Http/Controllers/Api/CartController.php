@@ -37,105 +37,7 @@ class CartController extends Controller
         $this->cartService = $cartService;
     }
 
-    // protected function getCartItemsResponse($user)
-    // {
-    //     $carts = $user->carts()->with('cartable')->get();
 
-    //     $cartItems = $carts->map(function ($cart) use ($user) {
-    //         $item = $cart->cartable;
-
-    //         if ($cart->cartable_type === Course::class) {
-    //             return [
-    //                 'id' => $cart->id,
-    //                 'type' => 'course',
-    //                 'course' => [
-    //                     'id' => $item->id,
-    //                     'title' => $item->title,
-    //                     'english_title' => $item->english_title,
-    //                     'short_description' => $item->short_description,
-    //                     'slug' => $item->slug,
-    //                     'poster' => $item->poster,
-    //                     'price' => $item->price,
-    //                     'teacher' => [
-    //                         'id' => $item->teacher->id,
-    //                         'first_name' => $item->teacher->first_name,
-    //                         'last_name' => $item->teacher->last_name,
-    //                         'username' => $item->teacher->username,
-    //                         'profile_pic' => $item->teacher->profile_pic ?? null,
-    //                     ]
-    //                 ],
-    //                 'cart_price' => $cart->price,
-    //                 'price' => $item->price,
-    //                 'discount_amount' => $cart->discount_amount
-    //             ];
-    //         } elseif ($cart->cartable_type === Path::class) {
-
-    //             $courseIdsInCart = $user->carts->where('cartable_type', 'App\Models\Course')->pluck('cartable_id')->toArray();
-    //             $userCourseIds = $user->courses->pluck('id')->toArray();
-    //             $availableCourses = $item->courses->where('publish', true)->filter(function ($course) use ($userCourseIds, $courseIdsInCart) {
-    //                 return $course->type !== 'free' && !in_array($course->id, $userCourseIds) && !in_array($course->id, $courseIdsInCart);
-    //             });
-    //             $totalPrice = $availableCourses->sum('price');
-
-
-    //             $finalPrice = $totalPrice - ($totalPrice * $this->discountPercentForPath / 100);
-    //             return [
-    //                 'id' => $cart->id,
-    //                 'type' => 'path',
-    //                 'path' => [
-    //                     'id' => $item->id,
-    //                     'title' => $item->title,
-    //                     'english_title' => $item->english_title,
-    //                     'slug' => $item->slug,
-    //                     'icon' => $item->icon,
-    //                     'poster' => $item->poster,
-    //                     'short_description' => $item->short_description,
-    //                     'courses' => $availableCourses->map(function ($course) {
-    //                         return [
-    //                             'id' => $course->id,
-    //                             'title' => $course->title,
-    //                             'english_title' => $course->english_title,
-    //                             'short_description' => $course->short_description,
-    //                             'slug' => $course->slug,
-    //                             'poster' => $course->poster,
-    //                             'type' => $course->type,
-    //                             'price' => $course->price,
-    //                         ];
-    //                     })->values(),
-    //                 ],
-    //                 'price' => $finalPrice,
-    //                 'cart_price' => $cart->price,
-    //                 'discount_amount' => $cart->discount_amount
-    //             ];
-    //         } elseif ($cart->cartable_type === Plan::class) {
-    //             return [
-    //                 'id' => $cart->id,
-    //                 'type' => 'vip',
-    //                 'vip' => [
-    //                     'id' => $item->id,
-    //                     'title' => $item->title,
-    //                     'english_title' => $item->english_title,
-    //                     'price' => $item->price,
-    //                     'description' => $item->description,
-    //                     'period_time' => $item->period_time,
-    //                     'icon' => $item->icon,
-    //                 ],
-    //                 'cart_price' => $cart->price,
-    //                 'price' => $item->price,
-    //                 'discount_amount' => $cart->discount_amount
-    //             ];
-    //         }
-    //     });
-
-    //     $totalPriceOfCart = $cartItems->sum('price');
-    //     $totalDiscountCart = $cartItems->sum('discount_amount');
-
-    // return [
-    //     'items' => $cartItems,
-    //     'total_price' => $totalPriceOfCart,
-    //     'total_discount' => $totalDiscountCart,
-    // ];
-    // }
 
 
     public function index(Request $request)
@@ -144,6 +46,21 @@ class CartController extends Controller
         
         // پاک کردن کدهای تخفیف موجود و بازگردانی قیمت اصلی
         $carts = $user->carts()->with('cartable')->get();
+        
+        // Remove invalid cart items (where cartable no longer exists)
+        $invalidCarts = $carts->filter(function ($cart) {
+            return is_null($cart->cartable);
+        });
+
+        if ($invalidCarts->isNotEmpty()) {
+            $invalidCarts->each(function ($cart) {
+                $cart->delete();
+            });
+            
+            // Refresh carts after removing invalid ones
+            $carts = $user->carts()->with('cartable')->get();
+        }
+        
         foreach ($carts as $cart) {
             $originalPrice = $this->cartService->calculateOriginalPrice($cart);
             $cart->update([
@@ -275,6 +192,9 @@ class CartController extends Controller
             $cart->delete();
         }
 
+        // Clean up any invalid cart items before returning response
+        $this->cleanInvalidCartItems($user);
+
         $cartResponse = $this->cartService->getCartItemsResponse($user);
         return response()->json([
             'message' => 'آیتم با موفقیت از سبد حذف شد.',
@@ -295,5 +215,23 @@ class CartController extends Controller
             'total_price' => 0,
             'total_discount' => 0,
         ], 200);
+    }
+
+    /**
+     * Clean up invalid cart items (where cartable no longer exists)
+     */
+    private function cleanInvalidCartItems($user)
+    {
+        $carts = $user->carts()->with('cartable')->get();
+        
+        $invalidCarts = $carts->filter(function ($cart) {
+            return is_null($cart->cartable);
+        });
+
+        if ($invalidCarts->isNotEmpty()) {
+            $invalidCarts->each(function ($cart) {
+                $cart->delete();
+            });
+        }
     }
 }

@@ -49,7 +49,6 @@ class Course extends Model implements Likeable
     public function getCascadeRelations(): array
     {
         return [
-            'carts',
             'views',
             'section',
             'videos',
@@ -299,10 +298,6 @@ class Course extends Model implements Likeable
         return $this->views()->count();
     }
 
-    public function carts()
-    {
-        return $this->hasMany(Cart::class);
-    }
 
     public function teacher()
     {

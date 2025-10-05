@@ -14,6 +14,20 @@ class CartService
     {
         $carts = $user->carts()->with('cartable')->get();
 
+        // Remove cart items where the cartable item no longer exists
+        $invalidCarts = $carts->filter(function ($cart) {
+            return is_null($cart->cartable);
+        });
+
+        if ($invalidCarts->isNotEmpty()) {
+            $invalidCarts->each(function ($cart) {
+                $cart->delete();
+            });
+            
+            // Refresh carts after removing invalid ones
+            $carts = $user->carts()->with('cartable')->get();
+        }
+
         $cartItems = $carts->map(function ($cart) use ($user) {
             $item = $cart->cartable;
 

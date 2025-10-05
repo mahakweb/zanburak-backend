@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use App\Services\UploadTokenService;
 
 class CourseController extends Controller
 {
@@ -697,8 +698,12 @@ class CourseController extends Controller
             ->first();
 
         $trailerUrl = null;
+        $trailerStatus = null;
+        $trailerVideoId = null;
         if ($rawTrailer) {
             $trailerUrl = Storage::disk($rawTrailer->disk)->url($rawTrailer->path);
+            $trailerStatus = $rawTrailer->status ?? 'queued';
+            $trailerVideoId = $rawTrailer->id;
         }
 
         $rowAttach = $course->attachs->first();
@@ -729,6 +734,8 @@ class CourseController extends Controller
             'level' => $level,
             'status' => $status,
             'trailer' => $trailerUrl,
+            'trailer_status' => $trailerStatus,
+            'trailer_video_id' => $trailerVideoId,
             'attach' => $attach,
         ];
 
@@ -779,7 +786,9 @@ class CourseController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'course_id' => ['required', 'exists:courses,id'],
-            'poster' => ['required', 'mimes:jpg,svg,png,jpeg,webp', 'max:5120'],
+            'filename' => ['required', 'string'],
+            'mime' => ['required', 'string'],
+            'size' => ['required', 'integer', 'min:1'],
         ]);
         if (!$validator->passes()) {
             return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
@@ -790,14 +799,32 @@ class CourseController extends Controller
             if (!$course) {
                 return response()->json(['message' => 'Error! course not found'], 404);
             }
-            $this->removePoster($course);
-            $file = $request->file('poster');
             $disk = 'static';
             $folder = "poster/" . date('Y/m/d');
-            $filePath = $file->store($folder, $disk);
-            $course->poster = Storage::disk($disk)->url($filePath);
-            $course->save();
-            return response()->json(['message' => "Poster uploaded successfully", 'poster' => $course->poster], 200);
+            $ext = pathinfo($validData['filename'], PATHINFO_EXTENSION);
+            $generated = Str::uuid()->toString();
+            $filePath = "{$folder}/{$generated}.{$ext}";
+
+            $claims = [
+                'sub' => 'upload',
+                'type' => 'poster',
+                'disk' => $disk,
+                'path' => $filePath,
+                'mime' => $validData['mime'],
+                'size' => (int) $validData['size'],
+                'courseId' => $course->id,
+                'userId' => optional($user)->id,
+            ];
+
+            $tokenData = UploadTokenService::generate($claims);
+
+            return response()->json([
+                'message' => 'Upload initialized. Use worker to upload the file.',
+                'uploadPath' => $filePath,
+                'uploadToken' => $tokenData['token'],
+                'workerUploadUrl' => rtrim(config('upload.worker_base_url'), '/') . '/api/upload/attachment',
+                'expiresAt' => $tokenData['expires_at'],
+            ], 200);
 
         }
     }
@@ -819,7 +846,9 @@ class CourseController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'course_id' => ['required', 'exists:courses,id'],
-            'attached_file' => ['required', 'mimes:txt,jpg,svg,png,jpeg,webp,mp4,mkv,webm,zip,rar,pdf,doc,docx', 'max:204800'],
+            'filename' => ['required', 'string'],
+            'mime' => ['required', 'string'],
+            'size' => ['required', 'integer', 'min:1'],
         ]);
         if (!$validator->passes()) {
             return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
@@ -830,13 +859,32 @@ class CourseController extends Controller
             if (!$course) {
                 return response()->json(['message' => 'Error! course not found'], 404);
             }
-            $this->removeAttachedFile($course);
-            $file = $request->file('attached_file');
             $disk = 'static';
             $folder = "attach/" . date('Y/m/d');
-            $filePath = $file->store($folder, $disk);
-            $course->attachs()->create(['title' => 'پیوست', 'url' => Storage::disk($disk)->url($filePath)]);
-            return response()->json(['message' => "Attach File uploaded successfully", 'attached_file' => $course->attached_file], 200);
+            $ext = pathinfo($validData['filename'], PATHINFO_EXTENSION);
+            $generated = Str::uuid()->toString();
+            $filePath = "{$folder}/{$generated}.{$ext}";
+
+            $claims = [
+                'sub' => 'upload',
+                'type' => 'attachment',
+                'disk' => $disk,
+                'path' => $filePath,
+                'mime' => $validData['mime'],
+                'size' => (int) $validData['size'],
+                'courseId' => $course->id,
+                'userId' => optional($user)->id,
+            ];
+
+            $tokenData = UploadTokenService::generate($claims);
+
+            return response()->json([
+                'message' => 'Upload initialized. Use worker to upload the file.',
+                'uploadPath' => $filePath,
+                'uploadToken' => $tokenData['token'],
+                'workerUploadUrl' => rtrim(config('upload.worker_base_url'), '/') . '/api/upload/attachment',
+                'expiresAt' => $tokenData['expires_at'],
+            ], 200);
 
         }
     }
@@ -895,6 +943,11 @@ class CourseController extends Controller
         }
 
         foreach ($courses as $course) {
+            // Delete cart items that reference this course
+            \App\Models\Cart::where('cartable_type', Course::class)
+                ->where('cartable_id', $course->id)
+                ->delete();
+            
             $course->delete();
         }
 

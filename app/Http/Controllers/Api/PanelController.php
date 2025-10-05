@@ -14,9 +14,11 @@ use App\Models\Question;
 use App\Models\UserMission;
 use App\Models\VideoView;
 use App\Models\Wallet;
+use App\Services\PaymentService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use App\Rules\ValidGateway;
 use Shetabit\Multipay\Invoice;
 use Shetabit\Payment\Facade\Payment as ShetabitPayment;
@@ -24,6 +26,12 @@ use Shetabit\Multipay\Exceptions\InvalidPaymentException;
 
 class PanelController extends Controller
 {
+    protected PaymentService $paymentService;
+
+    public function __construct(PaymentService $paymentService)
+    {
+        $this->paymentService = $paymentService;
+    }
     public function index()
     {
         $user = auth('api')->user();
@@ -203,7 +211,7 @@ class PanelController extends Controller
         $user = auth('api')->user();
 
         $query = $user->payments()
-            ->select('id', 'uuid', 'tracking_number', 'reference_id', 'amount', 'driver', 'discount_amount', 'discount_code', 'status', 'paid_at', 'expired_at', 'created_at', 'updated_at')
+            ->select('id', 'uuid', 'tracking_number', 'reference_id', 'amount', 'driver', 'discount_amount', 'discount_code', 'status', 'paid_at', 'expired_at', 'created_at', 'updated_at', 'description')
             ->with(['attempts', 'items.payable']);
 
         $query = match ($filter) {
@@ -212,15 +220,21 @@ class PanelController extends Controller
             default   => $query,
         };
 
+        // Custom type filtering, including wallet detection
         if ($type !== 'all') {
             $modelMap = [
                 'course' => \App\Models\Course::class,
                 'path'   => \App\Models\Path::class,
                 'vip'    => \App\Models\Plan::class,
-                'wallet' => \App\Models\Wallet::class,
             ];
 
-            if (isset($modelMap[$type])) {
+            if ($type === 'wallet') {
+                // کیف پول: description شامل "کیف پول" یا items خالی باشد
+                $query->where(function ($q) {
+                    $q->where('description', 'like', '%کیف پول%')
+                      ->orWhereDoesntHave('items');
+                });
+            } elseif (isset($modelMap[$type])) {
                 $query->whereHas('items', function ($q) use ($modelMap, $type) {
                     $q->where('payable_type', $modelMap[$type]);
                 });
@@ -246,6 +260,9 @@ class PanelController extends Controller
 
         // Format result
         $result = $paginatedData->map(function ($payment) {
+            // تشخیص تراکنش کیف پول
+            $isWallet = (str_contains($payment->description ?? '', 'کیف پول') || $payment->items->count() === 0);
+
             return [
                 'id' => $payment->id,
                 'uuid' => $payment->uuid,
@@ -262,6 +279,7 @@ class PanelController extends Controller
                 'can_retry' => $payment->canRetry(),
                 'created_at' => $payment->created_at,
                 'updated_at' => $payment->updated_at,
+                'is_wallet' => $isWallet,
                 'attempts' => $payment->attempts()->latest()->get(),
                 'items' => $payment->items->map(function ($item) {
                     $base = [
@@ -339,71 +357,49 @@ class PanelController extends Controller
     {
         $user = auth('api')->user();
         $validData = Validator::make($request->all(), [
-            'amount' => ['required', 'numeric', 'min:10000', 'max:100000000'],
+            'amount' => ['required', 'numeric', 'min:1000', 'max:100000000'],
             'gateway' => ['required', 'string', new ValidGateway],
         ]);
 
         if (!$validData->passes()) {
             return response()->json(['message' => 'Error', 'errors' => $validData->errors()->toArray()], 422);
-        } else {
-            $gateway = $request->input('gateway');
-            $invoice = new Invoice;
-            $invoice->via($gateway);
-            $invoice->amount($request->input('amount'));
-            do {
-                $referenceId = random_int(1000000, 9999999);
-            } while (Payment::where('reference_id', $referenceId)->exists());
-            $payment = ShetabitPayment::via($gateway)->callbackUrl(route('api.wallet-callback'))->purchase($invoice, function ($driver, $transactionId) use ($invoice, $referenceId) {
-                auth('api')->user()->payments()->create([
-                    'type' => 'wallet',
-                    'payment_info' => null,
-                    'driver' => $invoice->getDriver(),
-                    'resnumber' => $transactionId,
-                    'amount' => $invoice->getAmount(),
-                    'reference_id' => $referenceId
-                ]);
-            })->pay()->toJson();
-            return response()->json(['message' => 'Successfully', 'bank_gateway_url' => json_decode($payment)->action], 200);
         }
-    }
 
-    public function walletCallback(Request $request)
-    {
         try {
-            $user = auth('api')->user();
-            $authorityParameter = $request->Authority ?? $request->trackId;
-            $payment = Payment::where('resnumber', $authorityParameter)->firstOrFail();
-            $user = $payment->user;
-
-            $receipt = ShetabitPayment::via($payment->driver)->amount($payment->amount)->transactionId($authorityParameter)->verify();
-            $payment->update([
-                'status' => 1,
-                'tracking_number' => $receipt->getReferenceId(),
+            // ایجاد پرداخت با استفاده از PaymentService
+            $payment = $this->paymentService->createWalletPayment($user, [
+                'driver' => $request->input('gateway'),
+                'amount' => $request->input('amount'),
             ]);
 
-
-            do {
-                $walletReferenceId = random_int(1000000, 9999999);
-            } while (Wallet::where('reference_id', $walletReferenceId)->exists());
-            $wallet = $user->wallets()->create([
-                'description' => 'افزایش موجودی کیف پول',
-                'amount' => $payment->amount,
-                'after_balance' => $user->wallet_balance + $payment->amount,
-                'type' => 'increase',
-                'payment_id' => $payment->id,
-                'tracking_number' => $receipt->getReferenceId(),
-                'reference_id' => $walletReferenceId
+            // ایجاد PaymentAttempt
+            $attempt = $payment->attempts()->create([
+                'attempt_reference' => 'WALLET-' . now()->format('YmdHis') . '-' . Str::random(6),
+                'payment_uuid' => $payment->uuid,
+                'gateway' => $request->input('gateway'),
+                'status' => 'pending',
+                'request_payload' => json_encode([
+                    'amount' => $payment->amount,
+                    'callbackUrl' => route('api.payment.callback', $payment->uuid),
+                    'description' => 'افزایش موجودی کیف پول',
+                    'user_ip' => request()->ip(),
+                    'user_agent' => request()->userAgent(),
+                ]),
             ]);
 
-            $user->update([
-                'wallet_balance' => $wallet->after_balance,
-            ]);
-
-            return redirect(env("FRONT_APP_URL") . "/payment/receipt?referenceId={$payment->reference_id}&status=success");
-        } catch (InvalidPaymentException $exception) {
-            return redirect(env("FRONT_APP_URL") . "/payment/receipt?referenceId={$payment->reference_id}&status=failure");
+            // شروع پرداخت (استفاده از callback یکپارچه)
+            $response = $this->paymentService->startPurchase($payment, $attempt, route('api.payment.callback', $payment->uuid))->pay()->toJson();
+            
+            return response()->json([
+                'message' => 'Successfully', 
+                'payment_uuid' => $payment->uuid,
+                'bank_gateway_url' => json_decode($response)->action
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Error', 'error' => $e->getMessage()], 422);
         }
     }
+
 
     public function courses(Request $request)
     {

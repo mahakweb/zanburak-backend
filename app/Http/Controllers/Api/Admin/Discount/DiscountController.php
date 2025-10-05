@@ -88,7 +88,7 @@ class DiscountController extends Controller
             'eligibilities' => 'array',
             'eligibilities.*.type' => 'required_with:eligibilities|in:inclusion,exclusion',
             'eligibilities.*.target_type' => 'required_with:eligibilities|in:user,course,path,vip,category',
-            'eligibilities.*.target_id' => 'nullable|string',
+            'eligibilities.*.target_id' => 'nullable',
             'conditions' => 'array',
             'conditions.*.condition_type' => 'required_with:conditions|in:min_cart_total,max_cart_total,min_item_price,max_item_price,min_item_count,max_item_count,same_product_quantity,first_purchase,no_purchase_since,min_orders_count,max_orders_count,day_of_week,time_range,date_range,required_item,forbidden_item,required_category,forbidden_category,min_total_spent,max_total_spent,purchased_product_before,not_purchased_product_before,new_user',
             'conditions.*.operator' => 'nullable|in:=,!=,>,<,>=,<=',
@@ -192,7 +192,7 @@ class DiscountController extends Controller
             'eligibilities' => 'array',
             'eligibilities.*.type' => 'required_with:eligibilities|in:inclusion,exclusion',
             'eligibilities.*.target_type' => 'required_with:eligibilities|in:user,course,path,vip,category',
-            'eligibilities.*.target_id' => 'nullable|string',
+            'eligibilities.*.target_id' => 'nullable',
             'conditions' => 'array',
             'conditions.*.condition_type' => 'required_with:conditions|in:min_cart_total,max_cart_total,min_item_price,max_item_price,min_item_count,max_item_count,same_product_quantity,first_purchase,no_purchase_since,min_orders_count,max_orders_count,day_of_week,time_range,date_range,required_item,forbidden_item,required_category,forbidden_category,min_total_spent,max_total_spent,purchased_product_before,not_purchased_product_before,new_user',
             'conditions.*.operator' => 'nullable|in:=,!=,>,<,>=,<=',
@@ -346,6 +346,8 @@ class DiscountController extends Controller
                 return 'App\\Models\\Path'; 
             case 'category':
                 return 'App\\Models\\Category';
+            case 'vip':
+                return 'App\\Models\\Plan';
             default:
                 return null;
         }

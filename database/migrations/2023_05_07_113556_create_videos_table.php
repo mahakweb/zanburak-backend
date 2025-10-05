@@ -21,6 +21,8 @@ return new class extends Migration
             $table->enum('type', ['trailer', 'download', 'stream']);
             $table->string('path');
             $table->unique(['videoable_id', 'videoable_type', 'disk', 'type', 'path']);
+            $table->string('status', 20)->nullable();
+            $table->index('status', 'videos_status_index');
             $table->timestamps();
         });
     }

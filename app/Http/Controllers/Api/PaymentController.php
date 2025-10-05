@@ -80,7 +80,7 @@ class PaymentController extends Controller
 
 
         try {
-            $payment->visited_at == null;
+            $payment->visited_at = null;
             $payment->save();
 
             // fail all pending attempts
@@ -111,27 +111,45 @@ class PaymentController extends Controller
 
     public function callback(Request $request, $uuid)
     {
-        $payment = Payment::where('uuid', $uuid)->firstOrFail();
-        $result = $this->service->verify($payment);
+        try {
+            $payment = Payment::where('uuid', $uuid)->firstOrFail();
+            
+            // آپدیت PaymentAttempt قبل از تایید
+            $attempt = $payment->attempts()
+                ->where('created_at', '>=', now()->subHour())
+                ->latest()
+                ->first();
 
-        $attempt = $payment->attempts()
-            ->where('created_at', '>=', now()->subHour()) // because expired_at is 1 hour
-            ->latest()
-            ->firstOrFail();
+            if ($attempt) {
+                $attempt->update([
+                    'response_payload' => json_encode($request->all()),
+                ]);
+            }
 
-        $attempt->update([
-            'status' => $result['status'],
-            'response_payload' => json_encode($request->all()),
-        ]);
+            // تایید پرداخت (حالا خودکار تشخیص می‌دهد wallet یا cart)
+            $result = $this->service->verify($payment);
 
-        if ($result['status'] === 'paid') {
-            // $user = $payment->user;
-            // $user->carts()->whereIn('cartable_id', $payment->items->pluck('payable_id'))
-            //     ->whereIn('cartable_type', $payment->items->pluck('payable_type'))
-            //     ->delete();
+            // آپدیت وضعیت PaymentAttempt
+            if ($attempt) {
+                $attempt->update([
+                    'status' => $result['status'],
+                ]);
+            }
+
+            return redirect(env("FRONT_APP_URL") . "/payment/receipt/{$payment->uuid}");
+        } catch (\Exception $exception) {
+            // در صورت خطا، سعی کنیم payment را پیدا کنیم
+            try {
+                $payment = Payment::where('uuid', $uuid)->first();
+                if ($payment) {
+                    return redirect(env("FRONT_APP_URL") . "/payment/receipt/{$payment->uuid}");
+                }
+            } catch (\Exception $e) {
+                // اگر payment هم پیدا نشد
+            }
+            
+            return redirect(env("FRONT_APP_URL") . "/payment/receipt?status=failure");
         }
-
-        return redirect(env("FRONT_APP_URL") . "/payment/receipt/{$payment->uuid}");
     }
 
 

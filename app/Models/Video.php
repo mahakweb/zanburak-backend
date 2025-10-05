@@ -19,6 +19,7 @@ class Video extends Model
         'quality',
         'videoable_id',
         'videoable_type',
+        'status',
     ];
 
     public function getCascadeRelations(): array

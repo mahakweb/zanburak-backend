@@ -186,7 +186,6 @@ Route::middleware('auth:sanctum')->post('/payment/receipt/detail', [\App\Http\Co
 Route::middleware('auth:sanctum')->post('/panel/index', [\App\Http\Controllers\Api\PanelController::class, 'index']);
 Route::middleware('auth:sanctum')->post('/panel/financial', [\App\Http\Controllers\Api\PanelController::class, 'financial']);
 Route::middleware('auth:sanctum')->post('/panel/increase-wallet-balance', [\App\Http\Controllers\Api\PanelController::class, 'increamentWalletAmount']);
-Route::get('/panel/increase-wallet-balance/callback', [\App\Http\Controllers\Api\PanelController::class, 'walletCallback'])->name('api.wallet-callback');
 Route::middleware('auth:sanctum')->post('/panel/courses', [\App\Http\Controllers\Api\PanelController::class, 'courses']);
 Route::middleware('auth:sanctum')->post('/panel/missions', [\App\Http\Controllers\Api\PanelController::class, 'missions']);
 Route::middleware('auth:sanctum')->post('/panel/questions', [\App\Http\Controllers\Api\PanelController::class, 'questions']);
@@ -261,6 +260,7 @@ Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/dataForCreat
 Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/createNullEpisode', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'createNullEpisode']);
 Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/createEpisode', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'updateEpisode']);
 Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/episode/uploadAttachedFile', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'uploadAttachedFile']);
+Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/episode/status', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'episodeStatus']);
 Route::middleware('auth:sanctum')->post('/admin/course/layouts/getInitData', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'getInitData']);
 Route::middleware('auth:sanctum')->post('/admin/courses', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'courses']);
 Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/section/create', [\App\Http\Controllers\Api\Admin\Course\SectionController::class, 'createSection']);
