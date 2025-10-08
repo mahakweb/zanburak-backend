@@ -106,15 +106,29 @@ class DiscountService
 
         $cartSummary = $this->getCartSummary($user);
 
+        // Check if there are any user eligibilities
+        $userEligibilities = $discount->eligibilities->filter(function ($eligibility) {
+            return $this->normalizeTargetType($eligibility->target_type) === 'user';
+        });
+
+        // If there are user eligibilities, check if user is included
+        if ($userEligibilities->isNotEmpty()) {
+            $isUserIncluded = $userEligibilities->contains(function ($eligibility) use ($user) {
+                return $eligibility->type === 'inclusion' && $eligibility->target_id == $user->id;
+            });
+
+            if (!$isUserIncluded) {
+                throw new \Exception('این کد فقط برای کاربران مجاز تعریف شده است.');
+            }
+        }
+
         foreach ($discount->eligibilities as $eligibility) {
             $targetType = $this->normalizeTargetType($eligibility->target_type);
             
             switch ($targetType) {
 
                 case 'user':
-                    if ($eligibility->type === 'inclusion' && $eligibility->target_id != $user->id) {
-                        throw new \Exception('این کد فقط برای کاربر مجاز تعریف شده است.');
-                    }
+                    // Check if user is excluded
                     if ($eligibility->type === 'exclusion' && $eligibility->target_id == $user->id) {
                         throw new \Exception('این کد برای این کاربر غیرفعال است.');
                     }
@@ -344,15 +358,6 @@ class DiscountService
                     }
                     break;
 
-                case 'same_product_quantity':
-                    $productId = $extra['product_id'] ?? null;
-                    if ($productId) {
-                        $qty = collect($cartSummary['items'])->where('id', $productId)->count();
-                        if (!$this->compare($qty, $operator, $value)) {
-                            throw new \Exception('تعداد آیتم یکسان در سبد مطابق شرط نیست.');
-                        }
-                    }
-                    break;
 
                 /* ==============================
              * 3. کاربر
@@ -459,8 +464,8 @@ class DiscountService
              * 5. محصولات و دسته‌بندی‌ها
              * ============================== */
                 case 'required_item':
-                    $itemId = $value;
-                    $itemType = $condition->item_type; // course | path | vip | null
+                    $itemId = $condition->target_id; // Use target_id instead of value
+                    $itemType = $this->normalizeItemType($condition->item_type); // Normalize item_type
                     $exists = collect($cartSummary['items'])
                         ->contains(
                             fn($item) => (!$itemType || $item['type'] === $itemType) &&
@@ -474,8 +479,8 @@ class DiscountService
                     break;
 
                 case 'forbidden_item':
-                    $itemId = $value;
-                    $itemType = $condition->item_type; // course | path | vip | null
+                    $itemId = $condition->target_id; // Use target_id instead of value
+                    $itemType = $this->normalizeItemType($condition->item_type); // Normalize item_type
                     $exists = collect($cartSummary['items'])
                         ->contains(
                             fn($item) => (!$itemType || $item['type'] === $itemType) &&
@@ -532,23 +537,25 @@ class DiscountService
                     break;
 
                 case 'purchased_product_before':
-                    $itemType = $condition->item_type; // 'course', 'path', 'vip'
-                    $exists = $user->payments()->whereNotNull('paid_at')->where('status', true)->get()->contains(function ($payment) use ($value, $itemType) {
+                    $itemId = $condition->target_id; // Use target_id instead of value
+                    $itemType = $this->normalizeItemType($condition->item_type); // Normalize item_type
+                    $exists = $user->payments()->whereNotNull('paid_at')->where('status', true)->get()->contains(function ($payment) use ($itemId, $itemType) {
                         $item = $payment->payable;
-                        return ($itemType === 'course' && $item instanceof Course && $item->id == $value) ||
-                            ($itemType === 'path' && $item instanceof Path && $item->id == $value) ||
-                            ($itemType === 'vip' && $item instanceof Plan && $item->id == $value);
+                        return ($itemType === 'course' && $item instanceof Course && $item->id == $itemId) ||
+                            ($itemType === 'path' && $item instanceof Path && $item->id == $itemId) ||
+                            ($itemType === 'vip' && $item instanceof Plan && $item->id == $itemId);
                     });
                     if (!$exists) throw new \Exception('تا کنون این آیتم را خریداری نکرده‌اید.');
                     break;
 
                 case 'not_purchased_product_before':
-                    $itemType = $condition->item_type; // 'course', 'path', 'vip'
-                    $exists = $user->payments()->whereNotNull('paid_at')->where('status', true)->get()->contains(function ($payment) use ($value, $itemType) {
+                    $itemId = $condition->target_id; // Use target_id instead of value
+                    $itemType = $this->normalizeItemType($condition->item_type); // Normalize item_type
+                    $exists = $user->payments()->whereNotNull('paid_at')->where('status', true)->get()->contains(function ($payment) use ($itemId, $itemType) {
                         $item = $payment->payable;
-                        return ($itemType === 'course' && $item instanceof Course && $item->id == $value) ||
-                            ($itemType === 'path' && $item instanceof Path && $item->id == $value) ||
-                            ($itemType === 'vip' && $item instanceof Plan && $item->id == $value);
+                        return ($itemType === 'course' && $item instanceof Course && $item->id == $itemId) ||
+                            ($itemType === 'path' && $item instanceof Path && $item->id == $itemId) ||
+                            ($itemType === 'vip' && $item instanceof Plan && $item->id == $itemId);
                     });
                     if ($exists) throw new \Exception('پیش‌تر این آیتم را خریداری کرده‌اید.');
                     break;
@@ -616,5 +623,32 @@ class DiscountService
             'amount'        => $amount,
             'final_price'   => max(0, $originalPrice - $amount),
         ];
+    }
+
+    /**
+     * Normalize item type to handle both short names and full model names.
+     */
+    protected function normalizeItemType($itemType): ?string
+    {
+        if (!$itemType) {
+            return null;
+        }
+
+        // If it's already a short name, return as is
+        if (in_array($itemType, ['course', 'path', 'vip'])) {
+            return $itemType;
+        }
+
+        // Convert full model names to short names
+        switch ($itemType) {
+            case 'App\\Models\\Course':
+                return 'course';
+            case 'App\\Models\\Path':
+                return 'path';
+            case 'App\\Models\\Plan':
+                return 'vip';
+            default:
+                return $itemType;
+        }
     }
 }

@@ -13,6 +13,7 @@ class DiscountCondition extends Model
         'condition_type',
         'operator',
         'value',
+        'target_id',
         'extra'
     ];
 

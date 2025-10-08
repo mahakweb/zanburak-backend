@@ -6,6 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\Discount;
 use App\Models\DiscountEligibility;
 use App\Models\DiscountCondition;
+use App\Models\User;
+use App\Models\Course;
+use App\Models\Category;
+use App\Models\Path;
+use App\Models\Plan;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -28,7 +33,7 @@ class DiscountController extends Controller
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('code', 'LIKE', "%{$search}%")
-                  ->orWhere('title', 'LIKE', "%{$search}%");
+                    ->orWhere('title', 'LIKE', "%{$search}%");
             });
         }
 
@@ -90,10 +95,11 @@ class DiscountController extends Controller
             'eligibilities.*.target_type' => 'required_with:eligibilities|in:user,course,path,vip,category',
             'eligibilities.*.target_id' => 'nullable',
             'conditions' => 'array',
-            'conditions.*.condition_type' => 'required_with:conditions|in:min_cart_total,max_cart_total,min_item_price,max_item_price,min_item_count,max_item_count,same_product_quantity,first_purchase,no_purchase_since,min_orders_count,max_orders_count,day_of_week,time_range,date_range,required_item,forbidden_item,required_category,forbidden_category,min_total_spent,max_total_spent,purchased_product_before,not_purchased_product_before,new_user',
+            'conditions.*.condition_type' => 'required_with:conditions|in:min_cart_total,max_cart_total,min_item_price,max_item_price,min_item_count,max_item_count,first_purchase,no_purchase_since,min_orders_count,max_orders_count,day_of_week,time_range,date_range,required_item,forbidden_item,required_category,forbidden_category,min_total_spent,max_total_spent,purchased_product_before,not_purchased_product_before,new_user',
             'conditions.*.operator' => 'nullable|in:=,!=,>,<,>=,<=',
             'conditions.*.value' => 'nullable|numeric',
             'conditions.*.item_type' => 'nullable|in:course,path,vip',
+            'conditions.*.target_id' => 'nullable',
             'conditions.*.extra' => 'array',
         ]);
 
@@ -146,10 +152,11 @@ class DiscountController extends Controller
                     if (!empty($condition['condition_type'])) {
                         DiscountCondition::create([
                             'discount_id' => $discount->id,
-                            'item_type' => $condition['item_type'] ?? null,
+                            'item_type' => $this->getItemType($condition['item_type'] ?? null),
                             'condition_type' => $condition['condition_type'],
                             'operator' => $condition['operator'] ?? null,
                             'value' => $condition['value'] ?? null,
+                            'target_id' => $condition['target_id'] ?? null,
                             'extra' => $condition['extra'] ?? [],
                         ]);
                     }
@@ -162,7 +169,6 @@ class DiscountController extends Controller
                 'message' => 'Discount code created successfully',
                 'discount' => $discount->load(['eligibilities', 'conditions'])
             ], 201);
-
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
@@ -194,10 +200,11 @@ class DiscountController extends Controller
             'eligibilities.*.target_type' => 'required_with:eligibilities|in:user,course,path,vip,category',
             'eligibilities.*.target_id' => 'nullable',
             'conditions' => 'array',
-            'conditions.*.condition_type' => 'required_with:conditions|in:min_cart_total,max_cart_total,min_item_price,max_item_price,min_item_count,max_item_count,same_product_quantity,first_purchase,no_purchase_since,min_orders_count,max_orders_count,day_of_week,time_range,date_range,required_item,forbidden_item,required_category,forbidden_category,min_total_spent,max_total_spent,purchased_product_before,not_purchased_product_before,new_user',
+            'conditions.*.condition_type' => 'required_with:conditions|in:min_cart_total,max_cart_total,min_item_price,max_item_price,min_item_count,max_item_count,first_purchase,no_purchase_since,min_orders_count,max_orders_count,day_of_week,time_range,date_range,required_item,forbidden_item,required_category,forbidden_category,min_total_spent,max_total_spent,purchased_product_before,not_purchased_product_before,new_user',
             'conditions.*.operator' => 'nullable|in:=,!=,>,<,>=,<=',
             'conditions.*.value' => 'nullable|numeric',
             'conditions.*.item_type' => 'nullable|in:course,path,vip',
+            'conditions.*.target_id' => 'nullable',
             'conditions.*.extra' => 'array',
         ]);
 
@@ -254,10 +261,11 @@ class DiscountController extends Controller
                     if (!empty($condition['condition_type'])) {
                         DiscountCondition::create([
                             'discount_id' => $discount->id,
-                            'item_type' => $condition['item_type'] ?? null,
+                            'item_type' => $this->getItemType($condition['item_type'] ?? null),
                             'condition_type' => $condition['condition_type'],
                             'operator' => $condition['operator'] ?? null,
                             'value' => $condition['value'] ?? null,
+                            'target_id' => $condition['target_id'] ?? null,
                             'extra' => $condition['extra'] ?? [],
                         ]);
                     }
@@ -270,7 +278,6 @@ class DiscountController extends Controller
                 'message' => 'Discount code updated successfully',
                 'discount' => $discount->load(['eligibilities', 'conditions'])
             ], 200);
-
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
@@ -300,7 +307,7 @@ class DiscountController extends Controller
     public function destroy($id)
     {
         $discount = Discount::findOrFail($id);
-        
+
         // Check if discount has been used
         if ($discount->usages()->count() > 0) {
             return response()->json([
@@ -313,7 +320,7 @@ class DiscountController extends Controller
             // Delete related records
             $discount->eligibilities()->delete();
             $discount->conditions()->delete();
-            
+
             // Delete the discount
             $discount->delete();
 
@@ -322,7 +329,6 @@ class DiscountController extends Controller
             return response()->json([
                 'message' => 'Discount code deleted successfully'
             ], 200);
-
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
@@ -343,9 +349,175 @@ class DiscountController extends Controller
             case 'course':
                 return 'App\\Models\\Course';
             case 'path':
-                return 'App\\Models\\Path'; 
+                return 'App\\Models\\Path';
             case 'category':
                 return 'App\\Models\\Category';
+            case 'vip':
+                return 'App\\Models\\Plan';
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Search for discount eligibility targets
+     */
+    public function search(Request $request)
+    {
+        $search = $request->input('search');
+        $type = $request->input('type'); // user, course, path, vip, category
+        $limit = $request->input('limit', 10);
+
+        if (!$search || strlen($search) < 2) {
+            return response()->json([
+                'data' => [],
+            ], 200);
+        }
+
+        switch ($type) {
+            case 'user':
+                return $this->searchUsers($search, $limit);
+            case 'course':
+                return $this->searchCourses($search, $limit);
+            case 'path':
+                return $this->searchPaths($search, $limit);
+            case 'vip':
+                return $this->searchVips($search, $limit);
+            case 'category':
+                return $this->searchCategories($search, $limit);
+            default:
+                return response()->json([
+                    'data' => [],
+                ], 200);
+        }
+    }
+
+    private function searchUsers($search, $limit)
+    {
+        $users = User::query()
+            ->where('id', '=', $search)
+            ->orWhere('first_name', 'LIKE', "%{$search}%")
+            ->orWhere('last_name', 'LIKE', "%{$search}%")
+            ->orWhere('username', 'LIKE', "%{$search}%")
+            ->orWhere('email', 'LIKE', "%{$search}%")
+            ->limit($limit)
+            ->get(['id', 'first_name', 'last_name', 'username', 'email']);
+
+        $data = $users->map(function ($user) {
+            return [
+                'id' => $user->id,
+                'first_name' => $user->first_name,
+                'last_name' => $user->last_name,
+                'username' => $user->username,
+                'email' => $user->email,
+            ];
+        });
+
+        return response()->json(['data' => $data], 200);
+    }
+
+    private function searchCourses($search, $limit)
+    {
+        $courses = Course::query()
+            ->where('id', '=', $search)
+            ->orWhere('title', 'LIKE', "%{$search}%")
+            ->orWhere('english_title', 'LIKE', "%{$search}%")
+            ->orWhere('short_description', 'LIKE', "%{$search}%")
+            ->orWhere('description', 'LIKE', "%{$search}%")
+            ->limit($limit)
+            ->get(['id', 'title', 'english_title', 'slug', 'short_description', 'description']);
+
+        $data = $courses->map(function ($course) {
+            return [
+                'id' => $course->id,
+                'title' => $course->title,
+                'english_title' => $course->english_title,
+                'short_description' => $course->short_description,
+                'description' => $course->description,
+                'slug' => $course->slug,
+            ];
+        });
+
+        return response()->json(['data' => $data], 200);
+    }
+
+    private function searchPaths($search, $limit)
+    {
+        $paths = Path::query()
+            ->where('id', '=', $search)
+            ->orWhere('title', 'LIKE', "%{$search}%")
+            ->orWhere('english_title', 'LIKE', "%{$search}%")
+            ->orWhere('short_description', 'LIKE', "%{$search}%")
+            ->orWhere('description', 'LIKE', "%{$search}%")
+            ->limit($limit)
+            ->get(['id', 'title', 'english_title', 'slug', 'short_description', 'description']);
+
+        $data = $paths->map(function ($path) {
+            return [
+                'id' => $path->id,
+                'title' => $path->title,
+                'english_title' => $path->english_title,
+                'short_description' => $path->short_description,
+                'description' => $path->description,
+                'slug' => $path->slug,
+            ];
+        });
+
+        return response()->json(['data' => $data], 200);
+    }
+
+    private function searchVips($search, $limit)
+    {
+        $vips = Plan::query()
+            ->where('id', '=', $search)
+            ->orWhere('title', 'LIKE', "%{$search}%")
+            ->orWhere('english_title', 'LIKE', "%{$search}%")
+            ->orWhere('description', 'LIKE', "%{$search}%")->limit($limit)
+            ->get(['id', 'title', 'english_title', 'description']);
+
+        $data = $vips->map(function ($vip) {
+            return [
+                'id' => $vip->id,
+                'title' => $vip->title,
+                'english_title' => $vip->english_title,
+                'description' => $vip->description,
+            ];
+        });
+
+        return response()->json(['data' => $data], 200);
+    }
+
+    private function searchCategories($search, $limit)
+    {
+        $categories = Category::query()
+            ->where('id', '=', $search)
+            ->orWhere('title', 'LIKE', "%{$search}%")
+            ->orWhere('english_title', 'LIKE', "%{$search}%")
+            ->limit($limit)
+            ->get(['id', 'title', 'english_title', 'slug']);
+
+        $data = $categories->map(function ($category) {
+            return [
+                'id' => $category->id,
+                'title' => $category->title,
+                'english_title' => $category->english_title,
+                'slug' => $category->slug,
+            ];
+        });
+
+        return response()->json(['data' => $data], 200);
+    }
+
+    /**
+     * Get item type based on condition item type
+     */
+    private function getItemType($type)
+    {
+        switch ($type) {
+            case 'course':
+                return 'App\\Models\\Course';
+            case 'path':
+                return 'App\\Models\\Path';
             case 'vip':
                 return 'App\\Models\\Plan';
             default:

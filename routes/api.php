@@ -290,6 +290,9 @@ Route::middleware('auth:sanctum')->post('/admin/discount/create', [\App\Http\Con
 Route::middleware('auth:sanctum')->put('/admin/discount/{id}', [\App\Http\Controllers\Api\Admin\Discount\DiscountController::class, 'update']);
 Route::middleware('auth:sanctum')->post('/admin/discount/{id}/toggle-status', [\App\Http\Controllers\Api\Admin\Discount\DiscountController::class, 'toggleStatus']);
 Route::middleware('auth:sanctum')->delete('/admin/discount/{id}', [\App\Http\Controllers\Api\Admin\Discount\DiscountController::class, 'destroy']);
+
+// Search route for discount eligibility
+Route::middleware('auth:sanctum')->get('/admin/discount/search/eligibility', [\App\Http\Controllers\Api\Admin\Discount\DiscountController::class, 'search']);
 // end admin routes
 
 Route::get('episode/{episode}/playlist', [\App\Http\Controllers\Api\VideoController::class, 'episodeVideo'])->name('api.episode-video');

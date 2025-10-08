@@ -170,14 +170,18 @@ class CourseController extends Controller
             ->where('type', 'raw')
             ->first();
 
-        $trailer = null;
+        $trailerUrl = null;
+        $trailerStatus = null;
+        $trailerVideoId = null;
         if ($rawTrailer) {
-            $processedTrailer = $course->videos->where('type', 'trailer')->first();
-            $trailer = [
-                'url' => Storage::disk($rawTrailer->disk)->url($rawTrailer->path),
-                'processed' => $processedTrailer ? true : false,
-                'video_id' => $processedTrailer ? $processedTrailer->id : $rawTrailer->id,
-            ];
+            $diskUrl = config("filesystems.disks.{$rawTrailer->disk}.url");
+            if ($diskUrl) {
+                $trailerUrl = rtrim($diskUrl, '/') . '/' . ltrim($rawTrailer->path, '/');
+            } else {
+                $trailerUrl = $rawTrailer->path;
+            }
+            $trailerStatus = $rawTrailer->status ?? 'queued';
+            $trailerVideoId = $rawTrailer->id;
         }
 
 
@@ -343,7 +347,9 @@ class CourseController extends Controller
             'end_date' => $course->end_date,
             'teacher' => $teacher,
             'attach' => $attach,
-            'trailer' => $trailer,
+            'trailer' => $trailerUrl,
+            'trailer_status' => $trailerStatus,
+            'trailer_video_id' => $trailerVideoId,
             'recent_activities' => [
                 'comments' => $recentComments,
                 'registrations' => $recentRegistrations,
@@ -354,7 +360,20 @@ class CourseController extends Controller
             'created_at' => $course->created_at,
             'updated_at' => $course->updated_at,
         ];
-        return response()->json(['message' => 'Success', 'course' => $response], 200);
+
+        $extra = [];
+        if ((bool) $request->input('get_worker_credentials')) {
+            $claims = [
+                'type' => 'video',
+                'courseId' => $course->id,
+                'userId' => optional(auth('api')->user())->id,
+            ];
+            $tokenData = UploadTokenService::generate($claims);
+            $extra['worker_token'] = $tokenData['token'];
+            $extra['worker_origin'] = rtrim(config('upload.worker_base_url'), '/');
+        }
+
+        return response()->json(array_merge(['message' => 'Success', 'course' => $response], $extra), 200);
     }
 
     public function comments(Request $request, $course)
