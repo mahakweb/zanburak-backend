@@ -6,6 +6,7 @@ use App\Models\Course;
 use App\Models\Episode;
 use App\Models\Path;
 use App\Models\Question;
+use App\Models\Section;
 use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Support\Providers\RouteServiceProvider as ServiceProvider;
@@ -50,6 +51,10 @@ class RouteServiceProvider extends ServiceProvider
 
         Route::bind('courseSlug', function ($value) {
             return Course::where('slug', $value)->firstOrFail();
+        });
+
+        Route::bind('sectionSlug', function ($value) {
+            return Section::where('slug', $value)->firstOrFail();
         });
 
         Route::bind('episodeSlug', function ($value) {

@@ -17,7 +17,7 @@ return new class extends Migration
             $table->id();
             $table->unsignedBigInteger('path_id');
             $table->unsignedBigInteger('related_path_id');
-            $table->enum('type', ['prerequisite', 'next'])->comment('Relation type: prerequisite or next');
+            $table->enum('type', ['prerequisite', 'corequisite', 'next'])->comment('Relation type: prerequisite, corequisite, or next');
             $table->timestamps();
 
             $table->foreign('path_id')->references('id')->on('paths')->onDelete('cascade')->onUpdate('cascade');

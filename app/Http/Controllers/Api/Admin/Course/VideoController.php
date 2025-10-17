@@ -108,5 +108,6 @@ class VideoController extends Controller
         // File removal will be handled by the worker.
         return;
     }
+
 }
 

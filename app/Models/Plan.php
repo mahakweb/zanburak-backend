@@ -31,4 +31,11 @@ class Plan extends Model
     {
         return $this->belongsToMany(User::class)->withPivot(["payment_id", "tracking_number", "price", "status", "started_at", "expired_at"]);
     }
+
+    public function activeUsers()
+    {
+        return $this->belongsToMany(User::class)
+            ->withPivot(["payment_id", "tracking_number", "price", "status", "started_at", "expired_at"])
+            ->wherePivot('expired_at', '>', now());
+    }
 }

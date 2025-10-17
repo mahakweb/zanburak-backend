@@ -11,9 +11,8 @@ class Payment extends Model
     use HasFactory;
     protected $fillable = [
         'user_id',
-        // 'type',
-        // 'payment_info',
         'driver',
+        'payment_method',
         'resnumber',
         'amount',
         'discount_amount',
@@ -63,10 +62,6 @@ class Payment extends Model
         return $this->hasMany(PaymentItem::class);
     }
 
-    public function logs()
-    {
-        return $this->hasMany(PaymentLog::class);
-    }
 
     public function attempts()
     {

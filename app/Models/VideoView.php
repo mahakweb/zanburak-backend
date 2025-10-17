@@ -104,6 +104,7 @@ class VideoView extends Model
                         $watchedTimeInSeconds = self::getWatchedTimeForUserInCurrentPeriod($userId, $period, $video->id);
                         $watchedDuration += $watchedTimeInSeconds;
                     }
+                    // Skip episodes without stream videos (not processed yet)
                 }
             }
         }
@@ -126,7 +127,12 @@ class VideoView extends Model
 
         $video = $episode->videos()->where('type', 'stream')->first();
         if (!$video) {
-            throw new \Exception("Video not found");
+            // Return default values when video is not processed yet
+            return [
+                'video_duration' => 0,
+                'watched_duration' => 0,
+                'progress_percentage' => 0,
+            ];
         }
 
         $videoDuration = $video->duration;
@@ -150,7 +156,8 @@ class VideoView extends Model
 
         $video = $episode->videos()->where('type', 'stream')->first();
         if (!$video) {
-            throw new \Exception("Video not found");
+            // Return false when video is not processed yet
+            return false;
         }
 
         $watched = VideoView::where('user_id', $userId)

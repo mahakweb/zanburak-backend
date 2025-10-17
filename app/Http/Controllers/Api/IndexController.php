@@ -93,7 +93,7 @@ class IndexController extends Controller
             'trailer' => $path->trailer,
             'description' => $path->description,
             'short_description' => $path->short_description,
-            'faqs' => json_decode($path->faqs, true),
+            'faqs' => $path->faqs,
             'user_courseIds' => $userCourseIds,
             'user_courseIds_inCart' => $courseIdsInCart,
             'available_courses' => $availableCourses->map->only(['id', 'title', 'english_title', 'short_description', 'profile_pic', 'type', 'poster'])->values(),

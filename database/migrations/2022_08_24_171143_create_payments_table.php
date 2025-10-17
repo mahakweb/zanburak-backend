@@ -20,6 +20,7 @@ return new class extends Migration
             $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade')->onUpdate('cascade');
             // $table->enum('type', ['wallet', 'course', 'vip', 'path']);
             // $table->json('payment_info')->nullable();
+            $table->enum('payment_method', ['wallet', 'bank'])->default('wallet');
             $table->string('driver')->nullable();
             $table->string('tracking_number')->nullable();
             $table->string('reference_id')->nullable();

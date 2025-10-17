@@ -60,6 +60,25 @@ class EpisodeController extends Controller
 
         View::createFor($episode);
 
+        // Get video processing status
+        $rawVideo = $episode->videos->where('type', 'raw')->first();
+        $streamVideo = $episode->videos->where('type', 'stream')->first();
+        
+        $videoStatus = null;
+        $videoId = null;
+        $isVideoProcessed = false;
+        
+        if ($rawVideo) {
+            $videoStatus = $rawVideo->status ?? 'queued';
+            $videoId = $rawVideo->id;
+            $isVideoProcessed = $videoStatus === 'processed';
+        }
+        
+        // Add video processing info to episode
+        $episode->video_status = $videoStatus;
+        $episode->video_id = $videoId;
+        $episode->is_video_processed = $isVideoProcessed;
+
         if ($user) {
             // پیشرفت کاربر در دوره
             $progress = VideoView::getCourseProgressForUser($user->id, $course->id, 'all');
@@ -73,28 +92,36 @@ class EpisodeController extends Controller
 
             // بررسی وضعیت تماشای ویدیو
             $episode_video = $episode->videos()->where('type', 'stream')->first();
-            $videoViews = $user->videoViews()->where('video_id', $episode_video->id)->get();
+            
+            if ($episode_video) {
+                $videoViews = $user->videoViews()->where('video_id', $episode_video->id)->get();
 
-            if ($videoViews->isNotEmpty()) {
-                $allWatchedTimes = [];
-                $lastPosition = null;
-                $fullWatched = 0;
+                if ($videoViews->isNotEmpty()) {
+                    $allWatchedTimes = [];
+                    $lastPosition = null;
+                    $fullWatched = 0;
 
-                foreach ($videoViews as $view) {
-                    $watchedTimes = json_decode($view->watched_times, true);
-                    if ($watchedTimes) {
-                        $allWatchedTimes = array_merge($allWatchedTimes, $watchedTimes);
+                    foreach ($videoViews as $view) {
+                        $watchedTimes = json_decode($view->watched_times, true);
+                        if ($watchedTimes) {
+                            $allWatchedTimes = array_merge($allWatchedTimes, $watchedTimes);
+                        }
+                        $lastPosition = $view->last_position;
+                        $fullWatched = $view->watched;
                     }
-                    $lastPosition = $view->last_position;
-                    $fullWatched = $view->watched;
+
+                    $allWatchedTimes = array_unique($allWatchedTimes);
+                    sort($allWatchedTimes);
+
+                    $episode['watchedTimes'] = json_encode($allWatchedTimes);
+                    $episode['lastPosition'] = $lastPosition;
+                    $episode['watched'] = $fullWatched;
                 }
-
-                $allWatchedTimes = array_unique($allWatchedTimes);
-                sort($allWatchedTimes);
-
-                $episode['watchedTimes'] = json_encode($allWatchedTimes);
-                $episode['lastPosition'] = $lastPosition;
-                $episode['watched'] = $fullWatched;
+            } else {
+                // Set default values when video is not processed yet
+                $episode['watchedTimes'] = json_encode([]);
+                $episode['lastPosition'] = 0;
+                $episode['watched'] = false;
             }
         }
 
@@ -179,5 +206,6 @@ class EpisodeController extends Controller
             return response()->json(['message' => 'An error occurred while processing your request', 'error' => $e->getMessage()], 500);
         }
     }
+
 
 }

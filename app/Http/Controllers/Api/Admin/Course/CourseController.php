@@ -645,6 +645,8 @@ class CourseController extends Controller
             'level_id' => ['required', 'exists:levels,id'],
             'type' => ['required', 'in:free,cash,cash-vip'],
             'categories' => ['required', 'array'],
+            'paths' => ['nullable', 'array'],
+            'paths.*' => ['exists:paths,id'],
             'tags' => ['nullable', 'array'],
             'title' => ['required', 'min:10', 'max:255', 'unique:courses,title'],
             'english_title' => ['required', 'min:10', 'max:255', 'regex:/^[~`!@#$%^&*()_+=[\]\\{}|;":",.\/<>?a-zA-Z0-9- ]+$/', 'unique:courses,english_title'],
@@ -664,6 +666,11 @@ class CourseController extends Controller
             $course = $user->addCourse()->create($validData);
             $course->category()->attach($request['categories']);
 
+            // Attach paths if provided
+            if (!empty($request['paths'])) {
+                $course->paths()->attach($request['paths']);
+            }
+
             $tags = is_string($request->tags) ? json_decode($request->tags, true) : $request->tags;
 
             foreach ($tags as $tag) {
@@ -678,7 +685,7 @@ class CourseController extends Controller
     public function edit(Request $request)
     {
         $slug = $request->slug;
-        $course = Course::with(['category', 'tags', 'level', 'status', 'videos'])->where('slug', $slug)->first();
+        $course = Course::with(['category', 'tags', 'level', 'status', 'videos', 'paths'])->where('slug', $slug)->first();
 
         if (!$course) {
             return response()->json(['message' => 'Error! course not found'], 404);
@@ -711,6 +718,13 @@ class CourseController extends Controller
         // ]);
 
         $tags = $course->tags->pluck('name');
+
+        $paths = $course->paths->map(fn($path) => [
+            'id' => $path->id,
+            'title' => $path->title,
+            'english_title' => $path->english_title,
+            'slug' => $path->slug,
+        ]);
 
         $rawTrailer = $course->videos
             ->where('type', 'raw')
@@ -749,6 +763,7 @@ class CourseController extends Controller
             'start_date' => $course->start_date,
             'end_date' => $course->end_date,
             'categories' => $categories,
+            'paths' => $paths,
             'tags' => $tags,
             'level' => $level,
             'status' => $status,
@@ -777,6 +792,8 @@ class CourseController extends Controller
             'level_id' => ['required', 'exists:levels,id'],
             'type' => ['required', 'in:free,cash,cash-vip'],
             'categories' => ['required', 'array'],
+            'paths' => ['nullable', 'array'],
+            'paths.*' => ['exists:paths,id'],
             'tags' => ['nullable', 'array'],
             'title' => ['required', 'min:10', 'max:255', Rule::unique('courses', 'title')->ignore($course->id)],
             'english_title' => ['required', 'min:10', 'max:255', 'regex:/^[~`!@#$%^&*()_+=[\]\\{}|;":",.\/<>?a-zA-Z0-9- ]+$/', Rule::unique('courses', 'english_title')->ignore($course->id)],
@@ -793,6 +810,12 @@ class CourseController extends Controller
             $validData = $validator->validated();
             $course->update($validData);
             $course->category()->sync($validData['categories']);
+            
+            // Sync paths if provided
+            if (isset($validData['paths'])) {
+                $course->paths()->sync($validData['paths']);
+            }
+            
             $course->retag($validData['tags']);
 
             return response()->json(['message' => "Course updated successfully", 'course' => $course], 200);
@@ -878,6 +901,8 @@ class CourseController extends Controller
             if (!$course) {
                 return response()->json(['message' => 'Error! course not found'], 404);
             }
+
+
             $disk = 'static';
             $folder = "attach/" . date('Y/m/d');
             $ext = pathinfo($validData['filename'], PATHINFO_EXTENSION);
@@ -942,6 +967,9 @@ class CourseController extends Controller
                 }
             }
             $course->videos()->delete();
+            
+            // Note: Course total_time is calculated automatically from episodes
+            // No need to update course total_time as it's computed dynamically
         }
     }
 

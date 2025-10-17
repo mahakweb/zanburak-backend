@@ -169,6 +169,7 @@ Route::middleware('auth:sanctum')->prefix('cart')->group(function () {
     Route::delete('/clear', [\App\Http\Controllers\Api\CartController::class, 'clear']);
     Route::post('/discount/apply', [\App\Http\Controllers\Api\DiscountController::class, 'applyDiscount']);
     Route::post('/discount/remove', [\App\Http\Controllers\Api\DiscountController::class, 'removeDiscount']);
+    Route::post('/cart/validate-discount', [\App\Http\Controllers\Api\DiscountController::class, 'validateDiscount']);
 });
 
 Route::middleware('auth:sanctum')->group(function () {
@@ -216,7 +217,51 @@ Route::middleware('auth:sanctum')->post('/panel/access-tokens/terminateAll', [\A
 
 
 
-// video routes
+// Admin Payment Management Routes
+Route::middleware('auth:sanctum')->prefix('admin/payments')->group(function () {
+    Route::post('/', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'payments']);
+    Route::get('/stats', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'paymentStats']);
+    Route::get('/export', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'exportPayments']);
+    Route::get('/{uuid}/details', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'paymentDetails']);
+    Route::post('/{uuid}/update-status', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'updatePaymentStatus']);
+    Route::delete('/{uuid}/delete', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'deletePayment']);
+    
+    // Payment creation routes
+    Route::post('/create', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'createPayment']);
+    Route::get('/search', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'search']);
+    Route::get('/users', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'getUsers']);
+    Route::get('/courses', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'getCourses']);
+    Route::get('/plans', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'getPlans']);
+    Route::get('/paths', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'getPaths']);
+});
+
+// Admin Plan Management Routes
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/admin/plans', [\App\Http\Controllers\Api\Admin\PlanController::class, 'plans']);
+    Route::post('/admin/plan/create', [\App\Http\Controllers\Api\Admin\PlanController::class, 'store']);
+    Route::get('/admin/plan/{plan}', [\App\Http\Controllers\Api\Admin\PlanController::class, 'show']);
+    Route::post('/admin/plan/{plan}/update', [\App\Http\Controllers\Api\Admin\PlanController::class, 'update']);
+    Route::delete('/admin/plan/{plan}', [\App\Http\Controllers\Api\Admin\PlanController::class, 'destroy']);
+
+    // Admin Projects Management Routes
+    Route::post('/admin/projects', [\App\Http\Controllers\Api\Admin\ProjectController::class, 'index']);
+    Route::get('/admin/projects/{project}', [\App\Http\Controllers\Api\Admin\ProjectController::class, 'show']);
+    Route::post('/admin/projects/{project}/update', [\App\Http\Controllers\Api\Admin\ProjectController::class, 'update']);
+    Route::delete('/admin/projects/{project}', [\App\Http\Controllers\Api\Admin\ProjectController::class, 'destroy']);
+
+    // Admin Paths Management Routes
+    Route::post('/admin/paths', [\App\Http\Controllers\Api\Admin\PathController::class, 'paths']);
+    Route::post('/admin/path/create', [\App\Http\Controllers\Api\Admin\PathController::class, 'store']);
+    Route::get('/admin/path/{path:slug}/edit', [\App\Http\Controllers\Api\Admin\PathController::class, 'edit']);
+    Route::patch('/admin/path/{path:slug}/update', [\App\Http\Controllers\Api\Admin\PathController::class, 'update']);
+    Route::delete('/admin/path/{path:slug}', [\App\Http\Controllers\Api\Admin\PathController::class, 'destroy']);
+    Route::post('/admin/path/removeFile', [\App\Http\Controllers\Api\Admin\PathController::class, 'removeFile']);
+    Route::get('/admin/path/search/courses', [\App\Http\Controllers\Api\Admin\PathController::class, 'searchCourses']);
+    Route::get('/admin/path/search/paths', [\App\Http\Controllers\Api\Admin\PathController::class, 'searchPaths']);
+    Route::post('/admin/path/uploadPoster', [\App\Http\Controllers\Api\Admin\PathController::class, 'uploadPoster']);
+    Route::post('/admin/path/uploadIcon', [\App\Http\Controllers\Api\Admin\PathController::class, 'uploadIcon']);
+    Route::post('/admin/path/uploadTrailer', [\App\Http\Controllers\Api\Admin\PathController::class, 'uploadTrailer']);
+});
 
 // start admin routes
 Route::middleware('auth:sanctum')->post('/admin/users', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'users']);
@@ -259,8 +304,11 @@ Route::middleware('auth:sanctum')->post('/admin/searchUser', [\App\Http\Controll
 Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/dataForCreateEpisode', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'createEpisodeData']);
 Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/createNullEpisode', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'createNullEpisode']);
 Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/createEpisode', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'updateEpisode']);
+Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/updateEpisode', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'updateEpisode']);
+Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/section/{sectionSlug}/episode/{episodeSlug}/edit', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'getEpisodeForEdit']);
 Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/episode/uploadAttachedFile', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'uploadAttachedFile']);
 Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/episode/status', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'episodeStatus']);
+Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/episode/removeFile', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'removeFile']);
 Route::middleware('auth:sanctum')->post('/admin/course/layouts/getInitData', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'getInitData']);
 Route::middleware('auth:sanctum')->post('/admin/courses', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'courses']);
 Route::middleware('auth:sanctum')->post('/admin/course/{courseSlug}/section/create', [\App\Http\Controllers\Api\Admin\Course\SectionController::class, 'createSection']);
@@ -321,5 +369,7 @@ Route::middleware('auth:sanctum')->post('/chat/@{username}/send-message', [\App\
 Route::middleware('auth:sanctum')->post('/chat/mark-as-read/@{username}', [\App\Http\Controllers\Api\Chat\ChatController::class, 'markAsRead']);
 Route::middleware('auth:sanctum')->post('/chat/delete-message/{message}', [\App\Http\Controllers\Api\Chat\ChatController::class, 'deleteMessage']);
 Route::middleware('auth:sanctum')->post('/chat/edit-message/{message}', [\App\Http\Controllers\Api\Chat\ChatController::class, 'editMessage']);
+
+
 
 Broadcast::routes(['middleware' => 'auth:sanctum']);

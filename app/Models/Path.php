@@ -37,6 +37,11 @@ class Path extends Model
         ];
     }
 
+    public function videos()
+    {
+        return $this->morphMany(Video::class, 'videoable');
+    }
+
     public function comments()
     {
         return $this->morphMany(Comment::class, 'commentable');
@@ -66,6 +71,21 @@ class Path extends Model
             'path_id',
             'related_path_id'
         )->wherePivot('type', 'next');
+    }
+
+    public function automationRules()
+    {
+        return $this->hasMany(PathAutomationRule::class);
+    }
+
+    public function corequisites()
+    {
+        return $this->belongsToMany(
+            Path::class,
+            'path_relations',
+            'path_id',
+            'related_path_id'
+        )->wherePivot('type', 'corequisite');
     }
 
     public function prerequisiteFor()

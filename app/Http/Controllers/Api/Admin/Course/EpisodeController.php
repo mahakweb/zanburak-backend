@@ -55,6 +55,98 @@ class EpisodeController extends Controller
         ], 200);
     }
 
+    public function getEpisodeForEdit(Course $course, Section $section, Episode $episode)
+    {
+        // Verify the episode belongs to the section and course
+        if ($episode->section_id !== $section->id || $section->course_id !== $course->id) {
+            return response()->json(['message' => 'Episode not found in this course section'], 404);
+        }
+
+        // Load episode with videos and attachments
+        $episode->load(['videos', 'attachs']);
+
+        // Load course with all sections and episodes for ordering context
+        $course->load([
+            'section.episode' => function ($query) {
+                $query->select('id', 'section_id', 'title', 'slug', 'order')->orderBy('order');
+            }
+        ]);
+
+        // Get episode video data (similar to course trailer)
+        $rawVideo = $episode->videos
+            ->where('type', 'raw')
+            ->first();
+
+        $videoUrl = null;
+        $videoStatus = null;
+        $videoId = null;
+        if ($rawVideo) {
+            $diskUrl = config("filesystems.disks.{$rawVideo->disk}.url");
+            if ($diskUrl) {
+                $videoUrl = rtrim($diskUrl, '/') . '/' . ltrim($rawVideo->path, '/');
+            } else {
+                $videoUrl = $rawVideo->path;
+            }
+            $videoStatus = $rawVideo->status ?? 'queued';
+            $videoId = $rawVideo->id;
+        }
+
+        // Get episode attachment data
+        $rowAttach = $episode->attachs->first();
+        $attach = null;
+        if ($rowAttach) {
+            $attach = [
+                'url' => $rowAttach->url,
+                'size' => $this->urlDetails($rowAttach->url)['size']
+            ];
+        }
+
+        return response()->json([
+            'message' => 'Success',
+            'episode' => [
+                'id' => $episode->id,
+                'title' => $episode->title,
+                'english_title' => $episode->english_title,
+                'slug' => $episode->slug,
+                'description' => $episode->description,
+                'order' => $episode->order,
+                'publish' => $episode->publish,
+                'lock' => $episode->lock,
+                'publish_date' => $episode->publish_date,
+                'section_id' => $episode->section_id,
+                'video' => $videoUrl,
+                'video_status' => $videoStatus,
+                'video_id' => $videoId,
+                'attach' => $attach,
+            ],
+            'course' => [
+                'id' => $course->id,
+                'title' => $course->title,
+                'english_title' => $course->english_title,
+                'slug' => $course->slug,
+                'poster' => $course->poster,
+                'type' => $course->type,
+                'sections' => $course->section->map(function ($section) {
+                    return [
+                        'id' => $section->id,
+                        'title' => $section->title,
+                        'english_title' => $section->english_title,
+                        'slug' => $section->slug,
+                        'episodes' => $section->episode->map(function ($ep) {
+                            return [
+                                'id' => $ep->id,
+                                'title' => $ep->title,
+                                'english_title' => $ep->english_title,
+                                'slug' => $ep->slug,
+                                'order' => $ep->order,
+                            ];
+                        })
+                    ];
+                }),
+            ]
+        ], 200);
+    }
+
     public function createNullEpisode(Request $request, Course $course)
     {
         $validator = Validator::make($request->all(), [
@@ -82,7 +174,6 @@ class EpisodeController extends Controller
             return response()->json(['message' => 'Success', 'episode' => $episode], 200);
         }
     }
-
 
     public function updateEpisode(Request $request, Course $course)
     {
@@ -119,13 +210,12 @@ class EpisodeController extends Controller
                     $this->reorderCourseEpisodes($course->id);
                 // }
 
-                return response()->json(['message' => 'Success, episode created successfully.'], 200);
+                return response()->json(['message' => 'Success, episode updated successfully.'], 200);
             }
 
 
         }
     }
-
 
     protected function validateEpisodeOrder(int $sectionId, int $order): array
     {
@@ -160,7 +250,6 @@ class EpisodeController extends Controller
         return [$minOrder, $maxOrder];
     }
 
-
     protected function reorderCourseEpisodes(int $courseId): void
     {
         $episodes = Episode::whereHas('section', fn($q) => $q->where('course_id', $courseId))
@@ -172,9 +261,6 @@ class EpisodeController extends Controller
             $episode->update(['order' => $index + 1]);
         }
     }
-
-
-
 
     public function uploadAttachedFile(Request $request, Course $course)
     {
@@ -196,6 +282,7 @@ class EpisodeController extends Controller
             if ($episode->section->course->id != $course->id) {
                 return response()->json(['message' => 'Validation error!', 'errors' => ['episode_id' => ['the selected episode not belong to this course.']]], 422);
             }
+
 
             $disk = 'static';
             $folder = "attach/" . date('Y/m/d');
@@ -240,6 +327,58 @@ class EpisodeController extends Controller
         }
     }
 
+    public function removeVideo($episode)
+    {
+        $videos = $episode->videos;
+        if ($videos) {
+            foreach ($videos as $vid) {
+                $folderPath = dirname($vid->path);
+                $storage = Storage::disk($vid->disk);
+                if ($vid->type == 'raw' && Storage::disk($vid->disk)->exists($vid->path)) {
+                    if ($storage->exists($folderPath)) {
+                        $files = $storage->allFiles($folderPath);
+                        foreach ($files as $file) {
+                            $storage->delete($file);
+                        }
+                        $storage->deleteDirectory($folderPath);
+                    }
+                } else if (Storage::disk($vid->disk)->exists($vid->path)) {
+                    Storage::disk($vid->disk)->delete($vid->path);
+                    $storage->deleteDirectory($folderPath);
+                }
+            }
+            $episode->videos()->delete();
+            
+            // Update episode total_time to 0 after removing videos
+            $episode->update(['total_time' => 0]);
+        }
+    }
+
+    public function removeFile(Request $request)
+    {
+        $episodeId = $request->input('episode_id');
+        $fileType = $request->input('file_type');
+
+        $episode = Episode::find($episodeId);
+        if (!$episode) {
+            return response()->json(['message' => "Error! episode not found."], 404);
+        }
+        $response = null;
+        switch ($fileType) {
+            case 'video':
+                $this->removeVideo($episode);
+                $response = ['message' => "Success, video of the episode has been deleted successfully."];
+                break;
+            case 'attached_file':
+                $this->removeAttachedFile($episode);
+                $response = ['message' => "Success, attached file of the episode has been deleted successfully."];
+                break;
+            default:
+                return response()->json(['message' => "Error! Unknown file type.."], 422);
+        }
+        return response()->json($response, 200);
+    }
+
     private function urlDetails($url)
     {
         if (!Str::is('http*://*', $url)) {
@@ -268,62 +407,4 @@ class EpisodeController extends Controller
         return null;
     }
 
-
-
-    public function episodeStatus(Request $request, Course $course)
-    {
-        $validator = Validator::make($request->all(), [
-            'episode_id' => ['required', 'exists:episodes,id'],
-        ]);
-        if (!$validator->passes()) {
-            return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
-        }
-
-        $episode = Episode::with(['videos', 'attachs'])->find($request->input('episode_id'));
-        if (!$episode) {
-            return response()->json(['message' => 'Error! episode not found'], 404);
-        }
-        if ($episode->section->course->id != $course->id) {
-            return response()->json(['message' => 'Validation error!', 'errors' => ['episode_id' => ['the selected episode not belong to this course.']]], 422);
-        }
-
-        $raw = $episode->videos?->where('type', 'raw')->first();
-        $stream = $episode->videos?->where('type', 'stream')->first();
-
-        $status = 'pending';
-        if ($stream) {
-            $status = 'processed';
-        } elseif ($raw) {
-            $status = 'uploaded';
-        }
-
-        $videos = $episode->videos?->map(function ($vid) {
-            return [
-                'id' => $vid->id,
-                'type' => $vid->type,
-                'quality' => $vid->quality,
-                'path' => $vid->path,
-                'url' => Storage::disk($vid->disk)->url($vid->path),
-                'disk' => $vid->disk,
-                'duration' => $vid->duration,
-                'status' => $vid->status ?? 'queued',
-            ];
-        })->values() ?? collect([]);
-
-        $attach = null;
-        $rowAttach = $episode->attachs?->first();
-        if ($rowAttach) {
-            $attach = [
-                'url' => $rowAttach->url,
-                'size' => $this->urlDetails($rowAttach->url)['size'] ?? null,
-            ];
-        }
-
-        return response()->json([
-            'message' => 'Success',
-            'status' => $status,
-            'videos' => $videos,
-            'attach' => $attach,
-        ], 200);
-    }
 }

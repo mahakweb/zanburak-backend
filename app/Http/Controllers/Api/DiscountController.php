@@ -112,4 +112,63 @@ class DiscountController extends Controller
             'total_discount' => $cartResponse['total_discount'],
         ], 200);
     }
+
+    /**
+     * Validate discount code for payment creation
+     */
+    public function validateDiscount(Request $request)
+    {
+        $request->validate([
+            'code' => 'required|string',
+            'amount' => 'required|numeric|min:0'
+        ]);
+
+        $code = $request->input('code');
+        $amount = $request->input('amount');
+
+        $discount = Discount::where('code', $code)
+            ->where('is_active', true)
+            ->where('start_date', '<=', now())
+            ->where('end_date', '>=', now())
+            ->first();
+
+        if (!$discount) {
+            return response()->json([
+                'valid' => false,
+                'message' => 'کد تخفیف نامعتبر است'
+            ], 200);
+        }
+
+        // Check minimum amount requirement
+        if ($discount->min_amount && $amount < $discount->min_amount) {
+            return response()->json([
+                'valid' => false,
+                'message' => "حداقل مبلغ برای استفاده از این کد تخفیف {$discount->min_amount} تومان است"
+            ], 200);
+        }
+
+        // Calculate discount amount
+        $discountAmount = 0;
+        if ($discount->type === 'percentage') {
+            $discountAmount = ($amount * $discount->value) / 100;
+            if ($discount->max_discount && $discountAmount > $discount->max_discount) {
+                $discountAmount = $discount->max_discount;
+            }
+        } else {
+            $discountAmount = $discount->value;
+        }
+
+        // Ensure discount doesn't exceed the amount
+        if ($discountAmount > $amount) {
+            $discountAmount = $amount;
+        }
+
+        return response()->json([
+            'valid' => true,
+            'discount_amount' => $discountAmount,
+            'discount_type' => $discount->type,
+            'discount_value' => $discount->value,
+            'message' => 'کد تخفیف معتبر است'
+        ], 200);
+    }
 }
