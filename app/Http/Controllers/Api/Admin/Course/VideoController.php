@@ -36,9 +36,9 @@ class VideoController extends Controller
 
         $disk = 'static';
         if ($episodeId) {
-            $folder = "raw/{$course->slug}/episodes/{$episodeId}";
+            $folder = "raw/course/{$course->slug}/episodes/{$episodeId}";
         } else {
-            $folder = "raw/{$course->slug}/trailer";
+            $folder = "raw/course/{$course->slug}/trailer";
         }
 
         $ext = pathinfo($request->input('filename'), PATHINFO_EXTENSION);

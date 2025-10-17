@@ -67,6 +67,7 @@ class IndexController extends Controller
             'courses',
             'prerequisites.courses',
             'nextSteps.courses',
+            'videos' // ensure relation exists on Path model
         ]);
         
         $courseIdsInCart = $user ? $user->carts->where('cartable_type', 'App\Models\Course')->pluck('cartable_id')->toArray() : [];
@@ -83,6 +84,26 @@ class IndexController extends Controller
 
         $finalPrice = $totalPrice - ($totalPrice * $this->discountPercentForPath / 100);
 
+        // Build trailer like course: prefer raw video from videos relation
+        $rawTrailer = $path->videos ? $path->videos->where('type', 'raw')->first() : null;
+        $trailerUrl = null;
+        $trailerStatus = null;
+        $trailerVideoId = null;
+        if ($rawTrailer) {
+            // Use disk URL if available, fallback to stored path
+            $diskUrl = config("filesystems.disks.{$rawTrailer->disk}.url");
+            if (!empty($diskUrl)) {
+                $trailerUrl = rtrim($diskUrl, '/') . '/' . ltrim($rawTrailer->path, '/');
+            } else {
+                $trailerUrl = $rawTrailer->path;
+            }
+            $trailerStatus = $rawTrailer->status ?? 'uploaded';
+            $trailerVideoId = $rawTrailer->id;
+        } else {
+            // Backward compatibility
+            $trailerUrl = $path->trailer;
+        }
+
         $path = [
             'id' => $path->id,
             'title' => $path->title,
@@ -90,7 +111,9 @@ class IndexController extends Controller
             'slug' => $path->slug,
             'icon' => $path->icon,
             'poster' => $path->poster,
-            'trailer' => $path->trailer,
+            'trailer' => $trailerUrl,
+            'trailer_status' => $trailerStatus,
+            'trailer_video_id' => $trailerVideoId,
             'description' => $path->description,
             'short_description' => $path->short_description,
             'faqs' => $path->faqs,

@@ -5,10 +5,12 @@ namespace App\Models;
 use Cviebrock\EloquentSluggable\Sluggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Traits\CascadesDeletes;
+use Illuminate\Support\Facades\Storage;
 
 class Path extends Model
 {
-    use HasFactory, Sluggable;
+    use HasFactory, Sluggable, CascadesDeletes;
     protected $fillable = [
         'title',
         'english_title',
@@ -106,5 +108,33 @@ class Path extends Model
             'related_path_id',
             'path_id'
         )->wherePivot('type', 'next');
+    }
+
+    public function getCascadeRelations(): array
+    {
+        return [
+            'videos',
+            'comments',
+            'automationRules',
+        ];
+    }
+
+    public function deleteMediaFiles()
+    {
+        foreach (['icon', 'poster', 'trailer'] as $field) {
+            $url = $this->{$field};
+            if (!$url) continue;
+            foreach (config('filesystems.disks') as $disk => $config) {
+                if (!isset($config['url'])) continue;
+                $baseUrl = rtrim($config['url'], '/');
+                if (str_starts_with($url, $baseUrl)) {
+                    $relativePath = ltrim(str_replace($baseUrl, '', $url), '/');
+                    if (Storage::disk($disk)->exists($relativePath)) {
+                        Storage::disk($disk)->delete($relativePath);
+                    }
+                    break;
+                }
+            }
+        }
     }
 }

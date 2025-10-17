@@ -287,10 +287,16 @@ class PathController extends Controller
      */
     public function destroy(Request $request, Path $path)
     {
-        // remove files if needed
-        if (!empty($path->icon)) $this->removeUrl($path->icon);
-        if (!empty($path->poster)) $this->removeUrl($path->poster);
-        if (!empty($path->trailer)) $this->removeUrl($path->trailer);
+        // Detach many-to-many relations before delete
+        $path->courses()->detach();
+        // remove path relations in both directions
+        $path->prerequisites()->detach();
+        $path->nextSteps()->detach();
+        $path->corequisites()->detach();
+        $path->prerequisiteFor()->detach();
+        $path->previousSteps()->detach();
+
+        // Deleting will cascade: media files, videos, comments, automationRules via model hooks
         $path->delete();
         return response()->json(['message' => 'Success, path deleted successfully.'], 200);
     }
@@ -530,7 +536,7 @@ class PathController extends Controller
         $valid = $validator->validated();
         $path = Path::findOrFail($request->path_id);
         $disk = 'static';
-        $folder = "poster/" . date('Y/m/d');
+        $folder = "poster/path/" . date('Y/m/d');
         $ext = pathinfo($valid['filename'], PATHINFO_EXTENSION);
         $generated = Str::uuid()->toString();
         $filePath = "{$folder}/{$generated}.{$ext}";
@@ -634,7 +640,7 @@ class PathController extends Controller
         $valid = $validator->validated();
         $path = Path::findOrFail($request->path_id);
         $disk = 'static';
-        $folder = "raw/{$path->slug}/trailer/" . date('Y/m/d');
+        $folder = "raw/path/{$path->slug}/trailer";
         $ext = pathinfo($valid['filename'], PATHINFO_EXTENSION);
         $generated = Str::uuid()->toString();
         $filePath = "{$folder}/{$generated}.{$ext}";

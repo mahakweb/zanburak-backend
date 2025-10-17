@@ -842,7 +842,7 @@ class CourseController extends Controller
                 return response()->json(['message' => 'Error! course not found'], 404);
             }
             $disk = 'static';
-            $folder = "poster/" . date('Y/m/d');
+            $folder = "poster/course/" . date('Y/m/d');
             $ext = pathinfo($validData['filename'], PATHINFO_EXTENSION);
             $generated = Str::uuid()->toString();
             $filePath = "{$folder}/{$generated}.{$ext}";
