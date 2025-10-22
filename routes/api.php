@@ -47,6 +47,13 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::post('get-plans-list', [\App\Http\Controllers\Api\IndexController::class, 'plansList']);
 
 
+// Unified auth endpoints
+Route::post('auth/identify', [\App\Http\Controllers\Api\Auth\UnifiedAuthController::class, 'identify']);
+Route::post('auth/send-otp', [\App\Http\Controllers\Api\Auth\UnifiedAuthController::class, 'sendOtp']);
+Route::post('auth/verify-otp', [\App\Http\Controllers\Api\Auth\UnifiedAuthController::class, 'verifyOtp']);
+Route::post('auth/password-login', [\App\Http\Controllers\Api\Auth\UnifiedAuthController::class, 'passwordLogin']);
+
+// Legacy endpoints (kept for backward compatibility; can be removed after frontend migration)
 Route::post('auth/login', [\App\Http\Controllers\Api\Auth\LoginController::class, 'login']);
 Route::post('auth/register', [\App\Http\Controllers\Api\Auth\RegisterController::class, 'register']);
 

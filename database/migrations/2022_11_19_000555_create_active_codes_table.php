@@ -15,10 +15,12 @@ return new class extends Migration
     {
         Schema::create('active_codes', function (Blueprint $table) {
             $table->id();
-            $table->string('user_phone');
+            $table->string('user_phone')->nullable();
+            $table->string('user_email')->nullable();
 //            $table->foreign('user_phone')->references('phone')->on('users')->onDelete('cascade')->onUpdate('cascade');
             $table->integer('code');
             $table->unique(['user_phone', 'code']);
+            $table->unique(['user_email', 'code']);
             $table->timestamp('expired_at');
             $table->timestamps();
         });

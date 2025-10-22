@@ -10,6 +10,7 @@ class ActiveCode extends Model
     use HasFactory;
     protected $fillable = [
         'user_phone',
+        'user_email',
         'code',
         'expired_at'
     ];
@@ -76,4 +77,68 @@ class ActiveCode extends Model
 
     }
 
+    // unified helpers for phone or email
+    public function generateCodeForContact(string $contact, int $expireMinutes = 3)
+    {
+        if ($code = $this->getAliveForContact($contact)) {
+            return $code->code;
+        }
+
+        do {
+            $code = mt_rand(100000, 999999);
+        } while ($this->contactHasCode($contact, $code));
+
+        $data = [
+            'code' => $code,
+            'expired_at' => now()->addMinutes($expireMinutes),
+        ];
+
+        if ($this->isEmail($contact)) {
+            $data['user_email'] = $contact;
+        } else {
+            $data['user_phone'] = $contact;
+        }
+
+        $this->create($data);
+
+        return $code;
+    }
+
+    public function verifyCodeForContact(string $contact, int $code): bool
+    {
+        $query = $this->where('code', $code)->where('expired_at', '>', now());
+        if ($this->isEmail($contact)) {
+            $query->where('user_email', $contact);
+        } else {
+            $query->where('user_phone', $contact);
+        }
+        return !! $query->first();
+    }
+
+    public function getAliveForContact(string $contact)
+    {
+        $query = $this->where('expired_at', '>', now());
+        if ($this->isEmail($contact)) {
+            $query->where('user_email', $contact);
+        } else {
+            $query->where('user_phone', $contact);
+        }
+        return $query->first();
+    }
+
+    private function contactHasCode(string $contact, int $code): bool
+    {
+        $query = $this->where('code', $code);
+        if ($this->isEmail($contact)) {
+            $query->where('user_email', $contact);
+        } else {
+            $query->where('user_phone', $contact);
+        }
+        return !! $query->first();
+    }
+
+    private function isEmail(string $value): bool
+    {
+        return filter_var($value, FILTER_VALIDATE_EMAIL) !== false;
+    }
 }
