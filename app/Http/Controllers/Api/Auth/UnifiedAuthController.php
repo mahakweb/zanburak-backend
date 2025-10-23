@@ -31,7 +31,7 @@ class UnifiedAuthController extends Controller
 
         if (!$isEmail && !$isMobile) {
             return response()->json([
-                'message' => 'لطفاً یک ایمیل معتبر یا شماره موبایل با کد کشور وارد کنید.',
+                'message' => 'لطفاً یک ایمیل یا شماره موبایل معتبر وارد کنید.',
                 'errors' => ['identifier' => ['فرمت وارد شده صحیح نیست.']]
             ], 422);
         }
@@ -69,7 +69,7 @@ class UnifiedAuthController extends Controller
 
         if (!$isEmail && !$isMobile) {
             return response()->json([
-                'message' => 'لطفاً یک ایمیل معتبر یا شماره موبایل با کد کشور وارد کنید.',
+                'message' => 'لطفاً یک ایمیل یا شماره موبایل معتبر وارد کنید.',
                 'errors' => ['identifier' => ['فرمت وارد شده صحیح نیست.']]
             ], 422);
         }
@@ -132,7 +132,7 @@ class UnifiedAuthController extends Controller
 
         if (!$isEmail && !$isMobile) {
             return response()->json([
-                'message' => 'لطفاً یک ایمیل معتبر یا شماره موبایل با کد کشور وارد کنید.',
+                'message' => 'لطفاً یک ایمیل یا شماره موبایل معتبر وارد کنید.',
                 'errors' => ['identifier' => ['فرمت وارد شده صحیح نیست.']]
             ], 422);
         }
@@ -202,7 +202,7 @@ class UnifiedAuthController extends Controller
 
         if (!$isEmail && !$isMobile) {
             return response()->json([
-                'message' => 'لطفاً یک ایمیل معتبر یا شماره موبایل با کد کشور وارد کنید.',
+                'message' => 'لطفاً یک ایمیل یا شماره موبایل معتبر وارد کنید.',
                 'errors' => ['identifier' => ['فرمت وارد شده صحیح نیست.']]
             ], 422);
         }
