@@ -141,4 +141,16 @@ class ActiveCode extends Model
     {
         return filter_var($value, FILTER_VALIDATE_EMAIL) !== false;
     }
+
+    // Delete all active codes for a given contact (email or phone)
+    public function deleteByContact(string $contact): void
+    {
+        $query = $this->newQuery();
+        if ($this->isEmail($contact)) {
+            $query->where('user_email', $contact);
+        } else {
+            $query->where('user_phone', $contact);
+        }
+        $query->delete();
+    }
 }

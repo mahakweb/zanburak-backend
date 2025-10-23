@@ -21,7 +21,20 @@ class UnifiedAuthController extends Controller
         ]);
 
         $identifier = trim($request->input('identifier'));
-        $isEmail = filter_var($identifier, FILTER_VALIDATE_EMAIL);
+        
+        // More strict email validation
+        $isEmail = filter_var($identifier, FILTER_VALIDATE_EMAIL) && 
+                   preg_match('/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/', $identifier);
+        
+        // Mobile validation - should start with +98 (Iran) and contain only digits
+        $isMobile = !$isEmail && preg_match('/^\+98\d{10}$/', $identifier);
+
+        if (!$isEmail && !$isMobile) {
+            return response()->json([
+                'message' => 'لطفاً یک ایمیل معتبر یا شماره موبایل با کد کشور وارد کنید.',
+                'errors' => ['identifier' => ['فرمت وارد شده صحیح نیست.']]
+            ], 422);
+        }
 
         $query = User::query();
         if ($isEmail) {
@@ -46,7 +59,20 @@ class UnifiedAuthController extends Controller
         ]);
 
         $identifier = trim($request->input('identifier'));
-        $isEmail = filter_var($identifier, FILTER_VALIDATE_EMAIL);
+        
+        // More strict email validation
+        $isEmail = filter_var($identifier, FILTER_VALIDATE_EMAIL) && 
+                   preg_match('/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/', $identifier);
+        
+        // Mobile validation - should start with +98 (Iran) and contain only digits
+        $isMobile = !$isEmail && preg_match('/^\+98\d{10}$/', $identifier);
+
+        if (!$isEmail && !$isMobile) {
+            return response()->json([
+                'message' => 'لطفاً یک ایمیل معتبر یا شماره موبایل با کد کشور وارد کنید.',
+                'errors' => ['identifier' => ['فرمت وارد شده صحیح نیست.']]
+            ], 422);
+        }
 
         $activeCode = new ActiveCode();
 
@@ -97,13 +123,27 @@ class UnifiedAuthController extends Controller
         $identifier = trim($request->input('identifier'));
         $code = (int)$request->input('code');
 
+        // More strict email validation
+        $isEmail = filter_var($identifier, FILTER_VALIDATE_EMAIL) && 
+                   preg_match('/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/', $identifier);
+        
+        // Mobile validation - should start with +98 (Iran) and contain only digits
+        $isMobile = !$isEmail && preg_match('/^\+98\d{10}$/', $identifier);
+
+        if (!$isEmail && !$isMobile) {
+            return response()->json([
+                'message' => 'لطفاً یک ایمیل معتبر یا شماره موبایل با کد کشور وارد کنید.',
+                'errors' => ['identifier' => ['فرمت وارد شده صحیح نیست.']]
+            ], 422);
+        }
+
         $activeCode = new ActiveCode();
         $ok = $activeCode->verifyCodeForContact($identifier, $code);
         if (!$ok) {
             return response()->json(['message' => 'کد نامعتبر یا منقضی شده است.'], 422);
         }
-
-        $isEmail = filter_var($identifier, FILTER_VALIDATE_EMAIL);
+        // Purge all OTP codes for this identifier after successful verification
+        $activeCode->deleteByContact($identifier);
         $user = $isEmail ? User::where('email', $identifier)->first() : User::where('mobile', $identifier)->first();
 
         if ($user) {
@@ -152,7 +192,21 @@ class UnifiedAuthController extends Controller
         ]);
 
         $identifier = trim($request->input('identifier'));
-        $isEmail = filter_var($identifier, FILTER_VALIDATE_EMAIL);
+        
+        // More strict email validation
+        $isEmail = filter_var($identifier, FILTER_VALIDATE_EMAIL) && 
+                   preg_match('/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/', $identifier);
+        
+        // Mobile validation - should start with +98 (Iran) and contain only digits
+        $isMobile = !$isEmail && preg_match('/^\+98\d{10}$/', $identifier);
+
+        if (!$isEmail && !$isMobile) {
+            return response()->json([
+                'message' => 'لطفاً یک ایمیل معتبر یا شماره موبایل با کد کشور وارد کنید.',
+                'errors' => ['identifier' => ['فرمت وارد شده صحیح نیست.']]
+            ], 422);
+        }
+        
         $user = $isEmail ? User::where('email', $identifier)->first() : User::where('mobile', $identifier)->first();
 
         if (!$user || !Hash::check($request->input('password'), $user->password)) {
