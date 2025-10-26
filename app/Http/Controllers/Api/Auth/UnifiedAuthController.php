@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\ActiveCode;
 use App\Models\User;
+use App\Models\UserLogin;
 use App\Notifications\ActiveCodeNotification;
 use App\Notifications\Auth\ActiveCodeEmail;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -84,7 +86,9 @@ class UnifiedAuthController extends Controller
             ], 200);
         }
 
-        $code = $activeCode->generateCodeForContact($identifier, 3);
+        // Set different expiration times: 5 minutes for email, 2 minutes for mobile
+        $expireMinutes = $isEmail ? 5 : 2;
+        $code = $activeCode->generateCodeForContact($identifier, $expireMinutes);
 
         // notify if user exists; otherwise send generic email (no user needed)
         if ($isEmail) {
@@ -107,7 +111,7 @@ class UnifiedAuthController extends Controller
 
         return response()->json([
             'message' => 'OTP sent',
-            'expired_at' => now()->addMinutes(3),
+            'expired_at' => now()->addMinutes($expireMinutes),
             'is_new_code' => true,
         ], 200);
     }
@@ -147,11 +151,38 @@ class UnifiedAuthController extends Controller
         $user = $isEmail ? User::where('email', $identifier)->first() : User::where('mobile', $identifier)->first();
 
         if ($user) {
+            if ($user->isDeactivated()) {
+                return response()->json([
+                    'error_message' => $user->deactivationMessage(),
+                    'error_reason' => $user->deactivation_reason,
+                    'error_until' => $user->isTemporarilyDeactivated() ? $user->deactivated_until : null,
+                ], 403);
+            }
+
+            // reset failed attempts and deactivation flags on successful OTP login
+            $user->update([
+                'failed_login_attempts' => 0,
+                'deactivated_until' => null,
+                'deactivation_reason' => null,
+                'deactivated_by' => null,
+            ]);
+
             $token = $user->createToken($request->userAgent());
-            $accessToken = $token->accessToken ?? $token->token;
+            $accessToken = $token->accessToken;
             $accessToken->ip = request()->ip();
             $accessToken->login_type = 'otp';
             $accessToken->save();
+
+            UserLogin::create([
+                'user_id' => $user->id,
+                'device' => $request->header('User-Agent') ?? 'unknown',
+                'ip_address' => request()->ip(),
+                'token_id' => $token->accessToken->id,
+                'logged_in_at' => now(),
+                'login_type' => 'otp',
+            ]);
+
+            event(new Login(false, $user, false));
 
             return response()->json([
                 'verified' => true,
@@ -210,14 +241,52 @@ class UnifiedAuthController extends Controller
         $user = $isEmail ? User::where('email', $identifier)->first() : User::where('mobile', $identifier)->first();
 
         if (!$user || !Hash::check($request->input('password'), $user->password)) {
+            if ($user) {
+                $user->increment('failed_login_attempts');
+                if ($user->failed_login_attempts >= 5) {
+                    $user->update([
+                        'deactivated_until' => now()->addHour(),
+                        'deactivation_reason' => 'Too many failed login attempts',
+                        'deactivated_by' => null,
+                        'failed_login_attempts' => 0,
+                    ]);
+                }
+            }
             return response()->json(['message' => 'نام کاربری یا رمز عبور اشتباه است.'], 401);
         }
 
+        if ($user->isDeactivated()) {
+            return response()->json([
+                'error_message' => $user->deactivationMessage(),
+                'error_reason' => $user->deactivation_reason,
+                'error_until' => $user->isTemporarilyDeactivated() ? $user->deactivated_until : null,
+            ], 403);
+        }
+
+        // reset failed attempts and deactivation flags on successful password login
+        $user->update([
+            'failed_login_attempts' => 0,
+            'deactivated_until' => null,
+            'deactivation_reason' => null,
+            'deactivated_by' => null,
+        ]);
+
         $token = $user->createToken($request->userAgent());
-        $accessToken = $token->accessToken ?? $token->token;
+        $accessToken = $token->accessToken;
         $accessToken->ip = request()->ip();
         $accessToken->login_type = 'password';
         $accessToken->save();
+
+        UserLogin::create([
+            'user_id' => $user->id,
+            'device' => $request->header('User-Agent') ?? 'unknown',
+            'ip_address' => $request->ip(),
+            'token_id' => $token->accessToken->id,
+            'logged_in_at' => now(),
+            'login_type' => 'password',
+        ]);
+
+        event(new Login(false, $user, false));
 
         return response()->json([
             'token' => $token->plainTextToken,

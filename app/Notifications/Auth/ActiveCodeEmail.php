@@ -28,7 +28,7 @@ class ActiveCodeEmail extends Notification
             ->from('noreply@zanburak.ir')
             ->subject('کد ورود یکبار مصرف')
             ->line('کد یکبار مصرف شما: ' . $this->code)
-            ->line('این کد تا ۳ دقیقه معتبر است.');
+            ->line('این کد تا ۵ دقیقه معتبر است.');
     }
 }
 

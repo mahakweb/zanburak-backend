@@ -7,9 +7,9 @@ use App\Models\Info;
 use App\Providers\RouteServiceProvider;
 use App\Models\User;
 use Carbon\Carbon;
-use Illuminate\Auth\Events\Registered;
 use Illuminate\Foundation\Auth\RegistersUsers;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Auth\Events\Registered;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -112,6 +112,8 @@ class RegisterController extends Controller
 
 
         $this->guard()->login($user);
+
+        event(new Registered($user));
 
         $user_info = Info::create([
             'user_id' => $user->id,
