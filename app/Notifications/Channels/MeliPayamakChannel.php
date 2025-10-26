@@ -36,8 +36,8 @@ class MeliPayamakChannel
                 "text"=>array($code,$code),
                 "to"=>$receptor,
                 // "bodyId"=>"259235", // for mahakweb
-                "bodyId"=>"259360", // for mahakweb
-                // "bodyId"=>"372965", // for zanburak
+                // "bodyId"=>"259360", // for mahakweb
+                "bodyId"=>"372965", // for zanburak
             );
             $send_Result = $sms->SendByBaseNumber($data)->SendByBaseNumberResult;
             // echo $send_Result;
