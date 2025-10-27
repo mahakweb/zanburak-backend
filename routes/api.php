@@ -55,10 +55,13 @@ Route::post('auth/password-login', [\App\Http\Controllers\Api\Auth\UnifiedAuthCo
 
 // Legacy endpoints (kept for backward compatibility; can be removed after frontend migration)
 Route::post('auth/login', [\App\Http\Controllers\Api\Auth\LoginController::class, 'login']);
-Route::post('auth/register', [\App\Http\Controllers\Api\Auth\RegisterController::class, 'register']);
+Route::post('auth/register', [\App\Http\Controllers\Api\Auth\UnifiedAuthController::class, 'register']);
+Route::post('auth/verify-mobile-after-registration', [\App\Http\Controllers\Api\Auth\UnifiedAuthController::class, 'verifyMobileAfterRegistration']);
+Route::post('auth/password/reset/send-otp', [\App\Http\Controllers\Api\Auth\UnifiedAuthController::class, 'sendResetOtp']);
+Route::post('auth/password/reset/verify-otp', [\App\Http\Controllers\Api\Auth\UnifiedAuthController::class, 'verifyResetOtp']);
+Route::post('auth/password/reset', [\App\Http\Controllers\Api\Auth\UnifiedAuthController::class, 'resetPassword']);
 
 Route::post('auth/password/email', [\App\Http\Controllers\Api\Auth\ForgotPasswordController::class, 'sendResetLinkEmail']);
-Route::post('auth/password/reset', [\App\Http\Controllers\Api\Auth\ResetPasswordController::class, 'reset']);
 
 Route::middleware('auth:sanctum')->post('/email/resend', [\App\Http\Controllers\Api\Auth\EmailVerificationController::class, 'resend']);
 
