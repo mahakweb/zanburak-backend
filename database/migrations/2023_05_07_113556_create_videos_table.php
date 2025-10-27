@@ -17,9 +17,11 @@ return new class extends Migration
             $table->id();
             $table->unsignedBigInteger('videoable_id');
             $table->string('videoable_type');
+            $table->string('quality')->nullable();
             $table->string('disk')->default('dl');
-            $table->enum('type', ['trailer', 'download', 'stream']);
+            $table->enum('type', ['raw', 'trailer', 'download', 'stream']);
             $table->string('path');
+            $table->integer('duration')->default(0);
             $table->unique(['videoable_id', 'videoable_type', 'disk', 'type', 'path']);
             $table->string('status', 20)->nullable();
             $table->index('status', 'videos_status_index');

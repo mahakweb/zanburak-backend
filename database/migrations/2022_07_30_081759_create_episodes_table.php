@@ -23,6 +23,7 @@ return new class extends Migration
             $table->text('description')->nullable();
             $table->string('total_time')->default(0);
             $table->boolean('lock')->default(1);
+            $table->unsignedInteger('order')->default(1);
             // $table->text('video');
             $table->timestamp('publish_date')->nullable();
             $table->boolean('publish')->default(0);

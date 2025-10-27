@@ -22,6 +22,7 @@ return new class extends Migration
             $table->unsignedBigInteger('payment_id')->nullable();
             $table->foreign('payment_id')->references('id')->on('payments')->onUpdate('cascade');
             $table->integer('price')->nullable();
+            $table->timestamp('completed_at')->nullable();
             $table->unique(['course_id', 'user_id']);
             $table->timestamps();
         });

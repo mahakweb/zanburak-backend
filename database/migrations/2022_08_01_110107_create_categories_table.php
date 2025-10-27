@@ -23,6 +23,8 @@ return new class extends Migration
             $table->text('description')->nullable();
             $table->text('icon')->nullable();
             $table->boolean('status')->default(1);
+            $table->enum('assignment_type', ['manual', 'automatic'])->default('manual');
+            $table->enum('match_type', ['all', 'any'])->default('all');
             $table->timestamps();
         });
     }

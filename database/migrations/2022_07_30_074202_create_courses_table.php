@@ -20,6 +20,7 @@ return new class extends Migration
             $table->string('title', 255);
             $table->string('english_title', 255);
             $table->string('slug');
+            $table->string('short_description', 400)->nullable();
             $table->text('description');
             $table->string('total_time')->default(0);
             $table->timestamp('start_date')->nullable();
