@@ -7,7 +7,7 @@
     <div class="d-flex flex-column justify-content-center align-items-center mt-2 mb-5 navbar-light">
         <a href="" class="navbar-brand flex-column mb-2 align-items-center mr-0" style="min-width: 0">
         <span class=" navbar-brand-icon mr-0">
-        <span class=" rounded"><img src="/assets/images/logo/logo-dark.png" alt="logo" class="img-fluid" /></span>
+        <span class=" rounded"><img src="/assets/images/logo/logo-wide.svg" alt="logo" class="img-fluid" /></span>
         </span>
         </a>
         <h6 class="m-0">{{ __('Confirm password') }}</h6>

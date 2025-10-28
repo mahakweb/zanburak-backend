@@ -69,7 +69,7 @@ class GetCourseNotification extends Notification
         $emailContent .= "امیدواریم به خوبی از محتوای دوره بهره مند بشی و ازش استفاده کنی.\n";
 
         return (new MailMessage)
-            ->from('noreply@zanburak.ir', 'زنبورک')
+            ->from('noreply@zanburak.ir', config('mail.from.name'))
             ->subject('تاییدیه خرید دوره')
             ->greeting('سلام!')
             ->line($emailContent);

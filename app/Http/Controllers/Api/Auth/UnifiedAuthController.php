@@ -11,6 +11,7 @@ use App\Notifications\ActiveCodeNotification;
 use App\Notifications\Auth\ActiveCodeEmail;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Registered;
+use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
@@ -613,6 +614,9 @@ class UnifiedAuthController extends Controller
 
         // Purge all OTP codes for this identifier after successful reset
         $activeCode->deleteByContact($lookupIdentifier);
+
+        // Dispatch password reset event for listeners/logging
+        event(new PasswordReset($user));
 
         return response()->json([
             'message' => 'رمز عبور با موفقیت تغییر یافت.',

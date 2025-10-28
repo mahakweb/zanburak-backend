@@ -3,7 +3,7 @@
         <div class="sidebar sidebar-light sidebar-light-dodger-blue sidebar-left" data-perfect-scrollbar>
             <a href="/" class="sidebar-brand ">
                 <!-- <img class="sidebar-brand-icon" src="/assets/images/illustration/student/128/white.svg" alt="Luma"> -->
-                <img src="/assets/images/logo/logo-dark.png" class="w-75" alt="logo" />
+                <img src="/assets/images/logo/logo-wide.svg" class="w-75" alt="logo" />
             </a>
             <div class="mx-auto w-75 border-bottom pb-3">
                 <form class="search-form form-control rounded-lg navbar-search bg-light" method="GET" action="{{ route('search') }}">

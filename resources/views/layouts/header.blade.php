@@ -15,7 +15,7 @@
                 <a href="/" class="navbar-brand mr-16pt">
                     <div class="navbar-brand-icon mr-0 mr-lg-8pt">
                         <div class="rounded d-none d-lg-block " style="width: 180px">
-                            <img src="/assets/images/logo/logo-dark.png" alt="logo" class="my-auto img-fluid" />
+                            <img src="/assets/images/logo/logo-wide.svg" alt="logo" class="my-auto img-fluid" />
                         </div>
                         <div class="avatar avatar-sm d-flex rounded d-lg-none">
                             <img src="/assets/images/logo/logo-without-text.png" alt="logo" class="avatar-sm img-fluid" />
