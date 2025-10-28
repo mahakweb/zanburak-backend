@@ -10,7 +10,7 @@
 
     <a href="{{ route('student-home') }}" class="d-none d-lg-block">
         <span class="d-flex flex-row mr-2" style="width: 230px">
-            <img src="/assets/images/logo/logo-dark.png" class="w-90 mx-auto mr-0" alt="logo" />
+            <img src="/assets/images/logo/logo-wide.svg" class="w-90 mx-auto mr-0" alt="logo" />
         </span>
     </a>
 

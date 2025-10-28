@@ -5,7 +5,7 @@
 
             <div class="d-lg-none">
                 <a href="/" class="sidebar-brand py-2 mb-4">
-                    <img src="/assets/images/logo/logo-dark.png" class="w-90" alt="logo" />
+                    <img src="/assets/images/logo/logo-wide.svg" class="w-90" alt="logo" />
                 </a>
                 <div class="px-3">
                     <div class="page-separator"></div>

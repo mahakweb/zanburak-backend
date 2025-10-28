@@ -43,7 +43,7 @@
         </div>
         <div class="row d-flex flex-column flex-lg-row align-items-center mb-16pt">
             <div class=" mb-16pt"><!-- mb -->
-                <img class="" src="/assets/images/logo/logo-persian-dark.png">
+                <img class="" src="/assets/images/logo/logo-wide.svg">
             </div>
             <div class="ml-lg-auto d-flex align-content-center">
                 <a href="https://github.com/" class="font-size-16pt mx-1 btn btn-light rounded"><i class="fab fa-github"></i></a>

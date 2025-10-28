@@ -11,7 +11,7 @@
                 <a href="learnly-index.html" class="navbar-brand mr-16pt">
                     <span class="navbar-brand-icon mr-0 mr-lg-8pt">
                         <span class="rounded d-none d-lg-block " style="width: 180px">
-                            <img src="/assets/images/logo/logo-dark.png" alt="logo" class="my-auto img-fluid" />
+                            <img src="/assets/images/logo/logo-wide.svg" alt="logo" class="my-auto img-fluid" />
                         </span>
                         <span class="avatar avatar-sm rounded d-lg-none">
                             <img src="/assets/images/logo/logo-without-text.png" alt="logo" class="avatar-sm img-fluid" />

@@ -72,7 +72,7 @@
 <div class="preloader">
     <div class="brand-avatar">
         <div class="bg-gradient-yellow rounded-lg p-1">
-            <img src="/assets/images/logo/logo-dark.png" class="" alt="logo" />
+            <img src="/assets/images/logo/logo-wide.svg" class="" alt="logo" />
         </div>
         {{--  <div class="d-flex flex-row mt-4">
             <p class="font-size-16pt font-bold mx-auto">لطفا چند لحظه صبر کنید...</p>
