@@ -42,7 +42,7 @@ class VerifyEmail extends Notification
     public function toMail($notifiable)
     {
         return (new MailMessage)
-            ->from('noreply@zanburak.ir')
+            ->from('noreply@zanburak.ir', config('mail.from.name'))
             ->subject('تأیید آدرس ایمیل')
             ->line('لطفا روی دکمه زیر کلیک کنید تا آدرس ایمیل خود را تأیید کنید.')
             ->action('تأیید آدرس ایمیل', $this->verificationUrl)
