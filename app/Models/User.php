@@ -446,6 +446,27 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->belongsToMany(Permission::class)->withTimestamps();
     }
 
+    /**
+     * Get all permissions for the user (direct permissions + permissions from roles)
+     * 
+     * @return \Illuminate\Database\Eloquent\Collection
+     */
+    public function getAllPermissions()
+    {
+        // Get direct permissions
+        $directPermissions = $this->permissions;
+        
+        // Get permissions from roles
+        $rolePermissions = $this->roles()
+            ->with('permissions')
+            ->get()
+            ->pluck('permissions')
+            ->flatten();
+        
+        // Merge and get unique permissions by id
+        return $directPermissions->merge($rolePermissions)->unique('id');
+    }
+
     public function hasRole($roles)
     {
         return !!$roles->intersect($this->roles)->all();
@@ -703,3 +724,4 @@ class User extends Authenticatable implements MustVerifyEmail
         return null;
     }
 }
+

@@ -100,6 +100,7 @@ return array(
     'attributes' => array(
         "id" => "شناسه",
         "name" => "نام",
+        "label" => "برچسب",
         "attached-file" => "فایل پیوست",
         "username" => "نام‌کاربری",
         "user.username" => "نام‌کاربری",

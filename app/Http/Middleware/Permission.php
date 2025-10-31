@@ -18,6 +18,10 @@ class Permission
      */
     public function handle(Request $request, Closure $next)
     {
+        // Allow guests to pass; enforcement is only for authenticated users
+        if (!auth()->check()) {
+            return $next($request);
+        }
 
         $currentRouteName = Route::current()->getName();
 

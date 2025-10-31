@@ -207,7 +207,7 @@ class UnifiedAuthController extends Controller
                     'last_seen' => $user->last_seen,
                     'active' => $user->active,
                     'is_superuser' => $user->is_superuser,
-                    'permissions' => $user->permissions->pluck('name'),
+                    'permissions' => $user->getAllPermissions()->pluck('name'),
                     'roles' => $user->roles->pluck('name'),
                 ],
             ], 200);
@@ -309,7 +309,7 @@ class UnifiedAuthController extends Controller
                 'last_seen' => $user->last_seen,
                 'active' => $user->active,
                 'is_superuser' => $user->is_superuser,
-                'permissions' => $user->permissions->pluck('name'),
+                'permissions' => $user->getAllPermissions()->pluck('name'),
                 'roles' => $user->roles->pluck('name'),
             ],
         ], 200);
@@ -407,7 +407,7 @@ class UnifiedAuthController extends Controller
                 'last_seen' => $user->last_seen,
                 'active' => $user->active,
                 'is_superuser' => $user->is_superuser,
-                'permissions' => $user->permissions->pluck('name'),
+                'permissions' => $user->getAllPermissions()->pluck('name'),
                 'roles' => $user->roles->pluck('name'),
             ],
             'mobile_verification_required' => $mobileVerificationRequired,
@@ -463,7 +463,7 @@ class UnifiedAuthController extends Controller
                 'last_seen' => $user->last_seen,
                 'active' => $user->active,
                 'is_superuser' => $user->is_superuser,
-                'permissions' => $user->permissions->pluck('name'),
+                'permissions' => $user->getAllPermissions()->pluck('name'),
                 'roles' => $user->roles->pluck('name'),
             ],
         ], 200);
@@ -729,5 +729,6 @@ class UnifiedAuthController extends Controller
         return $check ? $username.'_'.time() : $username;
     }
 }
+
 
 

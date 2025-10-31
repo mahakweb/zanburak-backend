@@ -97,7 +97,7 @@ class LoginController extends Controller
             'last_seen' => $user->last_seen,
             'active' => $user->active,
             'is_superuser' => $user->is_superuser,
-            'permissions' => $user->permissions->pluck('name'),
+            'permissions' => $user->getAllPermissions()->pluck('name'),
             'roles' => $user->roles->pluck('name'),
         ];
 
@@ -124,3 +124,4 @@ class LoginController extends Controller
         return response()->json(['message' => 'با موفقیت خارج شدید']);
     }
 }
+
