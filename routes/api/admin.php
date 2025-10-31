@@ -53,6 +53,8 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
 
     // Users
     Route::post('/users', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'users'])->name('users');
+    Route::post('/user/create', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'create'])->name('user.create');
+    Route::post('/user/{userId}/upload-image', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'uploadImage'])->name('user.upload-image');
     Route::post('/user/{username}/base', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'base'])->name('user.base');
     Route::post('/user/{username}/details', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'details'])->name('user.details');
     Route::post('/user/{username}/toggleActive', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'toggleActive'])->name('user.toggle-active');
@@ -92,6 +94,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     // Roles
     Route::post('/roles', [\App\Http\Controllers\Api\Admin\Role\RoleController::class, 'roles'])->name('roles.index');
     Route::get('/permissions/all', [\App\Http\Controllers\Api\Admin\Role\RoleController::class, 'allPermissions'])->name('permissions.all');
+    Route::get('/roles/all', [\App\Http\Controllers\Api\Admin\Role\RoleController::class, 'allRoles'])->name('roles.all');
     Route::post('/role/create', [\App\Http\Controllers\Api\Admin\Role\RoleController::class, 'store'])->name('role.create');
     Route::post('/role/{role}/update', [\App\Http\Controllers\Api\Admin\Role\RoleController::class, 'update'])->name('role.update');
     Route::delete('/role/{role}/delete', [\App\Http\Controllers\Api\Admin\Role\RoleController::class, 'delete'])->name('role.delete');

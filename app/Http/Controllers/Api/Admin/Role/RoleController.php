@@ -72,6 +72,16 @@ class RoleController extends Controller
         ], 200);
     }
 
+    public function allRoles(Request $request)
+    {
+        $roles = Role::orderBy('name')->get(['id', 'name', 'label']);
+        
+        return response()->json([
+            'message' => 'Success',
+            'roles' => $roles,
+        ], 200);
+    }
+
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [

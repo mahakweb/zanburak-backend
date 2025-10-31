@@ -11,6 +11,7 @@ use App\Rules\JalalianBirthDateParts;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Ip2location\IP2LocationLaravel\Facade\IP2LocationLaravel;
 use Morilog\Jalali\Jalalian;
@@ -468,6 +469,162 @@ class UserController extends Controller
 
     }
 
+    public function create(Request $request)
+    {
+        $loginUser = auth('api')->user();
+        
+        $validator = Validator::make($request->all(), [
+            'first_name' => ['required', 'string', 'min:2', 'max:255'],
+            'last_name' => ['required', 'string', 'min:2', 'max:255'],
+            'username' => ['required', 'string', 'min:3', 'max:255', 'regex:/^[a-zA-Z0-9_]+$/', 'unique:users,username'],
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+            'phone' => ['nullable', 'string', 'regex:/(09)[0-9]{9}/', 'digits:11', 'unique:users,mobile'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'status' => ['required', 'in:active,inactive'],
+            'profile_pic' => ['nullable', 'string', 'url', 'max:500'],
+            'cover_pic' => ['nullable', 'string', 'url', 'max:500'],
+            'job' => ['nullable', 'string', 'max:255'],
+            'bio' => ['nullable', 'string', 'max:1000'],
+            'telegram' => ['nullable', 'string', 'max:50', 'min:3'],
+            'instagram' => ['nullable', 'string', 'max:50', 'min:3'],
+            'twitter' => ['nullable', 'string', 'max:50', 'min:3'],
+            'linkedin' => ['nullable', 'string', 'max:50', 'min:3'],
+            'github' => ['nullable', 'string', 'max:50', 'min:3'],
+            'website' => ['nullable', 'url', 'max:100'],
+            'roles' => ['nullable', 'array'],
+            'roles.*' => ['integer', 'exists:roles,id'],
+            'permissions' => ['nullable', 'array'],
+            'permissions.*' => ['integer', 'exists:permissions,id'],
+        ]);
 
+        if (!$validator->passes()) {
+            return response()->json([
+                'message' => 'Validation error!',
+                'errors' => $validator->errors()->toArray()
+            ], 422);
+        }
+
+        $validatedData = $validator->validated();
+
+        try {
+            // Create user
+            $user = User::create([
+                'first_name' => $validatedData['first_name'],
+                'last_name' => $validatedData['last_name'],
+                'username' => $validatedData['username'],
+                'email' => $validatedData['email'],
+                'mobile' => $validatedData['phone'] ?? null,
+                'password' => Hash::make($validatedData['password']),
+                'active' => $validatedData['status'] === 'active',
+                'profile_pic' => $validatedData['profile_pic'] ?? null,
+                'cover_pic' => $validatedData['cover_pic'] ?? null,
+                'is_staff' => false,
+                'is_superuser' => false,
+            ]);
+
+            // Create user info
+            $user->info()->create([
+                'job' => $validatedData['job'] ?? null,
+                'about' => $validatedData['bio'] ?? null,
+                'telegram' => $validatedData['telegram'] ?? null,
+                'instagram' => $validatedData['instagram'] ?? null,
+                'twitter' => $validatedData['twitter'] ?? null,
+                'linkedin' => $validatedData['linkedin'] ?? null,
+                'github' => $validatedData['github'] ?? null,
+                'website' => $validatedData['website'] ?? null,
+            ]);
+
+            // Attach roles if provided
+            if (!empty($validatedData['roles'])) {
+                $user->roles()->attach($validatedData['roles']);
+            }
+
+            // Attach permissions if provided
+            if (!empty($validatedData['permissions'])) {
+                $user->permissions()->attach($validatedData['permissions']);
+            }
+
+            // Load relationships for response
+            $user->load(['roles', 'permissions', 'info']);
+
+            return response()->json([
+                'message' => 'کاربر جدید با موفقیت ایجاد شد.',
+                'user' => [
+                    'id' => $user->id,
+                    'first_name' => $user->first_name,
+                    'last_name' => $user->last_name,
+                    'username' => $user->username,
+                    'email' => $user->email,
+                    'mobile' => $user->mobile,
+                    'profile_pic' => $user->profile_pic,
+                    'cover_pic' => $user->cover_pic,
+                    'active' => $user->active,
+                    'status' => $user->active ? 'active' : 'inactive',
+                    'roles' => $user->roles,
+                    'permissions' => $user->permissions,
+                    'info' => $user->info,
+                    'created_at' => $user->created_at,
+                ],
+            ], 201);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'خطا در ایجاد کاربر!',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    public function uploadImage(Request $request, $userId)
+    {
+        $validator = Validator::make($request->all(), [
+            'file' => ['required', 'file', 'mimes:jpeg,jpg,png,webp', 'max:10240'], // max 10 MB
+            'type' => ['required', 'in:profile_pic,cover_pic'], // نوع عکس: پروفایل یا کاور
+        ]);
+
+        if (!$validator->passes()) {
+            return response()->json([
+                'message' => 'Validation error!',
+                'errors' => $validator->errors()->toArray()
+            ], 422);
+        }
+
+        try {
+            $user = User::findOrFail($userId);
+            $validatedData = $validator->validated();
+            $file = $request->file('file');
+            $type = $validatedData['type']; // profile_pic or cover_pic
+
+            // ساخت مسیر ذخیره‌سازی بر اساس نوع عکس
+            $folder = $type === 'profile_pic' ? 'users/profile' : 'users/cover';
+            $folderPath = $folder . '/' . date('Y/m/d');
+            $path = Storage::disk('static')->put($folderPath, $file);
+            
+            // ساخت URL کامل از config
+            $storageBaseUrl = config('filesystems.disks.static.url', 'https://static.zanburak.ir');
+            $storageUrl = rtrim($storageBaseUrl, '/') . '/' . ltrim($path, '/');
+
+            // ذخیره URL در user
+            $user->update([$type => $storageUrl]);
+
+            return response()->json([
+                'message' => 'تصویر با موفقیت آپلود شد.',
+                'fileUrl' => $storageUrl,
+                'path' => $path,
+                'type' => $type,
+            ], 200);
+
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json([
+                'message' => 'کاربر مورد نظر یافت نشد!',
+                'errors' => ['user' => ['کاربر با شناسه داده شده وجود ندارد.']]
+            ], 404);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'خطا در آپلود تصویر!',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 
 }
