@@ -17,6 +17,7 @@ INSERT IGNORE INTO roles (name, label, created_at, updated_at) VALUES
 ('marketing_manager','مدیر مارکتینگ',NOW(),NOW()),
 ('seo_manager','مدیر SEO',NOW(),NOW()),
 ('analytics_viewer','بیننده آمار',NOW(),NOW()),
+('admin','مدیر',NOW(),NOW()),
 ('teacher','مدرس',NOW(),NOW()),
 ('student','دانشجو',NOW(),NOW());
 
