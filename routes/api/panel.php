@@ -16,6 +16,8 @@ Route::middleware('auth:sanctum')->prefix('panel')->as('api.panel.')->group(func
 
     Route::prefix('notifications')->as('notifications.')->group(function () {
         Route::post('/', [\App\Http\Controllers\Api\Panel\NotificationController::class, 'notifications'])->name('index');
+    });
+    Route::prefix('notification')->as('notification.')->group(function () {
         Route::post('/details', [\App\Http\Controllers\Api\Panel\NotificationController::class, 'notificationDetails'])->name('details');
         Route::post('/unread', [\App\Http\Controllers\Api\Panel\NotificationController::class, 'unreadNotifications'])->name('unread');
         Route::post('/delete', [\App\Http\Controllers\Api\Panel\NotificationController::class, 'deleteNotification'])->name('delete');

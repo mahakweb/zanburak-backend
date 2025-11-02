@@ -15,8 +15,8 @@ Route::middleware('auth:sanctum')->prefix('cart')->as('api.cart.')->group(functi
 });
 
 // Payment
+Route::middleware('auth:sanctum')->post('/cart/pay', [\App\Http\Controllers\Api\PaymentController::class, 'store']);
 Route::middleware('auth:sanctum')->prefix('payment')->as('api.payment.')->group(function () {
-    Route::post('/pay', [\App\Http\Controllers\Api\PaymentController::class, 'store'])->name('pay');
     Route::post('/retry/{uuid}', [\App\Http\Controllers\Api\PaymentController::class, 'retry'])->name('retry');
     Route::post('/receipt/detail', [\App\Http\Controllers\Api\PaymentController::class, 'receipt'])->name('receipt.detail');
 });

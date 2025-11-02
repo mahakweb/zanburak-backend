@@ -474,6 +474,15 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function hasPermission($permission)
     {
+        // Superuser bypasses permission checks
+        if ($this->is_superuser) {
+            return true;
+        }
+
+        if (!$permission) {
+            return false;
+        }
+        
         return $this->permissions->contains('name', $permission->name) || $this->hasRole($permission->roles);
     }
 
