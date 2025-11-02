@@ -46,6 +46,37 @@ class PaymentController extends Controller
                 ]),
             ]);
 
+            // If final amount is zero, finalize immediately and respond with JSON (frontend will redirect)
+            if ((int) $payment->amount === 0) {
+                // Mark payment as paid (no gateway: empty tracking number, keep model-generated reference_id)
+                $payment->update([
+                    'status'       => true,
+                    'paid_at'      => now(),
+                    'expired_at'   => null,
+                    'tracking_number' => null,
+                ]);
+
+                // Grant user access and record coupon usage
+                $this->service->handleSuccessfulPayment($payment);
+
+                // Update attempt as paid
+                $attempt->update([
+                    'status' => 'paid',
+                    'response_payload' => json_encode(['status' => 'paid', 'free' => true]),
+                ]);
+
+                // clear user cart
+                $user->carts()->delete();
+
+                $redirectUrl = env('FRONT_APP_URL') . "/payment/receipt/{$payment->uuid}";
+                return response()->json([
+                    'message' => 'Success!',
+                    'status' => 'paid',
+                    'payment_uuid' => $payment->uuid,
+                    'redirect_url' => $redirectUrl,
+                ], 200);
+            }
+
             $response = $this->service->startPurchase($payment, $attempt, null, [])->pay()->toJson();
             // clear user cart
             $user->carts()->delete();
@@ -100,6 +131,31 @@ class PaymentController extends Controller
                     'user_agent'  => request()->userAgent(),
                 ]),
             ]);
+
+            // Zero-amount retry: finalize immediately (frontend will redirect)
+            if ((int) $payment->amount === 0) {
+                $payment->update([
+                    'status'       => true,
+                    'paid_at'      => now(),
+                    'expired_at'   => null,
+                    'tracking_number' => null,
+                ]);
+
+                $this->service->handleSuccessfulPayment($payment);
+
+                $attempt->update([
+                    'status' => 'paid',
+                    'response_payload' => json_encode(['status' => 'paid', 'free' => true]),
+                ]);
+
+                $redirectUrl = env('FRONT_APP_URL') . "/payment/receipt/{$payment->uuid}";
+                return response()->json([
+                    'message' => 'Success!',
+                    'status' => 'paid',
+                    'payment_uuid' => $payment->uuid,
+                    'redirect_url' => $redirectUrl,
+                ], 200);
+            }
 
             $response = $this->service->startPurchase($payment, $attempt, null, $options)->pay()->toJson();
 
