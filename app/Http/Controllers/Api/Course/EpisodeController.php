@@ -168,24 +168,65 @@ class EpisodeController extends Controller
     public function episodeDownloadCheck(Episode $episode, Request $request)
     {
         try {
-            $fileExists = Storage::disk($episode->videos->where('type', 'download')->pluck('disk')[0])
-                ->exists(parse_url($episode->videos->where('type', 'download')->pluck('path')[0], PHP_URL_PATH));
+            $downloads = $episode->videos->where('type', 'download');
 
-            if (!$fileExists) {
+            if ($downloads->isEmpty()) {
                 return response()->json(['message' => 'File not found'], 404);
             }
 
             $course = $episode->section->course;
 
-            if (auth('api')->user()->hasCourse($course) && $course->type != 'cash-vip') {
-                $url = URL::temporarySignedRoute('api.episode-download', now()->addMinutes(20), $episode->id);
-                return response()->json(['message' => 'Success', 'url' => $url]);
-            } else {
+            if (!(auth('api')->user()->hasCourse($course) && $course->type != 'cash-vip')) {
                 return response()->json(['message' => 'You do not have access to download this file'], 403);
             }
 
-        } catch (\Exception $e) {
+            // If a specific quality is requested, validate and return a signed URL for that quality
+            if ($request->filled('quality')) {
+                $quality = (int) $request->input('quality');
+                $video = $downloads->firstWhere('quality', $quality);
+                if (!$video) {
+                    return response()->json(['message' => 'Requested quality not available'], 404);
+                }
 
+                $disk = $video->disk;
+                $path = parse_url($video->path, PHP_URL_PATH);
+                if (!Storage::disk($disk)->exists($path)) {
+                    return response()->json(['message' => 'File not found'], 404);
+                }
+
+                $url = URL::temporarySignedRoute('api.episode-download', now()->addMinutes(20), [
+                    'episode' => $episode->id,
+                    'quality' => $quality,
+                ]);
+
+                return response()->json(['message' => 'Success', 'url' => $url]);
+            }
+
+            // Otherwise, return the list of available qualities with sizes (bytes)
+            $qualityEntries = $downloads->map(function ($v) {
+                return [
+                    'quality' => (int) $v->quality,
+                    'disk' => $v->disk,
+                    'path' => parse_url($v->path, PHP_URL_PATH),
+                ];
+            })->filter(function ($item) {
+                return Storage::disk($item['disk'])->exists($item['path']);
+            })->map(function ($item) {
+                return [
+                    'quality' => $item['quality'],
+                    'size' => Storage::disk($item['disk'])->size($item['path']),
+                ];
+            })->unique('quality')->values()->all();
+
+            if (empty($qualityEntries)) {
+                return response()->json(['message' => 'File not found'], 404);
+            }
+
+            // Sort ascending by quality; client may reverse if needed
+            usort($qualityEntries, function ($a, $b) { return $a['quality'] <=> $b['quality']; });
+            return response()->json(['message' => 'Success', 'qualities' => $qualityEntries]);
+
+        } catch (\Exception $e) {
             return response()->json(['message' => 'An error occurred while processing your request', 'error' => $e->getMessage()], 500);
         }
     }
@@ -193,8 +234,25 @@ class EpisodeController extends Controller
     public function episodeDownload(Episode $episode, Request $request)
     {
         try {
-            $disk = $episode->videos->where('type', 'download')->pluck('disk')[0];
-            $path = parse_url($episode->videos->where('type', 'download')->pluck('path')[0], PHP_URL_PATH);
+            $downloads = $episode->videos->where('type', 'download');
+            if ($downloads->isEmpty()) {
+                return response()->json(['message' => 'File not found'], 404);
+            }
+
+            $video = null;
+            if ($request->filled('quality')) {
+                $quality = (int) $request->input('quality');
+                $video = $downloads->firstWhere('quality', $quality);
+                if (!$video) {
+                    return response()->json(['message' => 'Requested quality not available'], 404);
+                }
+            } else {
+                // fallback to the first available download if no quality specified
+                $video = $downloads->first();
+            }
+
+            $disk = $video->disk;
+            $path = parse_url($video->path, PHP_URL_PATH);
 
             if (!Storage::disk($disk)->exists($path)) {
                 return response()->json(['message' => 'File not found'], 404);
