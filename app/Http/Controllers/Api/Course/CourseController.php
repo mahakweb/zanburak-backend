@@ -175,6 +175,57 @@ class CourseController extends Controller
         ];
         $course->ratings = $ratings;
 
+        // Trailer metadata and fallback similar to episode handling
+        try {
+            // Query via relation builder to avoid hydrating and serializing the videos relation
+            $trailerRecord = $course->videos()->where('type', 'trailer')->first(); // may be HLS master or MP4
+            $rawTrailer = $course->videos()->where('type', 'raw')->first();    // Raw uploaded file
+
+            $isHlsTrailer = $trailerRecord && str_contains($trailerRecord->path, '.m3u8');
+
+            // Prefer HLS presence to mark as processed
+            if ($isHlsTrailer) {
+                $course->trailer_status = 'processed';
+                $course->trailer_video_id = $trailerRecord->id;
+                $course->has_stream_trailer = true;
+            } else {
+                $course->has_stream_trailer = false;
+
+                // If there is a non-HLS trailer record (e.g., mp4), treat it as the direct trailer
+                $directTrailer = null;
+                if ($trailerRecord && !str_contains($trailerRecord->path, '.m3u8')) {
+                    $directTrailer = $trailerRecord;
+                } elseif ($rawTrailer) {
+                    $directTrailer = $rawTrailer;
+                }
+
+                if ($directTrailer) {
+                    $course->trailer_status = $directTrailer->status ?? 'uploaded';
+                    $course->trailer_video_id = $directTrailer->id;
+
+                    // Populate course->trailer with an accessible URL so frontend can play MP4 directly
+                    $diskUrl = config("filesystems.disks.{$directTrailer->disk}.url");
+                    if (!empty($diskUrl)) {
+                        $course->trailer = rtrim($diskUrl, '/') . '/' . ltrim($directTrailer->path, '/');
+                    } else {
+                        $course->trailer = $directTrailer->path;
+                    }
+                }
+            }
+
+            // If still empty and there is a raw trailer, expose it as a last resort
+            if (empty($course->trailer) && $rawTrailer) {
+                $diskUrl = config("filesystems.disks.{$rawTrailer->disk}.url");
+                if (!empty($diskUrl)) {
+                    $course->trailer = rtrim($diskUrl, '/') . '/' . ltrim($rawTrailer->path, '/');
+                } else {
+                    $course->trailer = $rawTrailer->path;
+                }
+            }
+        } catch (\Throwable $e) {
+            // noop
+        }
+
 
         return response()->json([
             'message' => 'Success',

@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Http;
 
 class EpisodeController extends Controller
 {
@@ -56,13 +57,14 @@ class EpisodeController extends Controller
             }
         }
 
-        $episode = Episode::where('id', $episode->id)->with('attachs', 'videos')->first();
+        // Do not eager-load videos to avoid leaking unnecessary info to client
+        $episode = Episode::where('id', $episode->id)->with('attachs')->first();
 
         View::createFor($episode);
 
-        // Get video processing status
-        $rawVideo = $episode->videos->where('type', 'raw')->first();
-        $streamVideo = $episode->videos->where('type', 'stream')->first();
+        // Get video processing status without hydrating relation on the model
+        $rawVideo = $episode->videos()->where('type', 'raw')->first();
+        $streamVideo = $episode->videos()->where('type', 'stream')->first();
         
         $videoStatus = null;
         $videoId = null;
@@ -78,6 +80,41 @@ class EpisodeController extends Controller
         $episode->video_status = $videoStatus;
         $episode->video_id = $videoId;
         $episode->is_video_processed = $isVideoProcessed;
+        // Expose only the stream video id for frontend tracking without leaking full videos relation
+        $episode->stream_video_id = $streamVideo?->id;
+
+        // Map attachments to minimal payload: title, size (bytes), url
+        if ($episode->relationLoaded('attachs') && $episode->attachs) {
+            $mappedAttachs = $episode->attachs->map(function ($att) {
+                try {
+                    $url = (string) ($att->url ?? '');
+                    $title = $att->title ?? (basename(parse_url($url, PHP_URL_PATH) ?? '') ?: null);
+                    $size = null;
+                    if (!empty($url)) {
+                        try {
+                            $head = Http::withHeaders(['Accept' => '*/*'])->head($url);
+                            $len = $head->header('Content-Length');
+                            if (is_numeric($len)) {
+                                $size = (int) $len;
+                            }
+                        } catch (\Throwable $e) { /* ignore */ }
+                    }
+                    return [
+                        'title' => $title,
+                        'size' => $size,
+                        'url' => $url ?: null,
+                    ];
+                } catch (\Throwable $e) {
+                    return [
+                        'title' => $att->title ?? null,
+                        'size' => null,
+                        'url' => (string) ($att->url ?? ''),
+                    ];
+                }
+            })->values();
+
+            $episode->setRelation('attachs', $mappedAttachs);
+        }
 
         if ($user) {
             // پیشرفت کاربر در دوره

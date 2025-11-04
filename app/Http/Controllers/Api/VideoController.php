@@ -21,7 +21,16 @@ class VideoController extends Controller
     }
 
     public function courseVideo(Course $course){
-        // $course = Course::findOrFail(request()->course);
+        // Prefer trailer record from videos table if it's an HLS master playlist
+        $trailer = $course->videos()->where('type', 'trailer')->first();
+
+        if ($trailer && str_contains($trailer->path, '.m3u8')) {
+            $path = parse_url($trailer->path, PHP_URL_PATH);
+            $disk = $trailer->disk;
+            return redirect(URL::temporarySignedRoute('api.video-playlist', now()->addMinutes(20), ['path' => $path, 'disk' => $disk]));
+        }
+
+        // Backward compatibility: fall back to course->trailer value if it already points to HLS
         $path = parse_url($course->trailer, PHP_URL_PATH);
         $disk = $course->disk;
         return redirect(URL::temporarySignedRoute('api.video-playlist', now()->addMinutes(20), ['path' => $path, 'disk' => $disk]));
