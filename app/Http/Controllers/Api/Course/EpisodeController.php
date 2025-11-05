@@ -116,6 +116,31 @@ class EpisodeController extends Controller
             $episode->setRelation('attachs', $mappedAttachs);
         }
 
+        // Compute can_download according to business rules
+        $canDownload = false;
+        if ($user) {
+            $canDownload = $user->canDownloadCourse($course);
+        } else {
+            // Login required for any download
+            $canDownload = false;
+        }
+
+        // If user is not allowed to download, hide attachment URLs
+        if (!$canDownload && $episode->relationLoaded('attachs') && $episode->attachs) {
+            $episode->setRelation('attachs', $episode->attachs->map(function ($att) {
+                if (is_array($att)) {
+                    $att['url'] = null;
+                    return $att;
+                }
+                // Fallback if unexpected type
+                return [
+                    'title' => $att['title'] ?? null,
+                    'size' => $att['size'] ?? null,
+                    'url' => null,
+                ];
+            })->values());
+        }
+
         if ($user) {
             // پیشرفت کاربر در دوره
             $progress = VideoView::getCourseProgressForUser($user->id, $course->id, 'all');
@@ -193,6 +218,7 @@ class EpisodeController extends Controller
             'certificateUuid' => $certificateUuid,
             'course' => $course,
             'episode' => $episode,
+            'can_download' => $canDownload,
             'comments_count' => $commentsCount,
             'likes_count' => $likesCount,
             'user_has_liked' => $userHasLiked,
@@ -212,8 +238,8 @@ class EpisodeController extends Controller
             }
 
             $course = $episode->section->course;
-
-            if (!(auth('api')->user()->hasCourse($course) && $course->type != 'cash-vip')) {
+            $user = auth('api')->user();
+            if (!$user || !$user->canDownloadCourse($course)) {
                 return response()->json(['message' => 'You do not have access to download this file'], 403);
             }
 

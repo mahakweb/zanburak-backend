@@ -361,6 +361,34 @@ class User extends Authenticatable implements MustVerifyEmail
         }
     }
 
+    /**
+     * Determine if the user can download course content (videos, attachments).
+     * Rules:
+     * - free: everyone can download
+     * - cash: only if user purchased the course
+     * - cash-vip: only if user purchased the course (VIP subscription allows online watch only)
+     */
+    public function canDownloadCourse(Course $course): bool
+    {
+        if (!$course) {
+            return false;
+        }
+
+        if ($course->type === 'free') {
+            return true;
+        }
+
+        if ($course->type === 'cash') {
+            return $this->courses()->wherePivot('course_id', $course->id)->exists();
+        }
+
+        if ($course->type === 'cash-vip') {
+            return $this->courses()->wherePivot('course_id', $course->id)->exists();
+        }
+
+        return false;
+    }
+
     public function completedCourses()
     {
         return $this->courses()->wherePivotNotNull('completed_at');

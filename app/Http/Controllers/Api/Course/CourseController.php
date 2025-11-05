@@ -135,6 +135,8 @@ class CourseController extends Controller
 
 
         $userCanSeeCourse = $user?->hasCourse($course) ?? false;
+        // Login required for any download
+        $canDownload = $user ? $user->canDownloadCourse($course) : false;
 
 
         // اضافه کردن درصد مشاهده برای هر اپیزود توی سکشن‌ها
@@ -234,6 +236,7 @@ class CourseController extends Controller
             'certificateUuid' => $certificateUuid,
             'relatedCourses' => $relatedCourses,
             'course' => $course,
+            'can_download' => $canDownload,
             'comments_count' => $commentsCount,
             'likes_count' => $likesCount,
             'user_has_liked' => $userHasLiked,
