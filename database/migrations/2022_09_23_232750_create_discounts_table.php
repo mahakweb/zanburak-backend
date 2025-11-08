@@ -58,7 +58,7 @@ return new class extends Migration
             $table->string('item_type')->nullable(); // course | path | vip | null for all
             $table->string('condition_type'); // min_cart_total, max_cart_total, first_purchase, ...
             $table->string('operator')->nullable(); // >=, <=, =, != ...
-            $table->integer('value')->nullable();
+            $table->string('value')->nullable();
             $table->unsignedBigInteger('target_id')->nullable();
             $table->json('extra')->nullable(); // برای شرایط پیچیده (مثلا چند روز هفته)
             $table->timestamps();

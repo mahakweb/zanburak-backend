@@ -21,9 +21,11 @@ class PaymentController extends Controller
 
     public function store(Request $request)
     {
+        /** @var \App\Models\User $user */
         $user = auth('api')->user();
         $data = $request->validate([
             'driver'         => ['nullable', 'string', new ValidGateway()],
+			'payment_method' => ['nullable', 'in:wallet,bank'],
             'discount_code'  => ['nullable', 'string'],
             'discount_amount' => ['nullable', 'integer'],
             // 'expired_at'     => ['nullable', 'date'],
@@ -31,6 +33,56 @@ class PaymentController extends Controller
 
         try {
             $payment = $this->service->createFromCart($user, $data);
+
+			// Handle wallet method if requested and amount > 0
+			if (($data['payment_method'] ?? 'bank') === 'wallet' && (int) $payment->amount > 0) {
+				// Check balance first; if insufficient, remove payment and return error (no payment should persist)
+				if ((int) $user->wallet_balance < (int) $payment->amount) {
+					// Clean up created payment
+					try {
+						$payment->items()->delete();
+						$payment->delete();
+					} catch (\Throwable $cleanupEx) {
+						// swallow cleanup exceptions
+					}
+					return response()->json(['error' => 'موجودی کیف پول شما کافی نیست'], 422);
+				}
+
+				// Sufficient: complete via wallet immediately
+				$payment->update([
+					'payment_method' => 'wallet',
+					'status'         => true,
+					'paid_at'        => now(),
+					'expired_at'     => null,
+					'tracking_number'=> null,
+				]);
+
+				// Grant access and record coupon usage
+				$this->service->handleSuccessfulPayment($payment);
+
+				// Create wallet decrease transaction and update user balance
+				$after = (int) $user->wallet_balance - (int) $payment->amount;
+				$user->wallets()->create([
+					'description'     => 'خرید از کیف پول',
+					'amount'          => (int) $payment->amount,
+					'after_balance'   => $after,
+					'type'            => 'decrease',
+					'payment_id'      => $payment->id,
+					'tracking_number' => $payment->reference_id,
+				]);
+				$user->update(['wallet_balance' => $after]);
+
+				// clear user cart
+				$user->carts()->delete();
+
+				$redirectUrl = env('FRONT_APP_URL') . "/payment/receipt/{$payment->uuid}";
+				return response()->json([
+					'message' => 'Success!',
+					'status' => 'paid',
+					'payment_uuid' => $payment->uuid,
+					'redirect_url' => $redirectUrl,
+				], 200);
+			}
 
             $attempt = $payment->attempts()->create([
                 'attempt_reference' => 'TRY-' . now()->format('YmdHis') . '-' . Str::random(6),
@@ -90,6 +142,7 @@ class PaymentController extends Controller
 
     public function retry(Request $request, $uuid)
     {
+        /** @var \App\Models\User $user */
         $user = auth('api')->user();
 
         $payment = Payment::where('uuid', $uuid)->firstOrFail();
@@ -107,6 +160,7 @@ class PaymentController extends Controller
 
         $options = $request->validate([
             'driver' => ['nullable', 'string', new ValidGateway()],
+            'payment_method' => ['nullable', 'in:wallet,bank'],
         ]);
 
 
@@ -117,6 +171,62 @@ class PaymentController extends Controller
             // fail all pending attempts
             $payment->attempts()->where('status', 'pending')->update(['status' => 'failed']);
 
+
+            // Wallet retry path
+            if (($options['payment_method'] ?? 'bank') === 'wallet' && (int) $payment->amount > 0) {
+                // Check balance
+                if ((int) $user->wallet_balance < (int) $payment->amount) {
+                    return response()->json(['error' => 'موجودی کیف پول شما کافی نیست'], 422);
+                }
+
+                $payment->update([
+                    'payment_method' => 'wallet',
+                    'status'         => true,
+                    'paid_at'        => now(),
+                    'expired_at'     => null,
+                    'tracking_number'=> null,
+                ]);
+
+                // Grant access
+                $this->service->handleSuccessfulPayment($payment);
+
+                // حذف آیتم‌های سبد خرید که در payment_items هستند
+                $payment->load('items');
+                foreach ($payment->items as $paymentItem) {
+                    $user->carts()
+                        ->where('cartable_type', $paymentItem->payable_type)
+                        ->where('cartable_id', $paymentItem->payable_id)
+                        ->delete();
+                }
+
+                // Wallet decrease
+                $after = (int) $user->wallet_balance - (int) $payment->amount;
+                $user->wallets()->create([
+                    'description'     => 'خرید از کیف پول',
+                    'amount'          => (int) $payment->amount,
+                    'after_balance'   => $after,
+                    'type'            => 'decrease',
+                    'payment_id'      => $payment->id,
+                    'tracking_number' => $payment->reference_id,
+                ]);
+                $user->update(['wallet_balance' => $after]);
+
+                $redirectUrl = env('FRONT_APP_URL') . "/payment/receipt/{$payment->uuid}";
+                return response()->json([
+                    'message' => 'Success!',
+                    'status' => 'paid',
+                    'payment_uuid' => $payment->uuid,
+                    'redirect_url' => $redirectUrl,
+                ], 200);
+            }
+
+            // If user chose bank on retry, update payment method/driver before attempting
+            if (($options['payment_method'] ?? null) === 'bank') {
+                $payment->update([
+                    'payment_method' => 'bank',
+                    'driver' => $options['driver'] ?? $payment->driver,
+                ]);
+            }
 
             $attempt = $payment->attempts()->create([
                 'attempt_reference' => 'TRY-' . now()->format('YmdHis') . '-' . Str::random(6),
@@ -142,6 +252,15 @@ class PaymentController extends Controller
                 ]);
 
                 $this->service->handleSuccessfulPayment($payment);
+
+                // حذف آیتم‌های سبد خرید که در payment_items هستند
+                $payment->load('items');
+                foreach ($payment->items as $paymentItem) {
+                    $user->carts()
+                        ->where('cartable_type', $paymentItem->payable_type)
+                        ->where('cartable_id', $paymentItem->payable_id)
+                        ->delete();
+                }
 
                 $attempt->update([
                     'status' => 'paid',
@@ -190,6 +309,18 @@ class PaymentController extends Controller
                 $attempt->update([
                     'status' => $result['status'],
                 ]);
+            }
+
+            // حذف آیتم‌های سبد خرید که در payment_items هستند (فقط برای پرداخت‌های موفق از cart)
+            if ($result['status'] === 'paid' && $payment->items()->count() > 0) {
+                $payment->load('items');
+                $user = $payment->user;
+                foreach ($payment->items as $paymentItem) {
+                    $user->carts()
+                        ->where('cartable_type', $paymentItem->payable_type)
+                        ->where('cartable_id', $paymentItem->payable_id)
+                        ->delete();
+                }
             }
 
             return redirect(env("FRONT_APP_URL") . "/payment/receipt/{$payment->uuid}");

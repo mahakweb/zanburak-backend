@@ -38,6 +38,7 @@ class PaymentService
             $payment = Payment::create([
                 'user_id'         => $user->id,
                 'driver'          => $options['driver'] ?? config('payment.default', 'zarinpal'),
+                'payment_method'  => 'bank',
                 'amount'          => 0,
                 'discount_amount' => 0,
                 'discount_code'   => null,
@@ -268,6 +269,7 @@ class PaymentService
 			$payment = Payment::create([
 				'user_id'         => $user->id,
 				'driver'          => $options['driver'] ?? config('payment.default', 'zarinpal'),
+                'payment_method'  => 'bank',
 				'amount'          => $options['amount'],
 				'discount_amount' => 0,
 				'discount_code'   => null,

@@ -211,7 +211,7 @@ class PanelController extends Controller
         $user = auth('api')->user();
 
         $query = $user->payments()
-            ->select('id', 'uuid', 'tracking_number', 'reference_id', 'amount', 'driver', 'discount_amount', 'discount_code', 'status', 'paid_at', 'expired_at', 'created_at', 'updated_at', 'description')
+            ->select('id', 'uuid', 'payment_method', 'tracking_number', 'reference_id', 'amount', 'driver', 'discount_amount', 'discount_code', 'status', 'paid_at', 'expired_at', 'created_at', 'updated_at', 'description')
             ->with(['attempts', 'items.payable']);
 
         $query = match ($filter) {
@@ -266,6 +266,7 @@ class PanelController extends Controller
             return [
                 'id' => $payment->id,
                 'uuid' => $payment->uuid,
+                'payment_method' => $payment->payment_method,
                 'tracking_number' => $payment->tracking_number,
                 'reference_id' => $payment->reference_id,
                 'driver' => $payment->driver,

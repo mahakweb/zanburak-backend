@@ -375,10 +375,15 @@ class PaymentController extends Controller
                 ->where('status', 1)
                 ->whereNotNull('paid_at')
                 ->count(),
-            'pending_payments' => Payment::whereBetween('created_at', [$dateFrom, $dateTo])
-                ->where('status', 0)
-                ->whereNull('paid_at')
-                ->count(),
+                // pending excludes expired
+                'pending_payments' => Payment::whereBetween('created_at', [$dateFrom, $dateTo])
+                    ->where('status', 0)
+                    ->whereNull('paid_at')
+                    ->where(function ($q) {
+                        $q->whereNull('expired_at')
+                          ->orWhere('expired_at', '>=', now());
+                    })
+                    ->count(),
             'expired_payments' => Payment::whereBetween('created_at', [$dateFrom, $dateTo])
                 ->where('status', 0)
                 ->where('expired_at', '<', now())

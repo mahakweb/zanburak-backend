@@ -21,7 +21,7 @@ return new class extends Migration
             $table->unsignedBigInteger('payment_id')->nullable();
             $table->foreign('payment_id')->references('id')->on('payments')->onUpdate('cascade');
             $table->string('tracking_number')->nullable();
-            $table->integer('reference_id')->nullable();
+            $table->string('reference_id')->nullable();
             $table->text('description')->nullable();
             $table->bigInteger('amount');
             $table->bigInteger('after_balance');

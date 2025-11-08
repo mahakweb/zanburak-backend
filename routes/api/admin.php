@@ -25,6 +25,9 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
         Route::get('/paths', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'getPaths'])->name('paths');
     });
 
+    // Dashboard
+    Route::get('/dashboard/stats', [\App\Http\Controllers\Api\Admin\DashboardController::class, 'stats'])->name('dashboard.stats');
+
     // Plans
     Route::post('/plans', [\App\Http\Controllers\Api\Admin\PlanController::class, 'plans'])->name('plans.index');
     Route::post('/plan/create', [\App\Http\Controllers\Api\Admin\PlanController::class, 'store'])->name('plan.create');
