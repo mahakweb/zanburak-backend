@@ -499,6 +499,32 @@ class DiscussController extends Controller
             'subject' => 'required|string|min:5|max:255',
             'category' => 'required|exists:question_categories,id',
             'question' => 'required|min:10',
+            'meta_keywords' => [
+                'nullable',
+                'string',
+                function ($attribute, $value, $fail) {
+                    if ($value) {
+                        $keywords = array_filter(array_map('trim', explode(',', $value)));
+                        $count = count($keywords);
+                        
+                        if ($count < 3) {
+                            $fail('کلمات کلیدی باید حداقل 3 کلمه باشد.');
+                        }
+                        
+                        if ($count > 10) {
+                            $fail('کلمات کلیدی نباید بیشتر از 10 کلمه باشد.');
+                        }
+                        
+                        // Check for empty keywords
+                        foreach ($keywords as $keyword) {
+                            if (empty($keyword)) {
+                                $fail('کلمات کلیدی نمی‌تواند خالی باشد.');
+                                break;
+                            }
+                        }
+                    }
+                },
+            ],
             'tags' => 'nullable|array|max:3',
             'tags.*' => 'string|max:20',
             'is_private' => 'required|boolean',
