@@ -19,6 +19,18 @@ Route::get('/course/{courseSlug}/episode/{episodeSlug}', [\App\Http\Controllers\
 
 // SEO Routes - Public access for search engines
 Route::get('/sitemap.xml', [\App\Http\Controllers\Api\Seo\SeoController::class, 'sitemap'])->name('api.seo.sitemap');
+Route::get('/sitemap-index.xml', [\App\Http\Controllers\Api\Seo\SeoController::class, 'sitemapIndex'])->name('api.seo.sitemap-index');
+Route::get('/sitemap-images.xml', [\App\Http\Controllers\Api\Seo\SeoController::class, 'imageSitemap'])->name('api.seo.sitemap-images');
+Route::get('/sitemap-videos.xml', [\App\Http\Controllers\Api\Seo\SeoController::class, 'videoSitemap'])->name('api.seo.sitemap-videos');
 Route::get('/robots.txt', [\App\Http\Controllers\Api\Seo\SeoController::class, 'robots'])->name('api.seo.robots');
+Route::get('/rss.xml', [\App\Http\Controllers\Api\Seo\SeoController::class, 'rssFeed'])->name('api.seo.rss');
+
+// SEO Schema and Meta Tags
+Route::get('/seo/course/{courseSlug}/schema.json', [\App\Http\Controllers\Api\Seo\SeoController::class, 'courseSchema'])->name('api.seo.course-schema');
+Route::get('/seo/course/{courseSlug}/episode/{episodeSlug}/schema.json', [\App\Http\Controllers\Api\Seo\SeoController::class, 'episodeSchema'])->name('api.seo.episode-schema');
+Route::get('/seo/path/{pathSlug}/schema.json', [\App\Http\Controllers\Api\Seo\SeoController::class, 'pathSchema'])->name('api.seo.path-schema');
+Route::get('/seo/question/{questionSlug}/schema.json', [\App\Http\Controllers\Api\Seo\SeoController::class, 'questionSchema'])->name('api.seo.question-schema');
+Route::get('/seo/meta-tags', [\App\Http\Controllers\Api\Seo\SeoController::class, 'metaTags'])->name('api.seo.meta-tags');
+Route::get('/seo/health-check', [\App\Http\Controllers\Api\Seo\SeoController::class, 'seoHealthCheck'])->name('api.seo.health-check');
 
 
