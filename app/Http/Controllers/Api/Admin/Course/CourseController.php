@@ -127,6 +127,7 @@ class CourseController extends Controller
             'type' => $course->type,
             'publish' => $course->publish,
             'price' => $course->price,
+            'meta_keywords' => $course->meta_keywords,
             'level' => $level,
             'status' => $status,
             'categories' => $categories,
@@ -652,6 +653,32 @@ class CourseController extends Controller
             'english_title' => ['required', 'min:10', 'max:255', 'regex:/^[~`!@#$%^&*()_+=[\]\\{}|;":",.\/<>?a-zA-Z0-9- ]+$/', 'unique:courses,english_title'],
             'short_description' => ['required', 'min:10'],
             'description' => ['required', 'min:10'],
+            'meta_keywords' => [
+                'nullable',
+                'string',
+                function ($attribute, $value, $fail) {
+                    if ($value) {
+                        $keywords = array_filter(array_map('trim', explode(',', $value)));
+                        $count = count($keywords);
+                        
+                        if ($count < 3) {
+                            $fail('کلمات کلیدی باید حداقل 3 کلمه باشد.');
+                        }
+                        
+                        if ($count > 10) {
+                            $fail('کلمات کلیدی نباید بیشتر از 10 کلمه باشد.');
+                        }
+                        
+                        // Check for empty keywords
+                        foreach ($keywords as $keyword) {
+                            if (empty($keyword)) {
+                                $fail('کلمات کلیدی نمی‌تواند خالی باشد.');
+                                break;
+                            }
+                        }
+                    }
+                },
+            ],
             'publish' => ['required', 'boolean'],
             'price' => ['required', 'numeric', 'max:100000000'],
             'start_date' => ['nullable', "date", "before:end_date"],
@@ -662,6 +689,12 @@ class CourseController extends Controller
         } else {
             $user = auth('api')->user();
             $validData = $validator->validated();
+
+            // Clean and format meta_keywords
+            if (isset($validData['meta_keywords']) && $validData['meta_keywords']) {
+                $keywords = array_filter(array_map('trim', explode(',', $validData['meta_keywords'])));
+                $validData['meta_keywords'] = implode(', ', $keywords);
+            }
 
             $course = $user->addCourse()->create($validData);
             $course->category()->attach($request['categories']);
@@ -757,6 +790,7 @@ class CourseController extends Controller
             'type' => $course->type,
             'short_description' => $course->short_description,
             'description' => $course->description,
+            'meta_keywords' => $course->meta_keywords,
             'poster' => $course->poster,
             'publish' => $course->publish,
             'price' => $course->price,
@@ -799,6 +833,32 @@ class CourseController extends Controller
             'english_title' => ['required', 'min:10', 'max:255', 'regex:/^[~`!@#$%^&*()_+=[\]\\{}|;":",.\/<>?a-zA-Z0-9- ]+$/', Rule::unique('courses', 'english_title')->ignore($course->id)],
             'short_description' => ['required', 'min:10'],
             'description' => ['required', 'min:10'],
+            'meta_keywords' => [
+                'nullable',
+                'string',
+                function ($attribute, $value, $fail) {
+                    if ($value) {
+                        $keywords = array_filter(array_map('trim', explode(',', $value)));
+                        $count = count($keywords);
+                        
+                        if ($count < 3) {
+                            $fail('کلمات کلیدی باید حداقل 3 کلمه باشد.');
+                        }
+                        
+                        if ($count > 10) {
+                            $fail('کلمات کلیدی نباید بیشتر از 10 کلمه باشد.');
+                        }
+                        
+                        // Check for empty keywords
+                        foreach ($keywords as $keyword) {
+                            if (empty($keyword)) {
+                                $fail('کلمات کلیدی نمی‌تواند خالی باشد.');
+                                break;
+                            }
+                        }
+                    }
+                },
+            ],
             'publish' => ['required', 'boolean'],
             'price' => ['required', 'numeric', 'max:100000000'],
             'start_date' => ['nullable', "date", "before:end_date"],
@@ -808,6 +868,15 @@ class CourseController extends Controller
             return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
         } else {
             $validData = $validator->validated();
+            
+            // Clean and format meta_keywords
+            if (isset($validData['meta_keywords']) && $validData['meta_keywords']) {
+                $keywords = array_filter(array_map('trim', explode(',', $validData['meta_keywords'])));
+                $validData['meta_keywords'] = implode(', ', $keywords);
+            } else {
+                $validData['meta_keywords'] = null;
+            }
+            
             $course->update($validData);
             $course->category()->sync($validData['categories']);
             

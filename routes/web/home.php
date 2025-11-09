@@ -395,3 +395,5 @@ Route::get('/oauth/{driver}/redirect', [\App\Http\Controllers\Auth\OAuthControll
 Route::get('/oauth/{driver}/callback', [\App\Http\Controllers\Auth\OAuthController::class, 'callback'])->name('social-callback');
 
 Route::get('/home', [\App\Http\Controllers\Home\HomeController::class, 'index'])->name('home');
+
+// SEO Routes - Moved to API routes

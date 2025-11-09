@@ -17,6 +17,7 @@ class Path extends Model
         'slug',
         'description',
         'short_description',
+        'meta_keywords',
         'icon',
         'poster',
         'trailer',

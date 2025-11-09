@@ -29,6 +29,7 @@ class Course extends Model implements Likeable
         'english_title',
         'short_description',
         'description',
+        'meta_keywords',
         'total_time',
         'start_date',
         'end_date',

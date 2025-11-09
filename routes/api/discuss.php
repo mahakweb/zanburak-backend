@@ -18,6 +18,7 @@ Route::prefix('discuss')->as('api.discuss.')->group(function () {
         Route::delete('/{questionSlug}/delete', [\App\Http\Controllers\Api\Discuss\DiscussController::class, 'deleteQuestion'])->name('delete');
         Route::delete('/{questionSlug}/deleteAnswer', [\App\Http\Controllers\Api\Discuss\DiscussController::class, 'deleteAnswer'])->name('answer.delete');
         Route::post('/{questionSlug}/newAnswer', [\App\Http\Controllers\Api\Discuss\DiscussController::class, 'newAnswer'])->name('answer.create');
+        Route::post('/layouts/create', [\App\Http\Controllers\Api\Discuss\DiscussController::class, 'create'])->name('create');
         Route::post('/layouts/like-dislike', [\App\Http\Controllers\Api\Discuss\DiscussController::class, 'likeDislike'])->name('layouts.like-dislike');
         Route::post('/layouts/toggle-pin', [\App\Http\Controllers\Api\Discuss\DiscussController::class, 'togglePin'])->name('layouts.toggle-pin');
     });

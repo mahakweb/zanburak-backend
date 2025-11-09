@@ -193,6 +193,7 @@ return array(
         'rating' => "امتیاز",
         'report' => 'گزارش',
         'gateway' => 'درگاه',
+        'meta_keywords' => "کلمات کلیدی",
         'discount' => "کد تخفیف",
         'plan' => "اشتراک",
         'answer' => "پاسخ",

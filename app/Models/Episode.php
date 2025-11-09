@@ -21,6 +21,7 @@ class Episode extends Model implements Likeable
         'title',
         'english_title',
         'description',
+        'meta_keywords',
         'total_time',
         'lock',
         'publish_date',

@@ -154,6 +154,7 @@ class PathController extends Controller
                 'english_title' => $path->english_title,
                 'short_description' => $path->short_description,
                 'description' => $path->description,
+                'meta_keywords' => $path->meta_keywords,
                 'icon' => $path->icon,
                 'poster' => $path->poster,
                 'trailer' => $trailerUrl,
@@ -194,6 +195,32 @@ class PathController extends Controller
             ],
             'short_description' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
+            'meta_keywords' => [
+                'nullable',
+                'string',
+                function ($attribute, $value, $fail) {
+                    if ($value) {
+                        $keywords = array_filter(array_map('trim', explode(',', $value)));
+                        $count = count($keywords);
+                        
+                        if ($count < 3) {
+                            $fail('کلمات کلیدی باید حداقل 3 کلمه باشد.');
+                        }
+                        
+                        if ($count > 10) {
+                            $fail('کلمات کلیدی نباید بیشتر از 10 کلمه باشد.');
+                        }
+                        
+                        // Check for empty keywords
+                        foreach ($keywords as $keyword) {
+                            if (empty($keyword)) {
+                                $fail('کلمات کلیدی نمی‌تواند خالی باشد.');
+                                break;
+                            }
+                        }
+                    }
+                },
+            ],
             'icon' => ['nullable', 'string', 'max:1024'],
             'poster' => ['nullable', 'string', 'max:1024'],
             'trailer' => ['nullable', 'string', 'max:1024'],
@@ -225,6 +252,14 @@ class PathController extends Controller
         $path->english_title = $valid['english_title'];
         $path->short_description = $valid['short_description'] ?? null;
         $path->description = $valid['description'] ?? null;
+        
+        // Clean and format meta_keywords
+        if (isset($valid['meta_keywords']) && $valid['meta_keywords']) {
+            $keywords = array_filter(array_map('trim', explode(',', $valid['meta_keywords'])));
+            $path->meta_keywords = implode(', ', $keywords);
+        } else {
+            $path->meta_keywords = null;
+        }
         if (array_key_exists('icon', $valid)) $path->icon = $valid['icon'];
         if (array_key_exists('poster', $valid)) $path->poster = $valid['poster'];
         if (array_key_exists('trailer', $valid)) $path->trailer = $valid['trailer'];
@@ -426,6 +461,32 @@ class PathController extends Controller
             'english_title' => ['required', 'string', 'min:3', 'max:255', 'regex:/^[~`!@#$%^&*()_+=[\\]\\{}|;":",.\/<>>?a-zA-Z0-9- ]+$/', 'unique:paths,english_title'],
             'short_description' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
+            'meta_keywords' => [
+                'required',
+                'string',
+                function ($attribute, $value, $fail) {
+                    if ($value) {
+                        $keywords = array_filter(array_map('trim', explode(',', $value)));
+                        $count = count($keywords);
+                        
+                        if ($count < 3) {
+                            $fail('کلمات کلیدی باید حداقل 3 کلمه باشد.');
+                        }
+                        
+                        if ($count > 10) {
+                            $fail('کلمات کلیدی نباید بیشتر از 10 کلمه باشد.');
+                        }
+                        
+                        // Check for empty keywords
+                        foreach ($keywords as $keyword) {
+                            if (empty($keyword)) {
+                                $fail('کلمات کلیدی نمی‌تواند خالی باشد.');
+                                break;
+                            }
+                        }
+                    }
+                },
+            ],
             'icon' => ['required', 'string', 'max:1024'],
             'poster' => ['required', 'string', 'max:1024'],
             'trailer' => ['nullable', 'string', 'max:1024'],
@@ -461,11 +522,19 @@ class PathController extends Controller
 
         $valid = $validator->validated();
 
+        // Clean and format meta_keywords
+        $metaKeywords = null;
+        if (isset($valid['meta_keywords']) && $valid['meta_keywords']) {
+            $keywords = array_filter(array_map('trim', explode(',', $valid['meta_keywords'])));
+            $metaKeywords = implode(', ', $keywords);
+        }
+        
         $path = Path::create([
             'title' => $valid['title'],
             'english_title' => $valid['english_title'],
             'short_description' => $valid['short_description'] ?? null,
             'description' => $valid['description'] ?? null,
+            'meta_keywords' => $metaKeywords,
             'icon' => $valid['icon'] ?? null,
             'poster' => $valid['poster'] ?? null,
             'trailer' => $valid['trailer'] ?? null,

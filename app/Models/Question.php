@@ -23,6 +23,7 @@ class Question extends Model implements Likeable
         'category_id',
         'subject',
         'question',
+        'meta_keywords',
         'best_answer',
         'is_private',
         'allowed_user_ids'

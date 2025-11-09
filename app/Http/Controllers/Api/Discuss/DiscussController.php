@@ -73,6 +73,8 @@ class DiscussController extends Controller
                 'subject' => $question->subject,
                 'slug' => $question->slug,
                 'question' => $question->question,
+                'body' => $question->question, // Alias for compatibility
+                'meta_keywords' => $question->meta_keywords,
                 'best_answer' => $question->best_answer,
                 'is_private' => $question->is_private,
                 'created_at' => $question->created_at,
@@ -80,6 +82,7 @@ class DiscussController extends Controller
                 'user' => $questionUser,
                 'last_answer' => $lastAnswerData,
                 'total_answers' => $totalAnswers,
+                'answers_count' => $totalAnswers, // Alias for compatibility
                 'tags' => $tags,
                 'bookmarked' => $isBookmarked,
                 'is_editable' => $isEditable
@@ -146,6 +149,8 @@ class DiscussController extends Controller
             'subject' => $question->subject,
             'slug' => $question->slug,
             'question' => $question->question,
+            'body' => $question->question, // Alias for compatibility
+            'meta_keywords' => $question->meta_keywords,
             'best_answer' => $question->best_answer,
             'is_private' => $question->is_private,
             'created_at' => $question->created_at,
@@ -153,6 +158,7 @@ class DiscussController extends Controller
             'user' => $questionUser,
             'last_answer' => $lastAnswerData,
             'total_answers' => $totalAnswers,
+            'answers_count' => $totalAnswers, // Alias for compatibility
             'tags' => $tags,
             'bookmarked' => $isBookmarked,
             'is_editable' => $isEditable
@@ -346,6 +352,32 @@ class DiscussController extends Controller
             'subject' => 'required|string|min:5|max:255',
             'category' => 'required|exists:question_categories,id',
             'question' => 'required|min:10',
+            'meta_keywords' => [
+                'nullable',
+                'string',
+                function ($attribute, $value, $fail) {
+                    if ($value) {
+                        $keywords = array_filter(array_map('trim', explode(',', $value)));
+                        $count = count($keywords);
+                        
+                        if ($count < 3) {
+                            $fail('کلمات کلیدی باید حداقل 3 کلمه باشد.');
+                        }
+                        
+                        if ($count > 10) {
+                            $fail('کلمات کلیدی نباید بیشتر از 10 کلمه باشد.');
+                        }
+                        
+                        // Check for empty keywords
+                        foreach ($keywords as $keyword) {
+                            if (empty($keyword)) {
+                                $fail('کلمات کلیدی نمی‌تواند خالی باشد.');
+                                break;
+                            }
+                        }
+                    }
+                },
+            ],
             'tags' => 'nullable|array|max:3',
             'tags.*' => 'string|max:20',
             'is_private' => 'required|boolean',
@@ -379,6 +411,12 @@ class DiscussController extends Controller
             $question->subject = $request->subject;
             $question->category_id = $request->category;
             $question->question = $request->question;
+            
+            // Clean and format meta_keywords
+            if ($request->meta_keywords) {
+                $keywords = array_filter(array_map('trim', explode(',', $request->meta_keywords)));
+                $question->meta_keywords = implode(', ', $keywords);
+            }
 
             $question->is_private = $request->is_private;
 
@@ -438,6 +476,7 @@ class DiscussController extends Controller
             'slug' => $question->slug,
             'category_id' => $question->category_id,
             'question' => $question->question,
+            'meta_keywords' => $question->meta_keywords,
             'is_private' => boolval($question->is_private),
             'created_at' => $question->created_at,
             'updated_at' => $question->updated_at,
@@ -490,6 +529,14 @@ class DiscussController extends Controller
             $question->subject = $request->subject;
             $question->category_id = $request->category;
             $question->question = $request->question;
+            
+            // Clean and format meta_keywords
+            if ($request->meta_keywords) {
+                $keywords = array_filter(array_map('trim', explode(',', $request->meta_keywords)));
+                $question->meta_keywords = implode(', ', $keywords);
+            } else {
+                $question->meta_keywords = null;
+            }
 
             $question->is_private = $request->is_private;
 

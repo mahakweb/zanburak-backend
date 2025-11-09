@@ -109,6 +109,7 @@ class EpisodeController extends Controller
                 'english_title' => $episode->english_title,
                 'slug' => $episode->slug,
                 'description' => $episode->description,
+                'meta_keywords' => $episode->meta_keywords,
                 'order' => $episode->order,
                 'publish' => $episode->publish,
                 'lock' => $episode->lock,
@@ -181,6 +182,32 @@ class EpisodeController extends Controller
             'title' => ['required', 'min:5', 'max:255'],
             'english_title' => ['required', 'min:5', 'max:255', 'regex:/^[~`!@#$%^&*()_+=[\]\\{}|;":",.\/<>?a-zA-Z0-9- ]+$/'],
             'description' => ['nullable'],
+            'meta_keywords' => [
+                'nullable',
+                'string',
+                function ($attribute, $value, $fail) {
+                    if ($value) {
+                        $keywords = array_filter(array_map('trim', explode(',', $value)));
+                        $count = count($keywords);
+                        
+                        if ($count < 3) {
+                            $fail('کلمات کلیدی باید حداقل 3 کلمه باشد.');
+                        }
+                        
+                        if ($count > 10) {
+                            $fail('کلمات کلیدی نباید بیشتر از 10 کلمه باشد.');
+                        }
+                        
+                        // Check for empty keywords
+                        foreach ($keywords as $keyword) {
+                            if (empty($keyword)) {
+                                $fail('کلمات کلیدی نمی‌تواند خالی باشد.');
+                                break;
+                            }
+                        }
+                    }
+                },
+            ],
             'publish' => ['required', 'boolean'],
             'lock' => ['required', 'boolean'],
             'order' => ['required', 'numeric'],
@@ -192,6 +219,15 @@ class EpisodeController extends Controller
             return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
         } else {
             $validData = $validator->validated();
+            
+            // Clean and format meta_keywords
+            if (isset($validData['meta_keywords']) && $validData['meta_keywords']) {
+                $keywords = array_filter(array_map('trim', explode(',', $validData['meta_keywords'])));
+                $validData['meta_keywords'] = implode(', ', $keywords);
+            } else {
+                $validData['meta_keywords'] = null;
+            }
+            
             $section = Section::find($request->input('section_id'));
             if (!$section || $section->course_id != $course->id) {
                 return response()->json(['message' => 'Validation error!', 'errors' => ['section_id' => ['the selected section not belong to this course.']]], 422);

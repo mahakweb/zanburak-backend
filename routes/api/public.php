@@ -17,4 +17,8 @@ Route::get('/courses-page-filter', [\App\Http\Controllers\Api\Course\CourseContr
 Route::get('/course/{courseSlug}', [\App\Http\Controllers\Api\Course\CourseController::class, 'getCourse'])->name('api.courses.show');
 Route::get('/course/{courseSlug}/episode/{episodeSlug}', [\App\Http\Controllers\Api\Course\EpisodeController::class, 'getEpisode'])->name('api.episodes.show');
 
+// SEO Routes - Public access for search engines
+Route::get('/sitemap.xml', [\App\Http\Controllers\Api\Seo\SeoController::class, 'sitemap'])->name('api.seo.sitemap');
+Route::get('/robots.txt', [\App\Http\Controllers\Api\Seo\SeoController::class, 'robots'])->name('api.seo.robots');
+
 
