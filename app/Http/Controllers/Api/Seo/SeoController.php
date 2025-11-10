@@ -678,7 +678,7 @@ class SeoController extends Controller
                 'name' => $this->siteName,
                 'logo' => [
                     '@type' => 'ImageObject',
-                    'url' => $siteUrl . '/assets/image/logo.png',
+                    'url' => $siteUrl . '/assets/image/logo/logo.png',
                 ],
             ],
         ];
@@ -712,7 +712,7 @@ class SeoController extends Controller
                 'name' => $this->siteName,
                 'logo' => [
                     '@type' => 'ImageObject',
-                    'url' => $siteUrl . '/assets/image/logo.png',
+                    'url' => $siteUrl . '/assets/image/logo/logo.png',
                 ],
             ],
             'inLanguage' => 'fa-IR',
@@ -800,7 +800,7 @@ class SeoController extends Controller
         $url = $this->siteUrl . '/course/' . $course->slug;
         $title = $course->title . ' | ' . $this->siteName;
         $description = $course->short_description ?? strip_tags($course->description ?? '') ?? $this->defaultDescription;
-        $image = $course->poster ?? $this->siteUrl . '/assets/image/logo.png';
+        $image = $course->poster ?? $this->siteUrl . '/assets/image/logo/logo.png';
         $keywords = $course->meta_keywords ?? '';
 
         return [
@@ -826,7 +826,7 @@ class SeoController extends Controller
         $url = $this->siteUrl . '/course/' . $course->slug . '/episode/' . $episode->slug;
         $title = $episode->title . ' | ' . $course->title . ' | ' . $this->siteName;
         $description = strip_tags($episode->description ?? '') ?? $this->defaultDescription;
-        $image = $course->poster ?? $this->siteUrl . '/assets/image/logo.png';
+        $image = $course->poster ?? $this->siteUrl . '/assets/image/logo/logo.png';
 
         return [
             'title' => $title,
@@ -851,7 +851,7 @@ class SeoController extends Controller
         $url = $this->siteUrl . '/path/' . $path->slug;
         $title = $path->title . ' | ' . $this->siteName;
         $description = $path->short_description ?? strip_tags($path->description ?? '') ?? $this->defaultDescription;
-        $image = $path->poster ?? $this->siteUrl . '/assets/image/logo.png';
+        $image = $path->poster ?? $this->siteUrl . '/assets/image/logo/logo.png';
         $keywords = $path->meta_keywords ?? '';
 
         return [
