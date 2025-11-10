@@ -16,6 +16,14 @@ Route::middleware('auth:sanctum')->prefix('request-project')->as('api.request-pr
     Route::post('upload-file', [\App\Http\Controllers\Api\IndexController::class, 'dropzoneUpload'])->name('upload-file');
 });
 
+// Cooperation
+Route::middleware('auth:sanctum')->prefix('cooperation')->as('api.cooperation.')->group(function () {
+    Route::post('/', [\App\Http\Controllers\Api\IndexController::class, 'cooperation'])->name('store');
+    // Reuse dropzone upload endpoint (stores in /project/ path for now)
+    Route::post('upload-file', [\App\Http\Controllers\Api\IndexController::class, 'dropzoneUpload'])->name('upload-file');
+    Route::post('validate-iban', [\App\Http\Controllers\Api\IndexController::class, 'validateIban'])->name('validate-iban');
+});
+
 // Certificate
 Route::get('/certificate/{uuid}', [\App\Http\Controllers\Api\CertificateController::class, 'index'])->name('api.certificate.show');
 

@@ -385,4 +385,126 @@ class IndexController extends Controller
             'result' => $combinedResults,
         ], 200);
     }
+
+    public function cooperation(Request $request)
+    {
+        $user = auth('api')->user();
+
+        // Optional: enforce verification like project request
+        if (!$user->email_verified_at || !$user->mobile_verified_at) {
+            return response()->json([
+                'email_verified' => (bool) $user->email_verified_at,
+                'mobile_verified' => (bool) $user->mobile_verified_at,
+            ], 401);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'role' => 'required|in:support,teacher,content_creator,dev,marketing,design',
+            'full_name' => 'nullable|string|max:255',
+            'mobile' => 'nullable|string|max:30',
+            'email' => 'nullable|email|max:255',
+            'iban' => ['required','string','max:34'],
+            'description' => 'required|min:20',
+            'links' => 'nullable|string|max:1000',
+            'national_card' => 'nullable|array|max:2',
+            'national_card.*' => 'nullable|string|max:1024',
+            'resume' => 'nullable|string|max:1024',
+            'samples' => 'nullable|array|max:5',
+            'samples.*' => 'nullable|string|max:1024',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Error', 'errors' => $validator->errors()], 422);
+        }
+
+        // Persist as a JSON file to storage (no DB migration needed)
+        $payload = $validator->validated();
+        $payload['user_id'] = $user->id;
+        $payload['created_at'] = now()->toDateTimeString();
+        $fileName = 'cooperation/' . now()->format('Y/m/d') . '/' . $user->id . '_' . now()->timestamp . '.json';
+        Storage::disk('local')->put($fileName, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+
+        return response()->json(['message' => 'Success, cooperation request has been received!'], 200);
+    }
+
+    public function validateIban(Request $request)
+    {
+        $request->validate([
+            'iban' => 'required|string|max:34'
+        ]);
+
+        $iban = strtoupper(str_replace(' ', '', $request->input('iban')));
+        if (!str_starts_with($iban, 'IR')) {
+            $iban = 'IR' . preg_replace('/^IR/i', '', $iban);
+        }
+
+        // Basic format check: IR + 24 digits
+        if (!preg_match('/^IR[0-9]{24}$/', $iban)) {
+            return response()->json([ 'valid' => false, 'message' => 'Invalid IBAN format' ], 200);
+        }
+
+        // Checksum (mod 97) validation
+        $rearranged = substr($iban, 4) . substr($iban, 0, 4);
+        $converted = preg_replace_callback('/[A-Z]/', function ($m) {
+            return ord($m[0]) - 55;
+        }, $rearranged);
+
+        // Calculate mod 97 without BCMath (iterate digit-by-digit)
+        $remainder = 0;
+        $len = strlen($converted);
+        for ($i = 0; $i < $len; $i++) {
+            $digit = intval($converted[$i]);
+            $remainder = ($remainder * 10 + $digit) % 97;
+        }
+        if ($remainder !== 1) {
+            return response()->json([ 'valid' => false, 'message' => 'Invalid IBAN checksum' ], 200);
+        }
+
+        // Lightweight bank detection (best-effort)
+        // In Iranian IBAN, after IRkk the next few digits begin the BBAN containing bank identifier.
+        // Per https://almico.ir/blog/sheba bank code is digits 4-5 of IBAN (excluding IR)
+        $digits = substr($iban, 2); // 24 digits
+        $bankCode2 = substr($digits, 3, 2);
+        $bankMap2 = [
+            '11' => 'بانک صنعت و معدن',
+            '12' => 'بانک ملت',
+            '13' => 'بانک رفاه کارگران',
+            '14' => 'بانک مسکن',
+            '15' => 'بانک سپه',
+            '16' => 'بانک کشاورزی',
+            '17' => 'بانک ملی ایران',
+            '18' => 'بانک تجارت',
+            '19' => 'بانک صادرات ایران',
+            '20' => 'بانک توسعه صادرات',
+            '21' => 'پست بانک',
+            '22' => 'بانک توسعه تعاون',
+            '52' => 'بانک قوامین',
+            '53' => 'بانک کارآفرین',
+            '54' => 'بانک پارسیان',
+            '55' => 'بانک اقتصاد نوین',
+            '56' => 'بانک سامان',
+            '57' => 'بانک پاسارگاد',
+            '58' => 'بانک سرمایه',
+            '59' => 'بانک سینا',
+            '60' => 'بانک قرض الحسنه مهر ایران',
+            '61' => 'بانک شهر',
+            '62' => 'بانک آینده',
+            '63' => 'بانک انصار',
+            '64' => 'بانک گردشگری',
+            '65' => 'بانک حکمت ایرانیان',
+            '66' => 'بانک دی',
+            '69' => 'بانک ایران زمین',
+            '70' => 'بانک قرض الحسنه رسالت',
+            '75' => 'مؤسسه اعتباری ملل',
+            '79' => 'بانک مهر اقتصاد',
+            '80' => 'بانک خاورمیانه',
+        ];
+        $bankName = $bankMap2[$bankCode2] ?? null;
+
+        return response()->json([
+            'valid' => true,
+            'bank_name' => $bankName,
+            'bank_code' => $bankCode2,
+        ], 200);
+    }
 }
