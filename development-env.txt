@@ -1,0 +1,7 @@
+APP_ENV=development
+APP_URL=http://localhost:8000
+
+# Nuxt dev and preview/staging frontends
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001,https://dev.zanburak.ir,https://www.dev.zanburak.ir
+*** End Patch```}助手pannt人工计划 to=functions.apply_patchുന്നanalysis code_execution error  خواتassistantഴിക്ക to=functions.apply_patchnumerusform JSON error. The tool requires a FREEFORM string matching the patch grammar. I accidentally passed JSON. I need to pass just the patch string. Let's retry. We'll add file `zanburak-backend/development-env.txt`. Also add `zanburak-backend/local-env.txt`. Let's run two separate apply_patch calls. 
+
