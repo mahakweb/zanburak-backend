@@ -6,7 +6,7 @@ APP_URL=https://api.zanburak.ir
 FRONT_APP_URL=https://zanburak.ir
 
 # Explicit CORS origins for production and fallback dev access
-CORS_ALLOWED_ORIGINS=https://zanburak.ir,https://www.zanburak.ir,https://dev.zanburak.ir,http://localhost:3000,http://127.0.0.1:3000
+CORS_ALLOWED_ORIGINS=https://zanburak.ir,https://www.zanburak.ir,https://static.zanburak.ir,https://dl.zanburak.ir,http://localhost:3000,http://127.0.0.1:3000,http://localhost:8080,http://127.0.0.1:8080
 
 LOG_CHANNEL=stack
 LOG_DEPRECATIONS_CHANNEL=null
