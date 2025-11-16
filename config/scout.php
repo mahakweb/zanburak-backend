@@ -133,9 +133,50 @@ return [
         'host' => env('MEILISEARCH_HOST', 'http://localhost:7700'),
         'key' => env('MEILISEARCH_KEY'),
         'index-settings' => [
-            // 'users' => [
-            //     'filterableAttributes'=> ['id', 'name', 'email'],
-            // ],
+            /*
+             * تنظیمات اختصاصی ایندکس‌ها برای Meilisearch.
+             *
+             * نام ایندکس به صورت پیش‌فرض نام جدول/مدل به شکل جمع است؛
+             * برای مدل‌های شما:
+             *  - App\Models\Course   => 'courses'
+             *  - App\Models\Episode  => 'episodes'
+             *  - App\Models\Question => 'questions'
+             *
+             * چون در متد سرچ از where('publish', 1) استفاده می‌کنیم،
+             * باید فیلد 'publish' به عنوان filterableAttributes روی این ایندکس‌ها تنظیم شود.
+             */
+            'courses' => [
+                'filterableAttributes' => ['publish'],
+                'sortableAttributes'   => ['id'],
+                // ترتیب اهمیت فیلدها در جستجو: اول عنوان انگلیسی، بعد عنوان، بعد توضیح کوتاه
+                'searchableAttributes' => [
+                    'title',
+                    'english_title',
+                    'short_description',
+                    'description',
+                ],
+                // کلمات خیلی عمومی که بهتر است در جستجو نادیده گرفته شوند
+                'stopWords' => ['آموزش', 'دوره'],
+            ],
+            'episodes' => [
+                'filterableAttributes' => ['publish'],
+                'sortableAttributes'   => ['id'],
+                'searchableAttributes' => [
+                    'title',
+                    'english_title',
+                    'description',
+                ],
+                'stopWords' => ['آموزش', 'دوره'],
+            ],
+            'questions' => [
+                'filterableAttributes' => ['publish'],
+                'sortableAttributes'   => ['id'],
+                'searchableAttributes' => [
+                    'subject',
+                    'question',
+                ],
+                'stopWords' => ['آموزش', 'دوره'],
+            ],
         ],
     ],
 

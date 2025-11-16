@@ -303,82 +303,171 @@ class IndexController extends Controller
 
     public function search(Request $request)
     {
-        $user = auth('api')->user();
-        $searchKey = $request->input('key');
-        $limit = $request->input('limit', 20);
+        $searchKey = trim((string) $request->input('key', ''));
+        $limit = (int) $request->input('limit', 20);
 
-        if (!$searchKey) {
+        if ($limit <= 0) {
+            $limit = 20;
+        }
+
+        if ($searchKey === '') {
             return response()->json([
                 'message' => 'No search key provided',
                 'result' => [],
             ], 200);
         }
 
+        // جلوگیری از جستجوهای خیلی عمومی مثل "آموزش" یا "دوره" به‌تنهایی
+        $genericTerms = ['آموزش', 'اموزش', 'دوره', 'course', 'courses'];
+        $tokens = collect(preg_split('/\s+/u', $searchKey, -1, PREG_SPLIT_NO_EMPTY))
+            ->filter();
 
-        $questions = Question::search($searchKey)
-            ->where('publish', 1)
-            ->orderBy('id', 'desc')
-            ->take($limit)
-            ->get()
-            ->map(function ($question) {
-                return [
-                    'type' => 'question',
-                    'id' => $question->id,
-                    'subject' => $question->subject,
-                    'slug' => $question->slug,
-                    'number_of_answers' => $question->answers()->count(),
-                ];
-            });
+        $genericTermsNormalized = array_map('mb_strtolower', $genericTerms);
 
-        $episodes = Episode::search($searchKey)
-            ->where('publish', 1)
-            ->orderBy('id', 'desc')
-            ->take($limit)
-            ->get()
-            ->load(['section.course'])
-            ->map(function ($episode) {
-                $course = optional($episode->section)->course;
-                return [
-                    'type' => 'episode',
-                    'id' => $episode->id,
-                    'title' => $episode->title,
-                    'english_title' => $episode->english_title,
-                    'slug' => $episode->slug,
-                    'course' => $course ? [
+        $specificTokens = $tokens->filter(function ($token) use ($genericTermsNormalized) {
+            $normalized = mb_strtolower($token);
+            return !in_array($normalized, $genericTermsNormalized);
+        })->values();
+
+        if ($specificTokens->isEmpty()) {
+            return response()->json([
+                'message' => 'Query too generic',
+                'result' => [],
+            ], 200);
+        }
+
+        // برای گرفتن نتایج بهتر، کمی بیشتر از limit کلید می‌گیریم
+        $scoutTake = $limit * 5;
+
+        // Helper برای چک کردن حضور تمام توکن‌های خاص در متن
+        $matchesAllTokens = function (?string $text) use ($specificTokens): bool {
+            if (!$text) {
+                return false;
+            }
+            $haystack = mb_strtolower($text);
+            foreach ($specificTokens as $token) {
+                $t = mb_strtolower($token);
+                if ($t !== '' && mb_stripos($haystack, $t) === false) {
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        // --- Courses ---
+        $courseIds = Course::search($searchKey)
+            ->take($scoutTake)
+            ->keys();
+
+        $courses = collect();
+        if ($courseIds->isNotEmpty()) {
+            $courses = Course::whereIn('id', $courseIds)
+                ->where('publish', 1)
+                ->orderByDesc('id')
+                ->limit($scoutTake)
+                ->get()
+                ->filter(function ($course) use ($matchesAllTokens) {
+                    $text = trim(implode(' ', array_filter([
+                        $course->title,
+                        $course->english_title,
+                        $course->short_description,
+                    ])));
+                    return $matchesAllTokens($text);
+                })
+                ->take($limit)
+                ->values()
+                ->map(function ($course) {
+                    return [
+                        'type' => 'course',
                         'id' => $course->id,
                         'title' => $course->title,
                         'english_title' => $course->english_title,
                         'slug' => $course->slug,
-                        'poster' => $course->poster
-                    ] : null,
-                ];
-            });
+                        'poster' => $course->poster,
+                        'number_of_episodes' => $course->numberOfEpisode(),
+                    ];
+                });
+        }
 
-        $courses = Course::search($searchKey)
-            ->where('publish', 1)
-            ->orderBy('id', 'desc')
-            ->take($limit)
-            ->get()
-            ->map(function ($course) {
-                return [
-                    'type' => 'course',
-                    'id' => $course->id,
-                    'title' => $course->title,
-                    'english_title' => $course->english_title,
-                    'slug' => $course->slug,
-                    'poster' => $course->poster,
-                    'number_of_episodes' => $course->numberOfEpisode(),
-                ];
-            });
+        // --- Episodes ---
+        $episodeIds = Episode::search($searchKey)
+            ->take($scoutTake)
+            ->keys();
 
-        // Combine all results
-        // $result = [
-        //     'questions' => $questions,
-        //     'episodes' => $episodes,
-        //     'courses' => $courses,
-        // ];
+        $episodes = collect();
+        if ($episodeIds->isNotEmpty()) {
+            $episodes = Episode::whereIn('id', $episodeIds)
+                ->where('publish', 1)
+                ->orderByDesc('id')
+                ->with(['section.course'])
+                ->limit($scoutTake)
+                ->get()
+                ->filter(function ($episode) use ($matchesAllTokens) {
+                    $text = trim(implode(' ', array_filter([
+                        $episode->title,
+                        $episode->english_title,
+                        $episode->description,
+                    ])));
+                    return $matchesAllTokens($text);
+                })
+                ->take($limit)
+                ->values()
+                ->map(function ($episode) {
+                    $course = optional($episode->section)->course;
+                    return [
+                        'type' => 'episode',
+                        'id' => $episode->id,
+                        'title' => $episode->title,
+                        'english_title' => $episode->english_title,
+                        'slug' => $episode->slug,
+                        'course' => $course ? [
+                            'id' => $course->id,
+                            'title' => $course->title,
+                            'english_title' => $course->english_title,
+                            'slug' => $course->slug,
+                            'poster' => $course->poster,
+                        ] : null,
+                    ];
+                });
+        }
 
-        $combinedResults = array_merge($courses->toArray(), $episodes->toArray(), $questions->toArray());
+        // --- Questions ---
+        $questionIds = Question::search($searchKey)
+            ->take($scoutTake)
+            ->keys();
+
+        $questions = collect();
+        if ($questionIds->isNotEmpty()) {
+            $questions = Question::whereIn('id', $questionIds)
+                ->where('publish', 1)
+                ->orderByDesc('id')
+                ->limit($scoutTake)
+                ->get()
+                ->filter(function ($question) use ($matchesAllTokens) {
+                    $text = trim(implode(' ', array_filter([
+                        $question->subject,
+                        $question->question,
+                    ])));
+                    return $matchesAllTokens($text);
+                })
+                ->take($limit)
+                ->values()
+                ->map(function ($question) {
+                    return [
+                        'type' => 'question',
+                        'id' => $question->id,
+                        'subject' => $question->subject,
+                        'slug' => $question->slug,
+                        'number_of_answers' => $question->answers()->count(),
+                    ];
+                });
+        }
+
+        $combinedResults = array_merge(
+            $courses->toArray(),
+            $episodes->toArray(),
+            $questions->toArray()
+        );
 
         return response()->json([
             'message' => 'Success',

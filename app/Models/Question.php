@@ -26,11 +26,14 @@ class Question extends Model implements Likeable
         'meta_keywords',
         'best_answer',
         'is_private',
-        'allowed_user_ids'
+        'allowed_user_ids',
+        'publish'
     ];
 
     protected $casts = [
         'allowed_user_ids' => 'array',
+        'publish' => 'boolean',
+        'is_private' => 'boolean',
     ];
     /**
      * Get the indexable data array for the model.
@@ -45,8 +48,10 @@ class Question extends Model implements Likeable
 
         // return $array;
         return [
+            'id' => $this->id,
             'subject' => $this->subject,
             'question' => $this->question,
+            'publish' => $this->publish,
         ];
     }
 

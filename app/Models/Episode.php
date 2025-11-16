@@ -58,10 +58,12 @@ class Episode extends Model implements Likeable
 
         // return $array;
         return [
+            'id' => $this->id,
             'title' => $this->title,
             'english_title' => $this->english_title,
             'slug' => $this->slug,
-            'description' => $this->description
+            'description' => $this->description,
+            'publish' => $this->publish,
         ];
     }
 
