@@ -3,10 +3,13 @@
 namespace App\Http\Controllers\Api\Admin\User;
 
 use App\Http\Controllers\Controller;
+use App\Models\Payment;
 use App\Models\Permission;
+use App\Models\Plan;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\UserLogin;
+use App\Models\Wallet;
 use App\Rules\JalalianBirthDateParts;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\Request;
@@ -625,6 +628,260 @@ class UserController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Get financial summary for a specific user (wallet balance + active subscription + history).
+     */
+    public function financialSummary(Request $request, $username)
+    {
+        $loginUser = auth('api')->user();
+
+        $walletBalance = (int) $username->wallet_balance;
+        $activePlan = $username->activeVipPlan();
+
+        $subscriptionHistory = $username->plans()
+            ->withPivot(['payment_id', 'price', 'description', 'purchase_type', 'expired_at', 'created_at'])
+            ->orderByPivot('created_at', 'desc')
+            ->limit(50)
+            ->get()
+            ->map(function (Plan $plan) {
+                return [
+                    'id' => $plan->id,
+                    'title' => $plan->title,
+                    'english_title' => $plan->english_title,
+                    'icon' => $plan->icon,
+                    'price' => $plan->pivot->price,
+                    'description' => $plan->pivot->description,
+                    'purchase_type' => $plan->pivot->purchase_type,
+                    'expired_at' => $plan->pivot->expired_at,
+                    'started_at' => $plan->pivot->created_at,
+                    'payment_id' => $plan->pivot->payment_id,
+                ];
+            })->values();
+
+        return response()->json([
+            'message' => 'Success',
+            'wallet_balance' => $walletBalance,
+            'active_plan' => $activePlan ? [
+                'id' => $activePlan->id,
+                'title' => $activePlan->title,
+                'english_title' => $activePlan->english_title,
+                'icon' => $activePlan->icon,
+                'price' => $activePlan->price,
+                'period_time' => $activePlan->period_time,
+                'features' => $activePlan->features,
+                'expired_at' => optional($activePlan->pivot)->expired_at,
+                'started_at' => optional($activePlan->pivot)->created_at,
+            ] : null,
+            'subscription_history' => $subscriptionHistory,
+        ]);
+    }
+
+    /**
+     * Get payments list (online transactions) for a specific user.
+     * Response structure is similar to PanelController::financial to ease frontend reuse.
+     */
+    public function financialPayments(Request $request, $username)
+    {
+        $loginUser = auth('api')->user();
+
+        $filter = $request->input('filter', 'all'); // deposit | failed | all
+        $type = $request->input('type', 'all');     // course | path | vip | wallet | all
+        $sort = $request->input('sort', 'newest');  // newest | oldest
+
+        $query = $username->payments()
+            ->select('id', 'uuid', 'payment_method', 'tracking_number', 'reference_id', 'amount', 'driver', 'discount_amount', 'discount_code', 'status', 'paid_at', 'expired_at', 'created_at', 'updated_at', 'description')
+            ->with(['attempts', 'items.payable']);
+
+        // Status filter
+        $query = match ($filter) {
+            'deposit' => $query->where('status', 1),
+            'failed'  => $query->where('status', 0),
+            default   => $query,
+        };
+
+        // Type filter (course, path, vip, wallet)
+        if ($type !== 'all') {
+            $modelMap = [
+                'course' => \App\Models\Course::class,
+                'path'   => \App\Models\Path::class,
+                'vip'    => \App\Models\Plan::class,
+            ];
+
+            if ($type === 'wallet') {
+                // کیف پول: description شامل "کیف پول" یا items خالی باشد
+                $query->where(function ($q) {
+                    $q->where('description', 'like', '%کیف پول%')
+                        ->orWhereDoesntHave('items');
+                });
+            } elseif (isset($modelMap[$type])) {
+                $query->whereHas('items', function ($q) use ($modelMap, $type) {
+                    $q->where('payable_type', $modelMap[$type]);
+                });
+            }
+        }
+
+        // Sorting
+        $sortOrder = $sort === 'oldest' ? 'asc' : 'desc';
+        $query->orderBy('created_at', $sortOrder);
+
+        // Pagination (simple manual pagination like PanelController)
+        $perPage = (int) $request->input('perPage', 10);
+        $currentPage = (int) $request->input('page', 1);
+
+        $total = $query->count();
+        $lastPage = (int) ceil($total / ($perPage ?: 1));
+        $prevPage = $currentPage > 1 ? $currentPage - 1 : null;
+        $nextPage = $currentPage < $lastPage ? $currentPage + 1 : null;
+
+        $paginatedData = $query->skip(($currentPage - 1) * $perPage)
+            ->take($perPage)
+            ->get();
+
+        $result = $paginatedData->map(function (Payment $payment) {
+            $isWallet = (str_contains($payment->description ?? '', 'کیف پول') || $payment->items->count() === 0);
+
+            return [
+                'id' => $payment->id,
+                'uuid' => $payment->uuid,
+                'payment_method' => $payment->payment_method,
+                'tracking_number' => $payment->tracking_number,
+                'reference_id' => $payment->reference_id,
+                'driver' => $payment->driver,
+                'amount' => $payment->amount,
+                'discount_amount' => $payment->discount_amount,
+                'discount_code' => $payment->discount_code,
+                'status' => $payment->status,
+                'paid_at' => $payment->paid_at,
+                'expired_at' => $payment->expired_at,
+                'is_paid' => $payment->isPaid(),
+                'can_retry' => $payment->canRetry(),
+                'created_at' => $payment->created_at,
+                'updated_at' => $payment->updated_at,
+                'is_wallet' => $isWallet,
+                'attempts' => $payment->attempts()->latest()->get(),
+                'items' => $payment->items->map(function ($item) {
+                    $base = [
+                        'id' => $item->id,
+                        'payable_type' => class_basename($item->payable_type),
+                        'payable_id' => $item->payable_id,
+                        'price' => $item->price,
+                        'discount_amount' => $item->discount_amount,
+                        'discount_code' => $item->discount_code,
+                        'final_price' => $item->final_price,
+                    ];
+
+                    if ($item->relationLoaded('payable') && $item->payable) {
+                        $payable = $item->payable;
+
+                        if ($payable instanceof \App\Models\Course) {
+                            $base['payable'] = [
+                                'id' => $payable->id,
+                                'title' => $payable->title,
+                                'english_title' => $payable->english_title,
+                                'slug' => $payable->slug,
+                                'poster' => $payable->poster,
+                                'price' => $payable->price,
+                            ];
+                        } elseif ($payable instanceof \App\Models\Path) {
+                            $base['payable'] = [
+                                'id' => $payable->id,
+                                'title' => $payable->title,
+                                'english_title' => $payable->english_title,
+                                'slug' => $payable->slug,
+                                'poster' => $payable->poster,
+                                'icon' => $payable->icon,
+                                'short_description' => $payable->short_description,
+                            ];
+                        } elseif ($payable instanceof \App\Models\Plan) {
+                            $base['payable'] = [
+                                'id' => $payable->id,
+                                'title' => $payable->title,
+                                'english_title' => $payable->english_title,
+                                'icon' => $payable->icon,
+                                'price' => $payable->price,
+                                'period_time' => $payable->period_time,
+                                'features' => $payable->features,
+                            ];
+                        }
+                    }
+
+                    return $base;
+                }),
+            ];
+        })->values();
+
+        return response()->json([
+            'message' => 'Success',
+            'filter' => $filter,
+            'type' => $type,
+            'data' => $result,
+            'pagination' => [
+                'total' => $total,
+                'current_page' => $currentPage,
+                'per_page' => $perPage,
+                'last_page' => $lastPage,
+                'prev_page' => $prevPage,
+                'next_page' => $nextPage,
+            ],
+        ]);
+    }
+
+    /**
+     * Get wallet transactions for a specific user.
+     */
+    public function walletTransactions(Request $request, $username)
+    {
+        $loginUser = auth('api')->user();
+
+        $sort = $request->input('sort', 'newest'); // newest | oldest
+        $sortOrder = $sort === 'oldest' ? 'asc' : 'desc';
+
+        $query = $username->wallets()
+            ->select('id', 'uuid', 'description', 'amount', 'after_balance', 'type', 'tracking_number', 'payment_id', 'reference_id', 'created_at', 'updated_at')
+            ->orderBy('created_at', $sortOrder);
+
+        $perPage = (int) $request->input('perPage', 10);
+        $currentPage = (int) $request->input('page', 1);
+
+        $total = $query->count();
+        $lastPage = (int) ceil($total / ($perPage ?: 1));
+        $prevPage = $currentPage > 1 ? $currentPage - 1 : null;
+        $nextPage = $currentPage < $lastPage ? $currentPage + 1 : null;
+
+        $paginatedData = $query->skip(($currentPage - 1) * $perPage)
+            ->take($perPage)
+            ->get();
+
+        $result = $paginatedData->map(function (Wallet $wallet) {
+            return [
+                'id' => $wallet->id,
+                'uuid' => $wallet->uuid,
+                'description' => $wallet->description,
+                'amount' => $wallet->amount,
+                'after_balance' => $wallet->after_balance,
+                'type' => $wallet->type,
+                'tracking_number' => $wallet->tracking_number,
+                'payment_id' => $wallet->payment_id,
+                'reference_id' => $wallet->reference_id,
+                'created_at' => $wallet->created_at,
+                'updated_at' => $wallet->updated_at,
+            ];
+        })->values();
+
+        return response()->json([
+            'message' => 'Success',
+            'data' => $result,
+            'pagination' => [
+                'total' => $total,
+                'current_page' => $currentPage,
+                'per_page' => $perPage,
+                'last_page' => $lastPage,
+                'prev_page' => $prevPage,
+                'next_page' => $nextPage,
+            ],
+        ]);
     }
 
 }

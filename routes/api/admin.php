@@ -78,6 +78,11 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/user/{username}/security', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'security'])->name('user.security');
     Route::post('/security/access', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'allAccess'])->name('security.access');
 
+    // User financial
+    Route::post('/user/{username}/financial/summary', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'financialSummary'])->name('user.financial.summary');
+    Route::post('/user/{username}/financial/payments', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'financialPayments'])->name('user.financial.payments');
+    Route::post('/user/{username}/financial/wallets', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'walletTransactions'])->name('user.financial.wallets');
+
     // Course meta
     Route::post('/levels', [\App\Http\Controllers\Api\Admin\Course\LevelController::class, 'levels'])->name('levels.index');
     Route::post('/level/create', [\App\Http\Controllers\Api\Admin\Course\LevelController::class, 'store'])->name('level.create');
