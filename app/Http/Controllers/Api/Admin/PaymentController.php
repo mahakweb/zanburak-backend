@@ -327,6 +327,7 @@ class PaymentController extends Controller
         ]);
 
         $payment = Payment::where('uuid', $uuid)->firstOrFail();
+        $oldStatus = (bool) $payment->status;
 
         $payment->update([
             'status' => $request->status,
@@ -334,6 +335,23 @@ class PaymentController extends Controller
             'description' => $request->description,
             'paid_at' => $request->status ? now() : null,
         ]);
+
+        // If admin is approving an unpaid payment, grant user access/benefits
+        if ($request->status && ! $oldStatus) {
+            $payment->load(['items.payable', 'user']);
+
+            // Detect wallet payments (similar to PaymentService::isWalletPayment)
+            $isWalletPayment = str_contains($payment->description ?? '', 'کیف پول')
+                || $payment->items()->count() === 0;
+
+            if ($isWalletPayment) {
+                // Handle wallet top-up
+                $this->handleWalletPayment($payment, $payment->user);
+            } else {
+                // Handle normal successful payment (courses/paths/plans)
+                $this->paymentService->handleSuccessfulPayment($payment);
+            }
+        }
 
         // Create a new attempt to log the admin action
         $payment->attempts()->create([

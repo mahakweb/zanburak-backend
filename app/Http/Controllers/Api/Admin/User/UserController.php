@@ -10,6 +10,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\UserLogin;
 use App\Models\Wallet;
+use Carbon\Carbon;
 use App\Rules\JalalianBirthDateParts;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\Request;
@@ -882,6 +883,89 @@ class UserController extends Controller
                 'next_page' => $nextPage,
             ],
         ]);
+    }
+
+    /**
+     * Assign a VIP subscription plan to the given user manually by admin.
+     */
+    public function assignPlan(Request $request, $username)
+    {
+        $loginUser = auth('api')->user();
+
+        $validator = Validator::make($request->all(), [
+            'plan_id' => ['required', 'exists:plans,id'],
+            'price' => ['nullable', 'numeric', 'min:0'],
+            'expired_at' => ['required', 'date', 'after:now'],
+            'description' => ['nullable', 'string', 'max:1000'],
+            'purchase_type' => ['nullable', 'string', 'max:50'],
+        ]);
+
+        if (!$validator->passes()) {
+            return response()->json([
+                'message' => 'Validation error!',
+                'errors' => $validator->errors()->toArray(),
+            ], 422);
+        }
+
+        $data = $validator->validated();
+
+        $plan = Plan::findOrFail($data['plan_id']);
+        $expiredAt = Carbon::parse($data['expired_at']);
+
+        $price = array_key_exists('price', $data) && $data['price'] !== null
+            ? $data['price']
+            : $plan->price;
+
+        $purchaseType = $data['purchase_type'] ?? 'manual';
+        $description = $data['description'] ?? 'ثبت اشتراک به صورت دستی توسط ادمین';
+
+        $username->plans()->attach($plan->id, [
+            'price' => $price,
+            'description' => $description,
+            'purchase_type' => $purchaseType,
+            'expired_at' => $expiredAt,
+        ]);
+
+        // Refresh user relations
+        $username->load('plans');
+
+        // Reuse financial summary-style response
+        $activePlan = $username->activeVipPlan();
+        $subscriptionHistory = $username->plans()
+            ->withPivot(['payment_id', 'price', 'description', 'purchase_type', 'expired_at', 'created_at'])
+            ->orderByPivot('created_at', 'desc')
+            ->limit(50)
+            ->get()
+            ->map(function (Plan $p) {
+                return [
+                    'id' => $p->id,
+                    'title' => $p->title,
+                    'english_title' => $p->english_title,
+                    'icon' => $p->icon,
+                    'price' => $p->pivot->price,
+                    'description' => $p->pivot->description,
+                    'purchase_type' => $p->pivot->purchase_type,
+                    'expired_at' => $p->pivot->expired_at,
+                    'started_at' => $p->pivot->created_at,
+                    'payment_id' => $p->pivot->payment_id,
+                ];
+            })->values();
+
+        return response()->json([
+            'message' => 'Subscription assigned successfully',
+            'active_plan' => $activePlan ? [
+                'id' => $activePlan->id,
+                'title' => $activePlan->title,
+                'english_title' => $activePlan->english_title,
+                'icon' => $activePlan->icon,
+                'price' => $activePlan->price,
+                'period_time' => $activePlan->period_time,
+                'features' => $activePlan->features,
+                'expired_at' => optional($activePlan->pivot)->expired_at,
+                'started_at' => optional($activePlan->pivot)->created_at,
+            ] : null,
+            'subscription_history' => $subscriptionHistory,
+        ], 200);
     }
 
 }
