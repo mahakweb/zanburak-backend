@@ -80,4 +80,34 @@ class CommentController extends Controller
         }
     }
 
+    public function delete(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'comment_id' => ['required', 'exists:comments,id'],
+        ]);
+
+        if (!$validator->passes()) {
+            return response()->json([
+                'message' => 'Validation error!',
+                'errors' => $validator->errors()->toArray()
+            ], 422);
+        }
+
+        $comment = Comment::with('childs')->find($request->input('comment_id'));
+
+        if (!$comment) {
+            return response()->json(['message' => 'Comment not found'], 404);
+        }
+
+        // حذف تمام زیرکامنت‌ها (به صورت بازگشتی)
+        $comment->descendants(null)->each(function (Comment $child) {
+            $child->delete();
+        });
+
+        $comment->delete();
+
+        return response()->json([
+            'message' => 'Success, comment deleted successfully'
+        ], 200);
+    }
 }

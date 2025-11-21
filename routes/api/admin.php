@@ -56,6 +56,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
 
     // Users
     Route::post('/users', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'users'])->name('users');
+    Route::post('/searchUser', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'searchUser'])->name('user.search');
     Route::post('/user/create', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'create'])->name('user.create');
     Route::post('/user/{userId}/upload-image', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'uploadImage'])->name('user.upload-image');
     Route::post('/user/{username}/base', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'base'])->name('user.base');
@@ -83,6 +84,12 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/user/{username}/financial/payments', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'financialPayments'])->name('user.financial.payments');
     Route::post('/user/{username}/financial/wallets', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'walletTransactions'])->name('user.financial.wallets');
     Route::post('/user/{username}/financial/assign-plan', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'assignPlan'])->name('user.financial.assign-plan');
+
+    // User courses & comments
+    Route::post('/user/{username}/courses', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'courses'])->name('user.courses');
+    Route::post('/user/{username}/courses/assign', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'assignCourse'])->name('user.courses.assign');
+    Route::post('/user/{username}/courses/remove', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'removeCourse'])->name('user.courses.remove');
+    Route::post('/user/{username}/comments', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'comments'])->name('user.comments');
 
     // Course meta
     Route::post('/levels', [\App\Http\Controllers\Api\Admin\Course\LevelController::class, 'levels'])->name('levels.index');
@@ -117,8 +124,10 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     // Admin Comments
     Route::post('/comments/toggle-approval', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'toggleApproval'])->name('comments.toggle-approval');
     Route::post('/comments/send-reply', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'sendReply'])->name('comments.send-reply');
+    Route::post('/comments/delete', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'delete'])->name('comments.delete');
 
     // Course management
+    Route::post('/searchCourse', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'searchCourse'])->name('course.search');
     Route::post('/course/{courseSlug}/dataForCreateEpisode', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'createEpisodeData'])->name('course.data-for-create-episode');
     Route::post('/course/{courseSlug}/createNullEpisode', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'createNullEpisode'])->name('course.create-null-episode');
     Route::post('/course/{courseSlug}/createEpisode', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'updateEpisode'])->name('course.create-episode');

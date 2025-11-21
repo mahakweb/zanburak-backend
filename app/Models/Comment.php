@@ -25,6 +25,11 @@ class Comment extends Model implements Likeable
         return $this->belongsTo(User::class);
     }
 
+    public function parent()
+    {
+        return $this->belongsTo(Comment::class, 'parent_id');
+    }
+
 
     public function commentable()
     {

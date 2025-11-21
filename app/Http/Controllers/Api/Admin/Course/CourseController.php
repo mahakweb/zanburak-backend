@@ -1140,5 +1140,33 @@ class CourseController extends Controller
         return $result;
     }
 
+    /**
+     * Search courses by key
+     */
+    public function searchCourse(Request $request)
+    {
+        $key = $request->input('key');
+        $limit = $request->input('limit', 20);
+
+        if (!$key) {
+            return response()->json([
+                'message' => 'No search key provided',
+                'result' => [],
+            ], 200);
+        }
+
+        $courses = Course::query()
+            ->where('title', 'LIKE', "%{$key}%")
+            ->orWhere('english_title', 'LIKE', "%{$key}%")
+            ->orWhere('slug', 'LIKE', "%{$key}%")
+            ->orWhere('short_description', 'LIKE', "%{$key}%")
+            ->limit($limit)
+            ->get(['id', 'title', 'english_title', 'slug', 'poster', 'type', 'publish']);
+
+        return response()->json([
+            'message' => 'Success',
+            'result' => $courses,
+        ], 200);
+    }
 
 }

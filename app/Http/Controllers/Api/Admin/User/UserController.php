@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\Admin\User;
 
 use App\Http\Controllers\Controller;
+use App\Models\Course;
+use App\Models\Comment;
 use App\Models\Payment;
 use App\Models\Permission;
 use App\Models\Plan;
@@ -968,4 +970,311 @@ class UserController extends Controller
         ], 200);
     }
 
+    /**
+     * Get courses list for a specific user.
+     */
+    public function courses(Request $request, $username)
+    {
+        $loginUser = auth('api')->user();
+
+        $search = $request->input('search');
+        $type = $request->input('type', 'all');     // free | cash | cash-vip | all
+        $publish = $request->input('publish', 'all'); // published | draft | all
+        $sort = $request->input('sort', 'newest');  // newest | oldest
+        $perPage = (int) $request->input('perPage', 20);
+        $currentPage = (int) $request->input('page', 1);
+
+        $query = $username->courses()
+            ->with(['teacher:id,first_name,last_name,username,profile_pic', 'status:id,title,english_title', 'category:id,title,english_title,slug', 'section.episode'])
+            ->withCount('section as section_count');
+
+        // Search filter
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'LIKE', "%{$search}%")
+                    ->orWhere('english_title', 'LIKE', "%{$search}%")
+                    ->orWhere('short_description', 'LIKE', "%{$search}%");
+            });
+        }
+
+        // Type filter
+        if ($type !== 'all') {
+            $query->where('type', $type);
+        }
+
+        // Publish filter
+        if ($publish === 'published') {
+            $query->where('publish', 1);
+        } elseif ($publish === 'draft') {
+            $query->where('publish', 0);
+        }
+
+        // Sorting
+        $sortOrder = $sort === 'oldest' ? 'asc' : 'desc';
+        $query->orderBy('course_user.created_at', $sortOrder);
+
+        // Pagination
+        $total = $query->count();
+        $lastPage = (int) ceil($total / ($perPage ?: 1));
+        $prevPage = $currentPage > 1 ? $currentPage - 1 : null;
+        $nextPage = $currentPage < $lastPage ? $currentPage + 1 : null;
+
+        $paginatedData = $query->skip(($currentPage - 1) * $perPage)
+            ->take($perPage)
+            ->get();
+
+        $result = $paginatedData->map(function ($course) {
+            // Count episodes through sections
+            $episodeCount = 0;
+            if ($course->relationLoaded('section')) {
+                foreach ($course->section as $section) {
+                    if ($section->relationLoaded('episode')) {
+                        $episodeCount += $section->episode->count();
+                    }
+                }
+            }
+            
+            return [
+                'id' => $course->id,
+                'title' => $course->title,
+                'english_title' => $course->english_title,
+                'slug' => $course->slug,
+                'short_description' => $course->short_description,
+                'poster' => $course->poster,
+                'type' => $course->type,
+                'price' => $course->price,
+                'total_time' => $course->totalTime(),
+                'publish' => $course->publish,
+                'section_count' => $course->section_count,
+                'episode_count' => $episodeCount,
+                'status' => $course->status,
+                'categories' => $course->category,
+                'teacher' => $course->teacher,
+                'purchase_price' => $course->pivot->price,
+                'payment_id' => $course->pivot->payment_id,
+                'completed_at' => $course->pivot->completed_at,
+                'purchased_at' => $course->pivot->created_at,
+                'created_at' => $course->created_at,
+                'updated_at' => $course->updated_at,
+            ];
+        })->values();
+
+        return response()->json([
+            'message' => 'Success',
+            'courses' => $result,
+            'pagination' => [
+                'total' => $total,
+                'current_page' => $currentPage,
+                'per_page' => $perPage,
+                'last_page' => $lastPage,
+                'prev_page' => $prevPage,
+                'next_page' => $nextPage,
+            ],
+        ]);
+    }
+
+    /**
+     * Get comments list for a specific user (for admin panel).
+     */
+    public function comments(Request $request, $username)
+    {
+        $loginUser = auth('api')->user();
+
+        $filter = $request->input('filter', 'all'); // all | course | episode | path
+        $commentable_type = match ($filter) {
+            'course' => \App\Models\Course::class,
+            'episode' => \App\Models\Episode::class,
+            'path' => \App\Models\Path::class,
+            default => null, // 'all' or any other value means show all types
+        };
+
+        $sort = $request->input('sort', 'newest'); // newest | oldest
+        $sortOrder = $sort === 'oldest' ? 'asc' : 'desc';
+
+        $status = $request->input('status', 'all'); // all | published | unpublished
+        $statusFilter = match ($status) {
+            'published' => 1,
+            'unpublished' => 0,
+            default => null,
+        };
+
+        $commentsQuery = $username->comments()
+            ->with(['commentable', 'parent.user']);
+
+        // Only filter by type if a specific type is selected
+        if ($commentable_type !== null) {
+            $commentsQuery->where('commentable_type', $commentable_type);
+        }
+
+        if (!is_null($statusFilter)) {
+            $commentsQuery->where('approved', $statusFilter);
+        }
+
+        $commentsQuery->orderBy('created_at', $sortOrder);
+
+        $commentsPerPage = (int) $request->input('perPage', 10);
+        $currentPage = (int) $request->input('page', 1);
+
+        $total = $commentsQuery->count();
+        $lastPage = (int) ceil($total / ($commentsPerPage ?: 1));
+        $prevPage = $currentPage > 1 ? $currentPage - 1 : null;
+        $nextPage = $currentPage < $lastPage ? $currentPage + 1 : null;
+
+        $paginatedComments = $commentsQuery->skip(($currentPage - 1) * $commentsPerPage)
+            ->take($commentsPerPage)
+            ->get();
+
+        $result = $paginatedComments->map(function (Comment $item) {
+            $commentable = $item->commentable;
+            $commentable_type = $item->commentable_type;
+
+            $base = [
+                'id' => $item->id,
+                'comment' => $item->comment,
+                'approved' => $item->approved,
+                'created_at' => $item->created_at,
+                'updated_at' => $item->updated_at,
+                'parent_id' => $item->parent_id,
+                'type' => class_basename($commentable_type),
+            ];
+
+            // Parent comment (if this is a reply)
+            $base['parent'] = null;
+            if ($item->relationLoaded('parent') && $item->parent) {
+                $base['parent'] = [
+                    'id' => $item->parent->id,
+                    'comment' => $item->parent->comment,
+                    'approved' => $item->parent->approved,
+                    'created_at' => $item->parent->created_at,
+                    'user' => $item->parent->user
+                        ? $item->parent->user->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                        : null,
+                ];
+            }
+
+            // Commentable info
+            $base['commentable'] = match ($commentable_type) {
+                \App\Models\Course::class => $commentable ? [
+                    'id' => $commentable->id,
+                    'title' => $commentable->title,
+                    'english_title' => $commentable->english_title,
+                    'slug' => $commentable->slug,
+                    'poster' => $commentable->poster,
+                    'teacher' => $commentable->teacher
+                        ? $commentable->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                        : null,
+                ] : null,
+                \App\Models\Episode::class => $commentable ? [
+                    'id' => $commentable->id,
+                    'title' => $commentable->title,
+                    'english_title' => $commentable->english_title,
+                    'slug' => $commentable->slug,
+                    'course' => $commentable->section && $commentable->section->course
+                        ? array_merge(
+                            $commentable->section->course->only('id', 'title', 'english_title', 'slug', 'poster'),
+                            [
+                                'teacher' => $commentable->section->course->teacher
+                                    ? $commentable->section->course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                                    : null,
+                            ]
+                        )
+                        : null,
+                ] : null,
+                \App\Models\Path::class => $commentable ? [
+                    'id' => $commentable->id,
+                    'title' => $commentable->title,
+                    'english_title' => $commentable->english_title,
+                    'slug' => $commentable->slug,
+                    'poster' => $commentable->poster,
+                    'icon' => $commentable->icon,
+                ] : null,
+                default => null,
+            };
+
+            return $base;
+        })->values();
+
+        return response()->json([
+            'message' => 'Success',
+            'filter' => $filter,
+            'status' => $status,
+            'sort' => $sort,
+            'comments' => $result,
+            'pagination' => [
+                'total' => $total,
+                'current_page' => $currentPage,
+                'per_page' => $commentsPerPage,
+                'last_page' => $lastPage,
+                'prev_page' => $prevPage,
+                'next_page' => $nextPage,
+            ],
+        ]);
+    }
+
+    /**
+     * Assign course to user
+     */
+    public function assignCourse(Request $request, $username)
+    {
+        $courseId = $request->input('course_id');
+        $course = Course::find($courseId);
+        
+        if (!$course) {
+            return response()->json(['message' => 'Error!, course not found.'], 404);
+        }
+
+        if ($username->courses()->where('courses.id', $course->id)->exists()) {
+            return response()->json([
+                'message' => 'Error! this course already assigned to this user.'
+            ], 409);
+        }
+
+        $username->courses()->attach([
+            [
+                'course_id' => $course->id,
+                'payment_id' => null,
+                'price' => 0
+            ]
+        ]);
+
+        $result = [
+            'id' => $course->id,
+            'title' => $course->title,
+            'english_title' => $course->english_title,
+            'slug' => $course->slug,
+            'poster' => $course->poster,
+            'type' => $course->type,
+            'publish' => $course->publish,
+            'short_description' => $course->short_description,
+            'purchase_price' => 0,
+            'purchased_at' => now(),
+            'completed_at' => null,
+            'total_time' => $course->totalTime(),
+        ];
+
+        return response()->json(['message' => 'Success', 'result' => $result], 200);
+    }
+
+    /**
+     * Remove course from user
+     */
+    public function removeCourse(Request $request, $username)
+    {
+        $courseId = $request->input('course_id');
+        $course = Course::find($courseId);
+        
+        if (!$course) {
+            return response()->json(['message' => 'Error!, course not found.'], 404);
+        }
+
+        if (!$username->courses()->where('courses.id', $course->id)->exists()) {
+            return response()->json([
+                'message' => 'Error! this course is not assigned to this user.'
+            ], 404);
+        }
+
+        $username->courses()->detach($course->id);
+
+        return response()->json(['message' => 'Success, Course has been removed from user.'], 200);
+    }
 }
