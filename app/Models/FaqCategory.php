@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Cviebrock\EloquentSluggable\Sluggable;
 
-class QuestionCategory extends Model
+class FaqCategory extends Model
 {
     use HasFactory, Sluggable;
 
@@ -14,13 +14,9 @@ class QuestionCategory extends Model
         'title',
         'english_title',
         'slug',
-        'parent_id',
-        'description',
         'icon',
+        'order',
         'status',
-    ];
-    protected $casts = [
-        'status' => 'boolean',
     ];
 
     public function sluggable(): array
@@ -33,19 +29,18 @@ class QuestionCategory extends Model
         ];
     }
 
-
-    public function parent()
+    public function faqs()
     {
-        return $this->belongsTo(QuestionCategory::class);
+        return $this->hasMany(Faq::class, 'category_id')->orderBy('order');
     }
 
-    public function children()
+    public function scopeActive($query)
     {
-        return $this->hasMany(QuestionCategory::class, 'parent_id');
+        return $query->where('status', 1);
     }
 
-    public function questions()
+    public function scopeOrdered($query)
     {
-        return $this->hasMany(Question::class, 'category_id');
+        return $query->orderBy('order');
     }
 }

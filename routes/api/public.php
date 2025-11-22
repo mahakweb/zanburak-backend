@@ -17,6 +17,9 @@ Route::get('/courses-page-filter', [\App\Http\Controllers\Api\Course\CourseContr
 Route::get('/course/{courseSlug}', [\App\Http\Controllers\Api\Course\CourseController::class, 'getCourse'])->name('api.courses.show');
 Route::get('/course/{courseSlug}/episode/{episodeSlug}', [\App\Http\Controllers\Api\Course\EpisodeController::class, 'getEpisode'])->name('api.episodes.show');
 
+// FAQs - Public access
+Route::get('/faqs', [\App\Http\Controllers\Api\Admin\FaqController::class, 'index'])->name('api.faqs.index');
+
 // SEO Routes - Public access for search engines
 Route::get('/sitemap.xml', [\App\Http\Controllers\Api\Seo\SeoController::class, 'sitemap'])->name('api.seo.sitemap');
 Route::get('/sitemap-index.xml', [\App\Http\Controllers\Api\Seo\SeoController::class, 'sitemapIndex'])->name('api.seo.sitemap-index');

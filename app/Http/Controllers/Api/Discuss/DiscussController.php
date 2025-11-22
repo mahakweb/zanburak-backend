@@ -33,6 +33,7 @@ class DiscussController extends Controller
         $query = Question::filter($filter)
             ->categoryId($categoryIds)
             ->search($search)
+            ->where('publish', 1)
             ->orderBy('id', 'desc');
 
         $allQuestions = $query->get();
@@ -111,6 +112,10 @@ class DiscussController extends Controller
 
     public function discuss(Request $request, $question)
     {
+        if($question->publish == 0) {
+            return response()->json(['message' => '!Error Question not found.'], 404);
+        }
+
         $user = auth('api')->user();
         $allowedUserIds = json_decode($question->allowed_user_ids, true);
 
@@ -440,6 +445,9 @@ class DiscussController extends Controller
 
     public function getQuestionForEdit(Request $request, $question)
     {
+        if($question->publish == 0) {
+            return response()->json(['message' => '!Error Question not found.'], 404);
+        }
         $user = auth('api')->user();
 
         if (!$question || !$question->isEditableBy($user)) {
@@ -491,6 +499,9 @@ class DiscussController extends Controller
 
     public function updateQuestion(Request $request, $question)
     {
+        if($question->publish == 0) {
+            return response()->json(['message' => '!Error Question not found.'], 404);
+        }
         $user = auth('api')->user();
         if (!$question->isEditableBy($user)) {
             return response()->json(['message' => 'Error! Question Not Found.'], 404);
@@ -591,8 +602,12 @@ class DiscussController extends Controller
 
     public function updateAnswer(Request $request)
     {
+
         $answerId = $request->id;
         $answer = Answer::findOrFail($answerId);
+        if($answer->question->publish == 0 || $answer->publish == 0) {
+            return response()->json(['message' => '!Error Answer not found.'], 404);
+        }
         $user = auth('api')->user();
         if (!$answer || !$answer->isEditableBy($user)) {
             return response()->json(['message' => 'Error! Answer Not Found.'], 404);

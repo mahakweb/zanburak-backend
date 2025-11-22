@@ -1098,101 +1098,212 @@ class UserController extends Controller
             default => null,
         };
 
-        $commentsQuery = $username->comments()
-            ->with(['commentable', 'parent.user']);
-
-        // Only filter by type if a specific type is selected
-        if ($commentable_type !== null) {
-            $commentsQuery->where('commentable_type', $commentable_type);
-        }
-
-        if (!is_null($statusFilter)) {
-            $commentsQuery->where('approved', $statusFilter);
-        }
-
-        $commentsQuery->orderBy('created_at', $sortOrder);
+        $viewMode = $request->input('viewMode', 'table'); // table | grid
+        $withChildren = $request->input('with') === 'children' || $viewMode === 'grid';
 
         $commentsPerPage = (int) $request->input('perPage', 10);
         $currentPage = (int) $request->input('page', 1);
 
-        $total = $commentsQuery->count();
-        $lastPage = (int) ceil($total / ($commentsPerPage ?: 1));
-        $prevPage = $currentPage > 1 ? $currentPage - 1 : null;
-        $nextPage = $currentPage < $lastPage ? $currentPage + 1 : null;
+        if ($viewMode === 'grid' || $withChildren) {
+            // Grid view: Get only parent comments with their children
+            $commentsQuery = $username->comments()
+                ->where('parent_id', 0)
+                ->with(['commentable', 'user']);
 
-        $paginatedComments = $commentsQuery->skip(($currentPage - 1) * $commentsPerPage)
-            ->take($commentsPerPage)
-            ->get();
-
-        $result = $paginatedComments->map(function (Comment $item) {
-            $commentable = $item->commentable;
-            $commentable_type = $item->commentable_type;
-
-            $base = [
-                'id' => $item->id,
-                'comment' => $item->comment,
-                'approved' => $item->approved,
-                'created_at' => $item->created_at,
-                'updated_at' => $item->updated_at,
-                'parent_id' => $item->parent_id,
-                'type' => class_basename($commentable_type),
-            ];
-
-            // Parent comment (if this is a reply)
-            $base['parent'] = null;
-            if ($item->relationLoaded('parent') && $item->parent) {
-                $base['parent'] = [
-                    'id' => $item->parent->id,
-                    'comment' => $item->parent->comment,
-                    'approved' => $item->parent->approved,
-                    'created_at' => $item->parent->created_at,
-                    'user' => $item->parent->user
-                        ? $item->parent->user->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
-                        : null,
-                ];
+            // Only filter by type if a specific type is selected
+            if ($commentable_type !== null) {
+                $commentsQuery->where('commentable_type', $commentable_type);
             }
 
-            // Commentable info
-            $base['commentable'] = match ($commentable_type) {
-                \App\Models\Course::class => $commentable ? [
-                    'id' => $commentable->id,
-                    'title' => $commentable->title,
-                    'english_title' => $commentable->english_title,
-                    'slug' => $commentable->slug,
-                    'poster' => $commentable->poster,
-                    'teacher' => $commentable->teacher
-                        ? $commentable->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
-                        : null,
-                ] : null,
-                \App\Models\Episode::class => $commentable ? [
-                    'id' => $commentable->id,
-                    'title' => $commentable->title,
-                    'english_title' => $commentable->english_title,
-                    'slug' => $commentable->slug,
-                    'course' => $commentable->section && $commentable->section->course
-                        ? array_merge(
-                            $commentable->section->course->only('id', 'title', 'english_title', 'slug', 'poster'),
-                            [
-                                'teacher' => $commentable->section->course->teacher
-                                    ? $commentable->section->course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
-                                    : null,
-                            ]
-                        )
-                        : null,
-                ] : null,
-                \App\Models\Path::class => $commentable ? [
-                    'id' => $commentable->id,
-                    'title' => $commentable->title,
-                    'english_title' => $commentable->english_title,
-                    'slug' => $commentable->slug,
-                    'poster' => $commentable->poster,
-                    'icon' => $commentable->icon,
-                ] : null,
-                default => null,
-            };
+            if (!is_null($statusFilter)) {
+                $commentsQuery->where('approved', $statusFilter);
+            }
 
-            return $base;
-        })->values();
+            $commentsQuery->orderBy('created_at', $sortOrder);
+
+            $total = $commentsQuery->count();
+            $lastPage = (int) ceil($total / ($commentsPerPage ?: 1));
+            $prevPage = $currentPage > 1 ? $currentPage - 1 : null;
+            $nextPage = $currentPage < $lastPage ? $currentPage + 1 : null;
+
+            $paginatedComments = $commentsQuery->skip(($currentPage - 1) * $commentsPerPage)
+                ->take($commentsPerPage)
+                ->get();
+
+            $result = $paginatedComments->map(function (Comment $item) use ($statusFilter, $sortOrder, $username) {
+                $commentable = $item->commentable;
+                $commentable_type = $item->commentable_type;
+
+                $base = [
+                    'id' => $item->id,
+                    'comment' => $item->comment,
+                    'approved' => $item->approved,
+                    'created_at' => $item->created_at,
+                    'updated_at' => $item->updated_at,
+                    'parent_id' => $item->parent_id,
+                    'type' => class_basename($commentable_type),
+                ];
+
+                // Load children - only from this user
+                $childrenQuery = $item->childs()
+                    ->where('user_id', $username->id);
+                if (!is_null($statusFilter)) {
+                    $childrenQuery->where('approved', $statusFilter);
+                }
+                $children = $childrenQuery->orderBy('created_at', $sortOrder)
+                    ->with(['user'])
+                    ->get();
+
+                $base['children'] = $children->map(function (Comment $child) {
+                    return [
+                        'id' => $child->id,
+                        'comment' => $child->comment,
+                        'approved' => $child->approved,
+                        'created_at' => $child->created_at,
+                        'updated_at' => $child->updated_at,
+                        'parent_id' => $child->parent_id,
+                        'user' => $child->user
+                            ? $child->user->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                            : null,
+                    ];
+                })->values();
+
+                // Commentable info
+                $base['commentable'] = match ($commentable_type) {
+                    \App\Models\Course::class => $commentable ? [
+                        'id' => $commentable->id,
+                        'title' => $commentable->title,
+                        'english_title' => $commentable->english_title,
+                        'slug' => $commentable->slug,
+                        'poster' => $commentable->poster,
+                        'teacher' => $commentable->teacher
+                            ? $commentable->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                            : null,
+                    ] : null,
+                    \App\Models\Episode::class => $commentable ? [
+                        'id' => $commentable->id,
+                        'title' => $commentable->title,
+                        'english_title' => $commentable->english_title,
+                        'slug' => $commentable->slug,
+                        'course' => $commentable->section && $commentable->section->course
+                            ? array_merge(
+                                $commentable->section->course->only('id', 'title', 'english_title', 'slug', 'poster'),
+                                [
+                                    'teacher' => $commentable->section->course->teacher
+                                        ? $commentable->section->course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                                        : null,
+                                ]
+                            )
+                            : null,
+                    ] : null,
+                    \App\Models\Path::class => $commentable ? [
+                        'id' => $commentable->id,
+                        'title' => $commentable->title,
+                        'english_title' => $commentable->english_title,
+                        'slug' => $commentable->slug,
+                        'poster' => $commentable->poster,
+                        'icon' => $commentable->icon,
+                    ] : null,
+                    default => null,
+                };
+
+                return $base;
+            })->values();
+        } else {
+            // Table view: Get all comments flat (including replies) sorted by time
+            $commentsQuery = $username->comments()
+                ->with(['commentable', 'parent.user']);
+
+            // Only filter by type if a specific type is selected
+            if ($commentable_type !== null) {
+                $commentsQuery->where('commentable_type', $commentable_type);
+            }
+
+            if (!is_null($statusFilter)) {
+                $commentsQuery->where('approved', $statusFilter);
+            }
+
+            $commentsQuery->orderBy('created_at', $sortOrder);
+
+            $total = $commentsQuery->count();
+            $lastPage = (int) ceil($total / ($commentsPerPage ?: 1));
+            $prevPage = $currentPage > 1 ? $currentPage - 1 : null;
+            $nextPage = $currentPage < $lastPage ? $currentPage + 1 : null;
+
+            $paginatedComments = $commentsQuery->skip(($currentPage - 1) * $commentsPerPage)
+                ->take($commentsPerPage)
+                ->get();
+
+            $result = $paginatedComments->map(function (Comment $item) {
+                $commentable = $item->commentable;
+                $commentable_type = $item->commentable_type;
+
+                $base = [
+                    'id' => $item->id,
+                    'comment' => $item->comment,
+                    'approved' => $item->approved,
+                    'created_at' => $item->created_at,
+                    'updated_at' => $item->updated_at,
+                    'parent_id' => $item->parent_id,
+                    'type' => class_basename($commentable_type),
+                ];
+
+                // Parent comment (if this is a reply)
+                $base['parent'] = null;
+                if ($item->relationLoaded('parent') && $item->parent) {
+                    $base['parent'] = [
+                        'id' => $item->parent->id,
+                        'comment' => $item->parent->comment,
+                        'approved' => $item->parent->approved,
+                        'created_at' => $item->parent->created_at,
+                        'user' => $item->parent->user
+                            ? $item->parent->user->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                            : null,
+                    ];
+                }
+
+                // Commentable info
+                $base['commentable'] = match ($commentable_type) {
+                    \App\Models\Course::class => $commentable ? [
+                        'id' => $commentable->id,
+                        'title' => $commentable->title,
+                        'english_title' => $commentable->english_title,
+                        'slug' => $commentable->slug,
+                        'poster' => $commentable->poster,
+                        'teacher' => $commentable->teacher
+                            ? $commentable->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                            : null,
+                    ] : null,
+                    \App\Models\Episode::class => $commentable ? [
+                        'id' => $commentable->id,
+                        'title' => $commentable->title,
+                        'english_title' => $commentable->english_title,
+                        'slug' => $commentable->slug,
+                        'course' => $commentable->section && $commentable->section->course
+                            ? array_merge(
+                                $commentable->section->course->only('id', 'title', 'english_title', 'slug', 'poster'),
+                                [
+                                    'teacher' => $commentable->section->course->teacher
+                                        ? $commentable->section->course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                                        : null,
+                                ]
+                            )
+                            : null,
+                    ] : null,
+                    \App\Models\Path::class => $commentable ? [
+                        'id' => $commentable->id,
+                        'title' => $commentable->title,
+                        'english_title' => $commentable->english_title,
+                        'slug' => $commentable->slug,
+                        'poster' => $commentable->poster,
+                        'icon' => $commentable->icon,
+                    ] : null,
+                    default => null,
+                };
+
+                return $base;
+            })->values();
+        }
 
         return response()->json([
             'message' => 'Success',

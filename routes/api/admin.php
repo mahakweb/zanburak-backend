@@ -166,6 +166,41 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/discount/{id}/toggle-status', [\App\Http\Controllers\Api\Admin\Discount\DiscountController::class, 'toggleStatus'])->name('discounts.toggle-status');
     Route::delete('/discount/{id}', [\App\Http\Controllers\Api\Admin\Discount\DiscountController::class, 'destroy'])->name('discounts.delete');
     Route::get('/discount/search/eligibility', [\App\Http\Controllers\Api\Admin\Discount\DiscountController::class, 'search'])->name('discounts.search.eligibility');
+
+    // FAQs
+    Route::get('/faqs', [\App\Http\Controllers\Api\Admin\FaqController::class, 'index'])->name('faqs.index');
+    Route::post('/faqs/categories', [\App\Http\Controllers\Api\Admin\FaqController::class, 'categories'])->name('faqs.categories');
+    Route::post('/faqs/category/create', [\App\Http\Controllers\Api\Admin\FaqController::class, 'createCategory'])->name('faqs.category.create');
+    Route::post('/faqs/category/{category}/update', [\App\Http\Controllers\Api\Admin\FaqController::class, 'updateCategory'])->name('faqs.category.update');
+    Route::delete('/faqs/category/{category}', [\App\Http\Controllers\Api\Admin\FaqController::class, 'deleteCategory'])->name('faqs.category.delete');
+    Route::post('/faqs/create', [\App\Http\Controllers\Api\Admin\FaqController::class, 'createFaq'])->name('faqs.create');
+    Route::post('/faqs/{faq}/update', [\App\Http\Controllers\Api\Admin\FaqController::class, 'updateFaq'])->name('faqs.update');
+    Route::delete('/faqs/{faq}', [\App\Http\Controllers\Api\Admin\FaqController::class, 'deleteFaq'])->name('faqs.delete');
+    Route::post('/faqs/reorder', [\App\Http\Controllers\Api\Admin\FaqController::class, 'reorderFaqs'])->name('faqs.reorder');
+
+    // Discuss (Questions & Answers)
+    Route::post('/discuss/questions', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'index'])->name('discuss.questions.index');
+    Route::get('/discuss/question/{question}', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'show'])->name('discuss.question.show');
+    Route::post('/discuss/question/create', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'create'])->name('discuss.question.create');
+    Route::post('/discuss/question/{question}/update', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'update'])->name('discuss.question.update');
+    Route::delete('/discuss/question/{question}', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'delete'])->name('discuss.question.delete');
+    Route::post('/discuss/question/{question}/toggle-publish', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'togglePublish'])->name('discuss.question.toggle-publish');
+    Route::post('/discuss/question/{question}/set-best-answer', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'setBestAnswer'])->name('discuss.question.set-best-answer');
+    Route::post('/discuss/question/{question}/remove-best-answer', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'removeBestAnswer'])->name('discuss.question.remove-best-answer');
+    Route::post('/discuss/question/{question}/answers', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'getAnswers'])->name('discuss.question.answers');
+    Route::post('/discuss/question/{question}/answer/create', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'createAnswer'])->name('discuss.answer.create');
+    Route::post('/discuss/answer/{answer}/update', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'updateAnswer'])->name('discuss.answer.update');
+    Route::delete('/discuss/answer/{answer}', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'deleteAnswer'])->name('discuss.answer.delete');
+    Route::post('/discuss/answer/{answer}/toggle-pin', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'togglePinAnswer'])->name('discuss.answer.toggle-pin');
+    Route::post('/discuss/answer/{answer}/toggle-publish', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'togglePublishAnswer'])->name('discuss.answer.toggle-publish');
+
+    // Question Categories
+    Route::post('/question-categories', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'index'])->name('question-categories.index');
+    Route::get('/question-categories/tree', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'tree'])->name('question-categories.tree');
+    Route::get('/question-category/{category}', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'show'])->name('question-category.show');
+    Route::post('/question-category/create', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'create'])->name('question-category.create');
+    Route::post('/question-category/{category}/update', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'update'])->name('question-category.update');
+    Route::delete('/question-category/{category}', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'delete'])->name('question-category.delete');
 });
 
 
