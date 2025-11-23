@@ -122,8 +122,10 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/category/uploadIcon', [\App\Http\Controllers\Api\Admin\Course\CategoryController::class, 'uploadIcon'])->name('category.upload-icon');
 
     // Admin Comments
+    Route::post('/comments', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'index'])->name('comments.index');
     Route::post('/comments/toggle-approval', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'toggleApproval'])->name('comments.toggle-approval');
     Route::post('/comments/send-reply', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'sendReply'])->name('comments.send-reply');
+    Route::post('/comments/update', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'update'])->name('comments.update');
     Route::post('/comments/delete', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'delete'])->name('comments.delete');
 
     // Course management
@@ -201,6 +203,17 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/question-category/create', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'create'])->name('question-category.create');
     Route::post('/question-category/{category}/update', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'update'])->name('question-category.update');
     Route::delete('/question-category/{category}', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'delete'])->name('question-category.delete');
+
+    // Reports
+    Route::post('/reports', [\App\Http\Controllers\Api\Admin\ReportController::class, 'reports'])->name('reports.index');
+    Route::get('/reports/stats', [\App\Http\Controllers\Api\Admin\ReportController::class, 'stats'])->name('reports.stats');
+    Route::get('/report/{id}', [\App\Http\Controllers\Api\Admin\ReportController::class, 'show'])->name('report.show');
+    Route::post('/report/{id}/update-status', [\App\Http\Controllers\Api\Admin\ReportController::class, 'updateStatus'])->name('report.update-status');
+    Route::delete('/report/{id}', [\App\Http\Controllers\Api\Admin\ReportController::class, 'delete'])->name('report.delete');
+    Route::post('/reports/delete-multiple', [\App\Http\Controllers\Api\Admin\ReportController::class, 'deleteMultiple'])->name('reports.delete-multiple');
+    Route::post('/report/{id}/deactivate-content', [\App\Http\Controllers\Api\Admin\ReportController::class, 'deactivateContent'])->name('report.deactivate-content');
+    Route::post('/report/{id}/activate-content', [\App\Http\Controllers\Api\Admin\ReportController::class, 'activateContent'])->name('report.activate-content');
+    Route::post('/report/{id}/delete-content', [\App\Http\Controllers\Api\Admin\ReportController::class, 'deleteContent'])->name('report.delete-content');
 });
 
 

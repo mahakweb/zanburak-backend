@@ -119,4 +119,9 @@ class Episode extends Model implements Likeable
     {
         return $this->morphMany(Video::class, 'videoable');
     }
+
+    public function reports()
+    {
+        return $this->morphMany(Report::class, 'reportable');
+    }
 }

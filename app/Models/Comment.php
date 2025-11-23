@@ -68,4 +68,9 @@ class Comment extends Model implements Likeable
         return $collection;
     }
 
+    public function reports()
+    {
+        return $this->morphMany(Report::class, 'reportable');
+    }
+
 }

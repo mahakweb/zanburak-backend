@@ -149,4 +149,9 @@ class Question extends Model implements Likeable
         return $this->belongsTo(User::class);
     }
 
+    public function reports()
+    {
+        return $this->morphMany(Report::class, 'reportable');
+    }
+
 }

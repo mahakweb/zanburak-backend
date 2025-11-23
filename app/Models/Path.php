@@ -138,4 +138,9 @@ class Path extends Model
             }
         }
     }
+
+    public function reports()
+    {
+        return $this->morphMany(Report::class, 'reportable');
+    }
 }

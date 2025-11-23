@@ -66,4 +66,9 @@ class Answer extends Model implements Likeable
         }
         $this->save();
     }
+
+    public function reports()
+    {
+        return $this->morphMany(Report::class, 'reportable');
+    }
 }

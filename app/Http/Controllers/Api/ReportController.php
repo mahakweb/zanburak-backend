@@ -23,16 +23,25 @@ class ReportController extends Controller
         if( ! $validData->passes() ){
             return response()->json(['message' => 'Error!', 'errors' => $validData->errors()->toArray()], 422);
         }else {
-            $className = "App\\Models\\" . ucfirst($request->input('reportable_type'));
+            $type = $request->input('reportable_type');
+            $className = "App\\Models\\" . ucfirst($type);
+            
+            if (!class_exists($className)) {
+                return response()->json(['message' => 'Error! Invalid reportable type'], 422);
+            }
+            
             $model = new $className;
 
             if($obj = $model::find($request->input('reportable_id'))){
+                // Store full class name for proper polymorphic relation
                 $report = $user->reports()->create([
                     'report' => $request->input('report'),
                     'reportable_id' => $request->input('reportable_id'),
-                    'reportable_type' => $request->input('reportable_type'),
+                    'reportable_type' => $className, // Store full class name
                 ]);
                 return response()->json(['Message' => 'Success'], 200);
+            } else {
+                return response()->json(['message' => 'Error! Content not found'], 404);
             }
         }
         

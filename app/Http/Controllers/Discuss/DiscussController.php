@@ -160,10 +160,18 @@ class DiscussController extends Controller
         if( ! $validData->passes() ){
             return response()->json(['status' => 0, 'error' => $validData->errors()->toArray()]);
         }else {
+            $type = $request['reportable_type'];
+            $className = "App\\Models\\" . ucfirst($type);
+            
+            if (!class_exists($className)) {
+                return response()->json(['status' => 0, 'error' => 'Invalid reportable type']);
+            }
+            
+            // Store full class name for proper polymorphic relation
             $report = auth()->user()->reports()->create([
                 'report' => $request['report'],
                 'reportable_id' => $request['reportable_id'],
-                'reportable_type' => $request['reportable_type'],
+                'reportable_type' => $className, // Store full class name
             ]);
             if ($report) {
                 return response()->json(['status' => 1, 'msg' => 'data has been successfully saved !']);

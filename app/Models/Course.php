@@ -358,6 +358,11 @@ class Course extends Model implements Likeable
         return $this->belongsToMany(Path::class)->withTimestamps();
     }
 
+    public function reports()
+    {
+        return $this->morphMany(Report::class, 'reportable');
+    }
+
     // return count of all episode with publish equal to 1
     public function numberOfEpisode()
     {
