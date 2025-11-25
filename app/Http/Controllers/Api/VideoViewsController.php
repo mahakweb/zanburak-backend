@@ -54,7 +54,7 @@ class VideoViewsController extends Controller
             $full_watched && $video->videoable_type == 'App\Models\Episode') {
             $episode = Episode::find($video->videoable_id);
             $course = $episode->section->course;
-            if($course->isCompletedByUser($user->id) && $course->end_date) {
+            if($course->isCompletedByUser($user->id) && $course->end_date && $course->end_date <= now()) {
                 $user->courses()->updateExistingPivot($course->id, [
                     'completed_at' => now(),
                 ]);

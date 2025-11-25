@@ -25,6 +25,21 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
         Route::get('/paths', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'getPaths'])->name('paths');
     });
 
+    // Certificates
+    Route::prefix('certificates')->as('certificates.')->group(function () {
+        Route::post('/', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'certificates'])->name('index');
+        Route::get('/stats', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'certificateStats'])->name('stats');
+        Route::get('/export', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'exportCertificates'])->name('export');
+        Route::get('/{uuid}/details', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'certificateDetails'])->name('details');
+        Route::post('/create', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'createCertificate'])->name('create');
+        Route::post('/{uuid}/update', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'updateCertificate'])->name('update');
+        Route::post('/{uuid}/issue', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'issueCertificate'])->name('issue');
+        Route::delete('/{uuid}/delete', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'deleteCertificate'])->name('delete');
+        Route::get('/search', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'search'])->name('search');
+        Route::get('/users', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'getUsers'])->name('users');
+        Route::get('/courses', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'getCourses'])->name('courses');
+    });
+
     // Dashboard
     Route::get('/dashboard/stats', [\App\Http\Controllers\Api\Admin\DashboardController::class, 'stats'])->name('dashboard.stats');
 

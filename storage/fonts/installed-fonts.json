@@ -24,6 +24,9 @@
         "normal": "irannastaliq_normal_05dd0df10c018fc65a30d8349acda80e"
     },
     "bzar": {
-        "normal": "bzar_normal_c1d88892acf306b18c88db8c7f3fe3de"
+        "normal": "bzar_normal_ed32fa4f34f63ada198c712e66dba969"
+    },
+    "bzarbold": {
+        "bold": "bzarbold_bold_ed32fa4f34f63ada198c712e66dba969"
     }
 }
