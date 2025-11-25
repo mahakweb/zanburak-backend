@@ -229,6 +229,12 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/report/{id}/deactivate-content', [\App\Http\Controllers\Api\Admin\ReportController::class, 'deactivateContent'])->name('report.deactivate-content');
     Route::post('/report/{id}/activate-content', [\App\Http\Controllers\Api\Admin\ReportController::class, 'activateContent'])->name('report.activate-content');
     Route::post('/report/{id}/delete-content', [\App\Http\Controllers\Api\Admin\ReportController::class, 'deleteContent'])->name('report.delete-content');
+
+    // Sales Reports
+    Route::post('/sales-report', [\App\Http\Controllers\Api\Admin\SalesReportController::class, 'salesReport'])->name('sales-report.index');
+    Route::get('/sales-report/stats', [\App\Http\Controllers\Api\Admin\SalesReportController::class, 'stats'])->name('sales-report.stats');
+    Route::get('/sales-report/analytics', [\App\Http\Controllers\Api\Admin\SalesReportController::class, 'analytics'])->name('sales-report.analytics');
+    Route::get('/sales-report/export', [\App\Http\Controllers\Api\Admin\SalesReportController::class, 'export'])->name('sales-report.export');
 });
 
 
