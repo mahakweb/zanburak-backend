@@ -174,12 +174,14 @@ class SalesReportController extends Controller
 
         return response()->json([
             'message' => 'Success',
-            'sales' => [
-                'data' => $data,
+            'sales' => $data,
+            'pagination' => [
                 'current_page' => $payments->currentPage(),
                 'last_page' => $payments->lastPage(),
                 'per_page' => $payments->perPage(),
                 'total' => $payments->total(),
+                'from' => $payments->firstItem(),
+                'to' => $payments->lastItem(),
             ]
         ], 200);
     }
@@ -275,12 +277,19 @@ class SalesReportController extends Controller
                 ];
             });
 
-        // Daily sales (last 30 days) - net sales = amount
+        // Daily sales - use date range if provided, otherwise last 30 days
+        $startDate = $request->filled('date_from') 
+            ? \Carbon\Carbon::parse($request->date_from) 
+            : now()->subDays(30);
+        $endDate = $request->filled('date_to') 
+            ? \Carbon\Carbon::parse($request->date_to) 
+            : now();
+
         $dailySales = (clone $query)
             ->select(DB::raw('DATE(paid_at) as date'), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
-            ->where('paid_at', '>=', now()->subDays(30))
+            ->whereBetween('paid_at', [$startDate, $endDate])
             ->groupBy(DB::raw('DATE(paid_at)'))
-            ->orderBy('date', 'desc')
+            ->orderBy('date', 'asc')
             ->get()
             ->map(function($item) {
                 return [
@@ -289,6 +298,60 @@ class SalesReportController extends Controller
                     'count' => $item->count,
                 ];
             });
+
+        // Comparison stats (previous period)
+        $comparisonStats = null;
+        if ($request->filled('date_from') && $request->filled('date_to')) {
+            $currentStart = \Carbon\Carbon::parse($request->date_from);
+            $currentEnd = \Carbon\Carbon::parse($request->date_to);
+            $periodDays = $currentStart->diffInDays($currentEnd);
+            
+            $previousStart = $currentStart->copy()->subDays($periodDays + 1);
+            $previousEnd = $currentStart->copy()->subDay();
+            
+            $previousQuery = Payment::where('status', 1)->whereNotNull('paid_at');
+            
+            if ($request->filled('payment_method')) {
+                $previousQuery->where('payment_method', $request->payment_method);
+            }
+            if ($request->filled('driver')) {
+                $previousQuery->where('driver', $request->driver);
+            }
+            
+            $previousQuery->whereBetween('paid_at', [$previousStart, $previousEnd]);
+            
+            $previousNetSales = $previousQuery->sum('amount');
+            $previousTransactions = $previousQuery->count();
+            $previousAverage = $previousTransactions > 0 ? $previousNetSales / $previousTransactions : 0;
+            $previousDiscount = $previousQuery->sum('discount_amount');
+            
+            $comparisonStats = [
+                'net_sales' => [
+                    'current' => $netSales,
+                    'previous' => $previousNetSales,
+                    'change' => $netSales - $previousNetSales,
+                    'change_percent' => $previousNetSales > 0 ? round((($netSales - $previousNetSales) / $previousNetSales) * 100, 2) : 0,
+                ],
+                'transactions' => [
+                    'current' => $totalTransactions,
+                    'previous' => $previousTransactions,
+                    'change' => $totalTransactions - $previousTransactions,
+                    'change_percent' => $previousTransactions > 0 ? round((($totalTransactions - $previousTransactions) / $previousTransactions) * 100, 2) : 0,
+                ],
+                'average_transaction' => [
+                    'current' => round($averageTransaction),
+                    'previous' => round($previousAverage),
+                    'change' => round($averageTransaction) - round($previousAverage),
+                    'change_percent' => $previousAverage > 0 ? round(((round($averageTransaction) - round($previousAverage)) / round($previousAverage)) * 100, 2) : 0,
+                ],
+                'discount' => [
+                    'current' => $totalDiscount,
+                    'previous' => $previousDiscount,
+                    'change' => $totalDiscount - $previousDiscount,
+                    'change_percent' => $previousDiscount > 0 ? round((($totalDiscount - $previousDiscount) / $previousDiscount) * 100, 2) : 0,
+                ],
+            ];
+        }
 
         return response()->json([
             'message' => 'Success',
@@ -302,6 +365,7 @@ class SalesReportController extends Controller
                 'sales_by_driver' => $salesByDriver,
                 'sales_by_type' => $salesByType,
                 'daily_sales' => $dailySales,
+                'comparison' => $comparisonStats,
             ]
         ], 200);
     }

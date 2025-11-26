@@ -235,6 +235,12 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::get('/sales-report/stats', [\App\Http\Controllers\Api\Admin\SalesReportController::class, 'stats'])->name('sales-report.stats');
     Route::get('/sales-report/analytics', [\App\Http\Controllers\Api\Admin\SalesReportController::class, 'analytics'])->name('sales-report.analytics');
     Route::get('/sales-report/export', [\App\Http\Controllers\Api\Admin\SalesReportController::class, 'export'])->name('sales-report.export');
+
+    // User Activity Reports
+    Route::post('/user-activity-report', [\App\Http\Controllers\Api\Admin\UserActivityReportController::class, 'activities'])->name('user-activity-report.index');
+    Route::get('/user-activity-report/stats', [\App\Http\Controllers\Api\Admin\UserActivityReportController::class, 'stats'])->name('user-activity-report.stats');
+    Route::get('/user-activity-report/analytics', [\App\Http\Controllers\Api\Admin\UserActivityReportController::class, 'analytics'])->name('user-activity-report.analytics');
+    Route::get('/user-activity-report/export', [\App\Http\Controllers\Api\Admin\UserActivityReportController::class, 'export'])->name('user-activity-report.export');
 });
 
 
