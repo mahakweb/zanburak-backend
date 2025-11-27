@@ -415,6 +415,173 @@ class EpisodeController extends Controller
         return response()->json($response, 200);
     }
 
+    public function deleteEpisode(Request $request, Course $course, Episode $episode)
+    {
+        // Verify the episode belongs to the course
+        if ($episode->section->course_id != $course->id) {
+            return response()->json(['message' => 'error! this episode not belong to selected course'], 422);
+        }
+
+        $deletedEpisode = $episode;
+        $episode->delete();
+        
+        // Reorder remaining episodes
+        $this->reorderCourseEpisodes($course->id);
+        
+        return response()->json(['message' => 'success, episode deleted successfully.', 'episode' => $deletedEpisode], 200);
+    }
+
+    public function getEpisodeDetails(Course $course, Episode $episode)
+    {
+        // Verify the episode belongs to the course
+        if ($episode->section->course_id != $course->id) {
+            return response()->json(['message' => 'error! this episode not belong to selected course'], 422);
+        }
+
+        // Load episode with all relationships
+        $episode->load([
+            'section' => function ($query) {
+                $query->select('id', 'title', 'slug', 'course_id');
+            },
+            'videos' => function ($query) {
+                $query->select('id', 'videoable_id', 'videoable_type', 'type', 'path', 'disk', 'status');
+            },
+            'attachs' => function ($query) {
+                $query->select('id', 'attachable_id', 'attachable_type', 'url');
+            },
+            'comments' => function ($query) {
+                $query->with([
+                    'user' => function ($q) {
+                        $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                    },
+                    'childs' => function ($q) {
+                        $q->with([
+                            'user' => function ($u) {
+                                $u->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                            }
+                        ])->orderBy('created_at', 'asc');
+                    }
+                ])->whereNull('parent_id')->orderBy('created_at', 'desc');
+            },
+            'likes' => function ($query) {
+                $query->with([
+                    'user' => function ($q) {
+                        $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                    }
+                ])->orderBy('created_at', 'desc');
+            },
+            'views' => function ($query) {
+                $query->orderBy('created_at', 'desc');
+            }
+        ]);
+
+        // Get counts
+        $likesCount = $episode->likes()->count();
+        $commentsCount = $episode->comments()->where('approved', 1)->count();
+        $viewsCount = $episode->views()->count();
+        $bookmarksCount = $episode->bookmarkersCount();
+
+        // Format comments with replies
+        $comments = $episode->comments->map(function ($comment) {
+            return [
+                'id' => $comment->id,
+                'comment' => $comment->comment,
+                'approved' => $comment->approved,
+                'created_at' => $comment->created_at,
+                'user' => $comment->user ? [
+                    'id' => $comment->user->id,
+                    'name' => $comment->user->first_name . ' ' . $comment->user->last_name,
+                    'username' => $comment->user->username,
+                    'profile_pic' => $comment->user->profile_pic,
+                ] : null,
+                'replies' => $comment->childs->map(function ($reply) {
+                    return [
+                        'id' => $reply->id,
+                        'comment' => $reply->comment,
+                        'approved' => $reply->approved,
+                        'created_at' => $reply->created_at,
+                        'user' => $reply->user ? [
+                            'id' => $reply->user->id,
+                            'name' => $reply->user->first_name . ' ' . $reply->user->last_name,
+                            'username' => $reply->user->username,
+                            'profile_pic' => $reply->user->profile_pic,
+                        ] : null,
+                    ];
+                })->values(),
+            ];
+        });
+
+        // Format likes
+        $likes = $episode->likes->map(function ($like) {
+            return [
+                'id' => $like->id,
+                'type' => $like->type,
+                'created_at' => $like->created_at,
+                'user' => $like->user ? [
+                    'id' => $like->user->id,
+                    'name' => $like->user->first_name . ' ' . $like->user->last_name,
+                    'username' => $like->user->username,
+                    'profile_pic' => $like->user->profile_pic,
+                ] : null,
+            ];
+        });
+
+        // Format views (views don't have user_id, only IP and user agent)
+        $views = $episode->views->map(function ($view) {
+            return [
+                'id' => $view->id,
+                'ip_address' => $view->ip_address,
+                'user_agent' => $view->user_agent,
+                'created_at' => $view->created_at,
+            ];
+        });
+
+        return response()->json([
+            'message' => 'Success',
+            'episode' => [
+                'id' => $episode->id,
+                'title' => $episode->title,
+                'english_title' => $episode->english_title,
+                'slug' => $episode->slug,
+                'description' => $episode->description,
+                'order' => $episode->order,
+                'publish' => $episode->publish,
+                'lock' => $episode->lock,
+                'publish_date' => $episode->publish_date,
+                'total_time' => $episode->total_time,
+                'created_at' => $episode->created_at,
+                'updated_at' => $episode->updated_at,
+                'section' => [
+                    'id' => $episode->section->id,
+                    'title' => $episode->section->title,
+                    'slug' => $episode->section->slug,
+                ],
+            ],
+            'statistics' => [
+                'likes_count' => $likesCount,
+                'comments_count' => $commentsCount,
+                'views_count' => $viewsCount,
+                'bookmarks_count' => $bookmarksCount,
+            ],
+            'likes' => $likes,
+            'comments' => $comments,
+            'views' => $views,
+            'videos' => $episode->videos->map(function ($video) {
+                return [
+                    'id' => $video->id,
+                    'type' => $video->type,
+                    'status' => $video->status,
+                ];
+            }),
+            'attachs' => $episode->attachs->map(function ($attach) {
+                return [
+                    'id' => $attach->id,
+                    'url' => $attach->url,
+                ];
+            }),
+        ], 200);
+    }
+
     private function urlDetails($url)
     {
         if (!Str::is('http*://*', $url)) {

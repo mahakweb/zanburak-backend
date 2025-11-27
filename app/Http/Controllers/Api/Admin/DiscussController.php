@@ -103,10 +103,22 @@ class DiscussController extends Controller
             ];
         });
 
+        // Get allowed users if question is private
         $allowedUsers = [];
-        if ($question->allowed_user_ids) {
+        if ($question->is_private && $question->allowed_user_ids) {
             // allowed_user_ids is cast to array in model, so it's already an array
-            $userIds = is_array($question->allowed_user_ids) ? $question->allowed_user_ids : [];
+            $userIds = $question->allowed_user_ids;
+            
+            // Ensure it's an array (in case cast didn't work)
+            if (!is_array($userIds)) {
+                $userIds = json_decode($userIds, true) ?? [];
+            }
+            
+            // Filter out null values and ensure we have valid IDs
+            $userIds = array_filter($userIds, function($id) {
+                return !is_null($id) && $id !== '' && is_numeric($id);
+            });
+            
             if (!empty($userIds)) {
                 $allowedUsers = User::whereIn('id', $userIds)
                     ->select('id', 'first_name', 'last_name', 'username', 'profile_pic')

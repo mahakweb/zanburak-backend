@@ -150,6 +150,8 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/course/{courseSlug}/createEpisode', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'updateEpisode'])->name('course.create-episode');
     Route::post('/course/{courseSlug}/updateEpisode', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'updateEpisode'])->name('course.update-episode');
     Route::post('/course/{courseSlug}/section/{sectionSlug}/episode/{episodeSlug}/edit', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'getEpisodeForEdit'])->name('course.episode.edit');
+    Route::post('/course/{courseSlug}/episode/{episodeSlug}/details', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'getEpisodeDetails'])->name('course.episode.details');
+    Route::delete('/course/{courseSlug}/episode/{episodeSlug}/delete', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'deleteEpisode'])->name('course.episode.delete');
     Route::post('/course/{courseSlug}/episode/uploadAttachedFile', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'uploadAttachedFile'])->name('course.episode.upload-file');
     Route::post('/course/{courseSlug}/episode/status', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'episodeStatus'])->name('course.episode.status');
     Route::post('/course/{courseSlug}/episode/removeFile', [\App\Http\Controllers\Api\Admin\Course\EpisodeController::class, 'removeFile'])->name('course.episode.remove-file');

@@ -42,41 +42,41 @@ class AppServiceProvider extends ServiceProvider
         // This map is used for all polymorphic relations: reportable, commentable, videoable, attachable, likeable, viewable, rateable, payable, cartable
         Relation::morphMap([
             // Core models
-            'User' => \App\Models\User::class,
-            'Course' => \App\Models\Course::class,
-            'Episode' => \App\Models\Episode::class,
-            'Section' => \App\Models\Section::class,
-            'Path' => \App\Models\Path::class,
-            'Plan' => \App\Models\Plan::class,
-            'Project' => \App\Models\Project::class,
+            // 'User' => \App\Models\User::class,
+            // 'Course' => \App\Models\Course::class,
+            // 'Episode' => \App\Models\Episode::class,
+            // 'Section' => \App\Models\Section::class,
+            // 'Path' => \App\Models\Path::class,
+            // 'Plan' => \App\Models\Plan::class,
+            // 'Project' => \App\Models\Project::class,
             
-            // Discussion models
-            'Question' => \App\Models\Question::class,
-            'Answer' => \App\Models\Answer::class,
-            'Comment' => \App\Models\Comment::class,
-            'QuestionCategory' => \App\Models\QuestionCategory::class,
+            // // Discussion models
+            // 'Question' => \App\Models\Question::class,
+            // 'Answer' => \App\Models\Answer::class,
+            // 'Comment' => \App\Models\Comment::class,
+            // 'QuestionCategory' => \App\Models\QuestionCategory::class,
             
-            // Content models
-            'Video' => \App\Models\Video::class,
-            'Attach' => \App\Models\Attach::class,
-            'Like' => \App\Models\Like::class,
-            'View' => \App\Models\View::class,
-            'Rating' => \App\Models\Rating::class,
+            // // Content models
+            // 'Video' => \App\Models\Video::class,
+            // 'Attach' => \App\Models\Attach::class,
+            // 'Like' => \App\Models\Like::class,
+            // 'View' => \App\Models\View::class,
+            // 'Rating' => \App\Models\Rating::class,
             
-            // Financial models
-            'Payment' => \App\Models\Payment::class,
-            'PaymentItem' => \App\Models\PaymentItem::class,
-            'Cart' => \App\Models\Cart::class,
-            'Discount' => \App\Models\Discount::class,
-            'Wallet' => \App\Models\Wallet::class,
+            // // Financial models
+            // 'Payment' => \App\Models\Payment::class,
+            // 'PaymentItem' => \App\Models\PaymentItem::class,
+            // 'Cart' => \App\Models\Cart::class,
+            // 'Discount' => \App\Models\Discount::class,
+            // 'Wallet' => \App\Models\Wallet::class,
             
-            // Other important models
-            'Category' => \App\Models\Category::class,
-            'Level' => \App\Models\Level::class,
-            'Status' => \App\Models\Status::class,
-            'Mission' => \App\Models\Mission::class,
-            'Certificate' => \App\Models\Certificate::class,
-            'Report' => \App\Models\Report::class,
+            // // Other important models
+            // 'Category' => \App\Models\Category::class,
+            // 'Level' => \App\Models\Level::class,
+            // 'Status' => \App\Models\Status::class,
+            // 'Mission' => \App\Models\Mission::class,
+            // 'Certificate' => \App\Models\Certificate::class,
+            // 'Report' => \App\Models\Report::class,
         ]);
     }
 }
