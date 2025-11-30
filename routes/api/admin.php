@@ -42,6 +42,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
 
     // Dashboard
     Route::get('/dashboard/stats', [\App\Http\Controllers\Api\Admin\DashboardController::class, 'stats'])->name('dashboard.stats');
+    Route::get('/dashboard/unapproved-comments-count', [\App\Http\Controllers\Api\Admin\DashboardController::class, 'unapprovedCommentsCount'])->name('dashboard.unapproved-comments-count');
 
     // Plans
     Route::post('/plans', [\App\Http\Controllers\Api\Admin\PlanController::class, 'plans'])->name('plans.index');

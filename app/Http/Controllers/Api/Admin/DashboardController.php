@@ -361,6 +361,16 @@ class DashboardController extends Controller
             ],
         ], 200);
     }
+
+    public function unapprovedCommentsCount()
+    {
+        $count = Comment::where('approved', 0)->count();
+        
+        return response()->json([
+            'message' => 'Success',
+            'count' => $count,
+        ]);
+    }
 }
 
 

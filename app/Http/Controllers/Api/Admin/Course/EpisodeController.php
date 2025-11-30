@@ -446,11 +446,15 @@ class EpisodeController extends Controller
         $currentPage = (int) $request->input('page', 1);
         $sort = $request->input('sort', 'desc'); // desc, asc
         $filter = $request->input('filter', 'all'); // For comments: all, approved, unapproved
+        $viewMode = $request->input('viewMode', 'table'); // table | grid
 
         // Load episode basic info
         $episode->load([
             'section' => function ($query) {
                 $query->select('id', 'title', 'slug', 'course_id');
+            },
+            'section.course' => function ($query) {
+                $query->select('id', 'title', 'slug');
             },
             'videos' => function ($query) {
                 $query->select('id', 'videoable_id', 'videoable_type', 'type', 'path', 'disk', 'status', 'duration', 'created_at');
@@ -487,6 +491,11 @@ class EpisodeController extends Controller
                     'title' => $episode->section->title,
                     'slug' => $episode->section->slug,
                 ],
+                'course' => $episode->section->course ? [
+                    'id' => $episode->section->course->id,
+                    'title' => $episode->section->course->title,
+                    'slug' => $episode->section->course->slug,
+                ] : null,
             ],
             'statistics' => [
                 'likes_count' => $likesCount,
@@ -499,61 +508,143 @@ class EpisodeController extends Controller
         // Handle paginated data based on data_type
         switch ($dataType) {
             case 'comments':
-                $commentsQuery = $episode->comments()->whereNull('parent_id')
-                    ->with([
-                        'user' => function ($q) {
-                            $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
-                        },
-                        'childs' => function ($q) {
-                            $q->with([
-                                'user' => function ($u) {
-                                    $u->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
-                                }
-                            ])->orderBy('created_at', 'asc');
-                        }
-                    ]);
-
-                if ($filter === 'approved') {
-                    $commentsQuery->where('approved', 1);
-                } elseif ($filter === 'unapproved') {
-                    $commentsQuery->where('approved', 0);
-                }
-
                 $sortOrder = $sort === 'asc' ? 'asc' : 'desc';
-                $commentsQuery->orderBy('created_at', $sortOrder);
+                
+                if ($viewMode === 'grid') {
+                    // Grid view: Get only parent comments with their children
+                    $commentsQuery = $episode->comments()->where('parent_id', 0)
+                        ->with([
+                            'user' => function ($q) {
+                                $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                            },
+                            'childs' => function ($q) use ($filter, $sortOrder) {
+                                $childQuery = $q->with([
+                                    'user' => function ($u) {
+                                        $u->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                                    }
+                                ]);
+                                
+                                if ($filter === 'approved') {
+                                    $childQuery->where('approved', 1);
+                                } elseif ($filter === 'unapproved') {
+                                    $childQuery->where('approved', 0);
+                                }
+                                
+                                $childQuery->orderBy('created_at', $sortOrder);
+                            }
+                        ]);
 
-                $total = $commentsQuery->count();
-                $lastPage = ceil($total / $perPage);
-                $comments = $commentsQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+                    if ($filter === 'approved') {
+                        $commentsQuery->where('approved', 1);
+                    } elseif ($filter === 'unapproved') {
+                        $commentsQuery->where('approved', 0);
+                    }
 
-                $response['comments'] = $comments->map(function ($comment) {
-                    return [
-                        'id' => $comment->id,
-                        'comment' => $comment->comment,
-                        'approved' => $comment->approved,
-                        'created_at' => $comment->created_at,
-                        'user' => $comment->user ? [
-                            'id' => $comment->user->id,
-                            'name' => $comment->user->first_name . ' ' . $comment->user->last_name,
-                            'username' => $comment->user->username,
-                            'profile_pic' => $comment->user->profile_pic,
-                        ] : null,
-                        'replies' => $comment->childs->map(function ($reply) {
-                            return [
-                                'id' => $reply->id,
-                                'comment' => $reply->comment,
-                                'approved' => $reply->approved,
-                                'created_at' => $reply->created_at,
-                                'user' => $reply->user ? [
-                                    'id' => $reply->user->id,
-                                    'name' => $reply->user->first_name . ' ' . $reply->user->last_name,
-                                    'username' => $reply->user->username,
-                                    'profile_pic' => $reply->user->profile_pic,
+                    $commentsQuery->orderBy('created_at', $sortOrder);
+
+                    $total = $commentsQuery->count();
+                    $lastPage = ceil($total / $perPage);
+                    $comments = $commentsQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+                    $response['comments'] = $comments->map(function ($comment) {
+                        return [
+                            'id' => $comment->id,
+                            'comment' => $comment->comment,
+                            'approved' => $comment->approved,
+                            'created_at' => $comment->created_at,
+                            'user' => $comment->user ? [
+                                'id' => $comment->user->id,
+                                'first_name' => $comment->user->first_name,
+                                'last_name' => $comment->user->last_name,
+                                'name' => $comment->user->first_name . ' ' . $comment->user->last_name,
+                                'username' => $comment->user->username,
+                                'profile_pic' => $comment->user->profile_pic,
+                            ] : null,
+                            'replies' => $comment->childs->map(function ($reply) {
+                                return [
+                                    'id' => $reply->id,
+                                    'comment' => $reply->comment,
+                                    'approved' => $reply->approved,
+                                    'created_at' => $reply->created_at,
+                                    'user' => $reply->user ? [
+                                        'id' => $reply->user->id,
+                                        'first_name' => $reply->user->first_name,
+                                        'last_name' => $reply->user->last_name,
+                                        'name' => $reply->user->first_name . ' ' . $reply->user->last_name,
+                                        'username' => $reply->user->username,
+                                        'profile_pic' => $reply->user->profile_pic,
+                                    ] : null,
+                                ];
+                            })->values(),
+                        ];
+                    });
+                } else {
+                    // Table view: Get all comments flat (including replies) sorted by time
+                    $commentsQuery = $episode->comments()
+                        ->with([
+                            'user' => function ($q) {
+                                $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                            },
+                            'parent' => function ($q) {
+                                $q->with([
+                                    'user' => function ($u) {
+                                        $u->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                                    }
+                                ]);
+                            }
+                        ]);
+
+                    if ($filter === 'approved') {
+                        $commentsQuery->where('approved', 1);
+                    } elseif ($filter === 'unapproved') {
+                        $commentsQuery->where('approved', 0);
+                    }
+
+                    $commentsQuery->orderBy('created_at', $sortOrder);
+
+                    $total = $commentsQuery->count();
+                    $lastPage = ceil($total / $perPage);
+                    $comments = $commentsQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+                    $response['comments'] = $comments->map(function ($comment) {
+                        $base = [
+                            'id' => $comment->id,
+                            'comment' => $comment->comment,
+                            'approved' => $comment->approved,
+                            'created_at' => $comment->created_at,
+                            'parent_id' => $comment->parent_id,
+                            'user' => $comment->user ? [
+                                'id' => $comment->user->id,
+                                'first_name' => $comment->user->first_name,
+                                'last_name' => $comment->user->last_name,
+                                'name' => $comment->user->first_name . ' ' . $comment->user->last_name,
+                                'username' => $comment->user->username,
+                                'profile_pic' => $comment->user->profile_pic,
+                            ] : null,
+                        ];
+
+                        // Parent comment (if this is a reply)
+                        $base['parent'] = null;
+                        if ($comment->parent) {
+                            $base['parent'] = [
+                                'id' => $comment->parent->id,
+                                'comment' => $comment->parent->comment,
+                                'approved' => $comment->parent->approved,
+                                'created_at' => $comment->parent->created_at,
+                                'user' => $comment->parent->user ? [
+                                    'id' => $comment->parent->user->id,
+                                    'first_name' => $comment->parent->user->first_name,
+                                    'last_name' => $comment->parent->user->last_name,
+                                    'name' => $comment->parent->user->first_name . ' ' . $comment->parent->user->last_name,
+                                    'username' => $comment->parent->user->username,
+                                    'profile_pic' => $comment->parent->user->profile_pic,
                                 ] : null,
                             ];
-                        })->values(),
-                    ];
-                });
+                        }
+
+                        return $base;
+                    });
+                }
 
                 $response['pagination'] = [
                     'total' => $total,
@@ -730,6 +821,96 @@ class EpisodeController extends Controller
                     'last_page' => $lastPage,
                     'from' => ($currentPage - 1) * $perPage + 1,
                     'to' => min($currentPage * $perPage, $total),
+                ];
+                break;
+
+            case 'analytics':
+                // Get detailed analytics data
+                $allViews = $episode->views()->get();
+                $allLikes = $episode->likes()->get();
+                $allComments = $episode->comments()->get();
+                $allBookmarks = $episode->bookmarkableBookmarks()->get();
+                
+                // Views by date (last 30 days)
+                $viewsByDate = [];
+                for ($i = 29; $i >= 0; $i--) {
+                    $date = now()->subDays($i)->format('Y-m-d');
+                    $count = $allViews->filter(function ($view) use ($date) {
+                        return $view->created_at->format('Y-m-d') === $date;
+                    })->count();
+                    $viewsByDate[] = ['date' => $date, 'count' => $count];
+                }
+                
+                // Likes by date (last 30 days)
+                $likesByDate = [];
+                for ($i = 29; $i >= 0; $i--) {
+                    $date = now()->subDays($i)->format('Y-m-d');
+                    $count = $allLikes->filter(function ($like) use ($date) {
+                        return $like->created_at->format('Y-m-d') === $date;
+                    })->count();
+                    $likesByDate[] = ['date' => $date, 'count' => $count];
+                }
+                
+                // Comments by date (last 30 days)
+                $commentsByDate = [];
+                for ($i = 29; $i >= 0; $i--) {
+                    $date = now()->subDays($i)->format('Y-m-d');
+                    $count = $allComments->filter(function ($comment) use ($date) {
+                        return $comment->created_at->format('Y-m-d') === $date;
+                    })->count();
+                    $commentsByDate[] = ['date' => $date, 'count' => $count];
+                }
+                
+                // Bookmarks by date (last 30 days)
+                $bookmarksByDate = [];
+                for ($i = 29; $i >= 0; $i--) {
+                    $date = now()->subDays($i)->format('Y-m-d');
+                    $count = $allBookmarks->filter(function ($bookmark) use ($date) {
+                        return $bookmark->created_at->format('Y-m-d') === $date;
+                    })->count();
+                    $bookmarksByDate[] = ['date' => $date, 'count' => $count];
+                }
+                
+                // Views by hour
+                $viewsByHour = [];
+                for ($hour = 0; $hour < 24; $hour++) {
+                    $count = $allViews->filter(function ($view) use ($hour) {
+                        return (int)$view->created_at->format('H') === $hour;
+                    })->count();
+                    $viewsByHour[] = ['hour' => $hour, 'count' => $count];
+                }
+                
+                // Engagement rate (likes + comments + bookmarks) / views
+                $engagementRate = $viewsCount > 0 
+                    ? round((($likesCount + $commentsCount + $bookmarksCount) / $viewsCount) * 100, 2) 
+                    : 0;
+                
+                // Average views per day (since episode creation)
+                $daysSinceCreation = max(1, now()->diffInDays($episode->created_at));
+                $avgViewsPerDay = round($viewsCount / $daysSinceCreation, 2);
+                
+                // Growth rate (last 7 days vs previous 7 days)
+                $last7DaysViews = $allViews->filter(function ($view) {
+                    return $view->created_at->isAfter(now()->subDays(7));
+                })->count();
+                $previous7DaysViews = $allViews->filter(function ($view) {
+                    return $view->created_at->isAfter(now()->subDays(14)) && 
+                           $view->created_at->isBefore(now()->subDays(7));
+                })->count();
+                $viewsGrowthRate = $previous7DaysViews > 0 
+                    ? round((($last7DaysViews - $previous7DaysViews) / $previous7DaysViews) * 100, 2) 
+                    : ($last7DaysViews > 0 ? 100 : 0);
+                
+                $response['analytics'] = [
+                    'views_by_date' => $viewsByDate,
+                    'likes_by_date' => $likesByDate,
+                    'comments_by_date' => $commentsByDate,
+                    'bookmarks_by_date' => $bookmarksByDate,
+                    'views_by_hour' => $viewsByHour,
+                    'engagement_rate' => $engagementRate,
+                    'avg_views_per_day' => $avgViewsPerDay,
+                    'views_growth_rate' => $viewsGrowthRate,
+                    'days_since_creation' => $daysSinceCreation,
                 ];
                 break;
 
