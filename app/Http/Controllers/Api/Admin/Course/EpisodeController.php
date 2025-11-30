@@ -9,9 +9,11 @@ use App\Models\Episode;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use App\Services\UploadTokenService;
+use Ip2location\IP2LocationLaravel\Facade\IP2LocationLaravel;
 
 class EpisodeController extends Controller
 {
@@ -431,47 +433,30 @@ class EpisodeController extends Controller
         return response()->json(['message' => 'success, episode deleted successfully.', 'episode' => $deletedEpisode], 200);
     }
 
-    public function getEpisodeDetails(Course $course, Episode $episode)
+    public function getEpisodeDetails(Request $request, Course $course, Episode $episode)
     {
         // Verify the episode belongs to the course
         if ($episode->section->course_id != $course->id) {
             return response()->json(['message' => 'error! this episode not belong to selected course'], 422);
         }
 
-        // Load episode with all relationships
+        // Get pagination parameters
+        $dataType = $request->input('data_type', 'overview'); // overview, comments, likes, bookmarks, views, videos
+        $perPage = (int) $request->input('perPage', 20);
+        $currentPage = (int) $request->input('page', 1);
+        $sort = $request->input('sort', 'desc'); // desc, asc
+        $filter = $request->input('filter', 'all'); // For comments: all, approved, unapproved
+
+        // Load episode basic info
         $episode->load([
             'section' => function ($query) {
                 $query->select('id', 'title', 'slug', 'course_id');
             },
             'videos' => function ($query) {
-                $query->select('id', 'videoable_id', 'videoable_type', 'type', 'path', 'disk', 'status');
+                $query->select('id', 'videoable_id', 'videoable_type', 'type', 'path', 'disk', 'status', 'duration', 'created_at');
             },
             'attachs' => function ($query) {
-                $query->select('id', 'attachable_id', 'attachable_type', 'url');
-            },
-            'comments' => function ($query) {
-                $query->with([
-                    'user' => function ($q) {
-                        $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
-                    },
-                    'childs' => function ($q) {
-                        $q->with([
-                            'user' => function ($u) {
-                                $u->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
-                            }
-                        ])->orderBy('created_at', 'asc');
-                    }
-                ])->whereNull('parent_id')->orderBy('created_at', 'desc');
-            },
-            'likes' => function ($query) {
-                $query->with([
-                    'user' => function ($q) {
-                        $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
-                    }
-                ])->orderBy('created_at', 'desc');
-            },
-            'views' => function ($query) {
-                $query->orderBy('created_at', 'desc');
+                $query->select('id', 'attachable_id', 'attachable_type', 'url', 'title', 'created_at');
             }
         ]);
 
@@ -481,62 +466,7 @@ class EpisodeController extends Controller
         $viewsCount = $episode->views()->count();
         $bookmarksCount = $episode->bookmarkersCount();
 
-        // Format comments with replies
-        $comments = $episode->comments->map(function ($comment) {
-            return [
-                'id' => $comment->id,
-                'comment' => $comment->comment,
-                'approved' => $comment->approved,
-                'created_at' => $comment->created_at,
-                'user' => $comment->user ? [
-                    'id' => $comment->user->id,
-                    'name' => $comment->user->first_name . ' ' . $comment->user->last_name,
-                    'username' => $comment->user->username,
-                    'profile_pic' => $comment->user->profile_pic,
-                ] : null,
-                'replies' => $comment->childs->map(function ($reply) {
-                    return [
-                        'id' => $reply->id,
-                        'comment' => $reply->comment,
-                        'approved' => $reply->approved,
-                        'created_at' => $reply->created_at,
-                        'user' => $reply->user ? [
-                            'id' => $reply->user->id,
-                            'name' => $reply->user->first_name . ' ' . $reply->user->last_name,
-                            'username' => $reply->user->username,
-                            'profile_pic' => $reply->user->profile_pic,
-                        ] : null,
-                    ];
-                })->values(),
-            ];
-        });
-
-        // Format likes
-        $likes = $episode->likes->map(function ($like) {
-            return [
-                'id' => $like->id,
-                'type' => $like->type,
-                'created_at' => $like->created_at,
-                'user' => $like->user ? [
-                    'id' => $like->user->id,
-                    'name' => $like->user->first_name . ' ' . $like->user->last_name,
-                    'username' => $like->user->username,
-                    'profile_pic' => $like->user->profile_pic,
-                ] : null,
-            ];
-        });
-
-        // Format views (views don't have user_id, only IP and user agent)
-        $views = $episode->views->map(function ($view) {
-            return [
-                'id' => $view->id,
-                'ip_address' => $view->ip_address,
-                'user_agent' => $view->user_agent,
-                'created_at' => $view->created_at,
-            ];
-        });
-
-        return response()->json([
+        $response = [
             'message' => 'Success',
             'episode' => [
                 'id' => $episode->id,
@@ -544,6 +474,7 @@ class EpisodeController extends Controller
                 'english_title' => $episode->english_title,
                 'slug' => $episode->slug,
                 'description' => $episode->description,
+                'meta_keywords' => $episode->meta_keywords,
                 'order' => $episode->order,
                 'publish' => $episode->publish,
                 'lock' => $episode->lock,
@@ -563,22 +494,326 @@ class EpisodeController extends Controller
                 'views_count' => $viewsCount,
                 'bookmarks_count' => $bookmarksCount,
             ],
-            'likes' => $likes,
-            'comments' => $comments,
-            'views' => $views,
-            'videos' => $episode->videos->map(function ($video) {
-                return [
-                    'id' => $video->id,
-                    'type' => $video->type,
-                    'status' => $video->status,
+        ];
+
+        // Handle paginated data based on data_type
+        switch ($dataType) {
+            case 'comments':
+                $commentsQuery = $episode->comments()->whereNull('parent_id')
+                    ->with([
+                        'user' => function ($q) {
+                            $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                        },
+                        'childs' => function ($q) {
+                            $q->with([
+                                'user' => function ($u) {
+                                    $u->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                                }
+                            ])->orderBy('created_at', 'asc');
+                        }
+                    ]);
+
+                if ($filter === 'approved') {
+                    $commentsQuery->where('approved', 1);
+                } elseif ($filter === 'unapproved') {
+                    $commentsQuery->where('approved', 0);
+                }
+
+                $sortOrder = $sort === 'asc' ? 'asc' : 'desc';
+                $commentsQuery->orderBy('created_at', $sortOrder);
+
+                $total = $commentsQuery->count();
+                $lastPage = ceil($total / $perPage);
+                $comments = $commentsQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+                $response['comments'] = $comments->map(function ($comment) {
+                    return [
+                        'id' => $comment->id,
+                        'comment' => $comment->comment,
+                        'approved' => $comment->approved,
+                        'created_at' => $comment->created_at,
+                        'user' => $comment->user ? [
+                            'id' => $comment->user->id,
+                            'name' => $comment->user->first_name . ' ' . $comment->user->last_name,
+                            'username' => $comment->user->username,
+                            'profile_pic' => $comment->user->profile_pic,
+                        ] : null,
+                        'replies' => $comment->childs->map(function ($reply) {
+                            return [
+                                'id' => $reply->id,
+                                'comment' => $reply->comment,
+                                'approved' => $reply->approved,
+                                'created_at' => $reply->created_at,
+                                'user' => $reply->user ? [
+                                    'id' => $reply->user->id,
+                                    'name' => $reply->user->first_name . ' ' . $reply->user->last_name,
+                                    'username' => $reply->user->username,
+                                    'profile_pic' => $reply->user->profile_pic,
+                                ] : null,
+                            ];
+                        })->values(),
+                    ];
+                });
+
+                $response['pagination'] = [
+                    'total' => $total,
+                    'current_page' => $currentPage,
+                    'per_page' => $perPage,
+                    'last_page' => $lastPage,
+                    'from' => ($currentPage - 1) * $perPage + 1,
+                    'to' => min($currentPage * $perPage, $total),
                 ];
-            }),
-            'attachs' => $episode->attachs->map(function ($attach) {
-                return [
-                    'id' => $attach->id,
-                    'url' => $attach->url,
+                break;
+
+            case 'likes':
+                $likesQuery = $episode->likes()->with([
+                    'user' => function ($q) {
+                        $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                    }
+                ]);
+
+                if ($filter !== 'all') {
+                    $likesQuery->where('type', $filter);
+                }
+
+                $sortOrder = $sort === 'asc' ? 'asc' : 'desc';
+                $likesQuery->orderBy('created_at', $sortOrder);
+
+                $total = $likesQuery->count();
+                $lastPage = ceil($total / $perPage);
+                $likes = $likesQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+                $response['likes'] = $likes->map(function ($like) {
+                    return [
+                        'id' => $like->id,
+                        'type' => $like->type,
+                        'created_at' => $like->created_at,
+                        'user' => $like->user ? [
+                            'id' => $like->user->id,
+                            'name' => $like->user->first_name . ' ' . $like->user->last_name,
+                            'username' => $like->user->username,
+                            'profile_pic' => $like->user->profile_pic,
+                        ] : null,
+                    ];
+                });
+
+                $response['pagination'] = [
+                    'total' => $total,
+                    'current_page' => $currentPage,
+                    'per_page' => $perPage,
+                    'last_page' => $lastPage,
+                    'from' => ($currentPage - 1) * $perPage + 1,
+                    'to' => min($currentPage * $perPage, $total),
                 ];
-            }),
+                break;
+
+            case 'bookmarks':
+                $bookmarksQuery = DB::table('bookmarks')
+                    ->where('bookmarkable_type', Episode::class)
+                    ->where('bookmarkable_id', $episode->id)
+                    ->join('users', 'bookmarks.user_id', '=', 'users.id')
+                    ->select('bookmarks.id', 'bookmarks.created_at', 'users.id as user_id', 'users.first_name', 'users.last_name', 'users.username', 'users.profile_pic');
+
+                $sortOrder = $sort === 'asc' ? 'asc' : 'desc';
+                $bookmarksQuery->orderBy('bookmarks.created_at', $sortOrder);
+
+                $total = $bookmarksQuery->count();
+                $lastPage = ceil($total / $perPage);
+                $bookmarks = $bookmarksQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+                $response['bookmarks'] = $bookmarks->map(function ($bookmark) {
+                    return [
+                        'id' => $bookmark->id,
+                        'created_at' => $bookmark->created_at,
+                        'user' => [
+                            'id' => $bookmark->user_id,
+                            'name' => ($bookmark->first_name ?? '') . ' ' . ($bookmark->last_name ?? ''),
+                            'username' => $bookmark->username,
+                            'profile_pic' => $bookmark->profile_pic,
+                        ],
+                    ];
+                });
+
+                $response['pagination'] = [
+                    'total' => $total,
+                    'current_page' => $currentPage,
+                    'per_page' => $perPage,
+                    'last_page' => $lastPage,
+                    'from' => ($currentPage - 1) * $perPage + 1,
+                    'to' => min($currentPage * $perPage, $total),
+                ];
+                break;
+
+            case 'views':
+                $viewsQuery = $episode->views()->with([
+                    'user' => function ($q) {
+                        $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                    }
+                ]);
+
+                $sortOrder = $sort === 'asc' ? 'asc' : 'desc';
+                $viewsQuery->orderBy('created_at', $sortOrder);
+
+                $total = $viewsQuery->count();
+                $lastPage = ceil($total / $perPage);
+                $views = $viewsQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+                $response['views'] = $views->map(function ($view) {
+                    $ipInfo = collect(IP2LocationLaravel::get($view->ip_address))->only(['countryName', 'countryCode', 'cityName', 'regionName']);
+                    return [
+                        'id' => $view->id,
+                        'ip_address' => $view->ip_address,
+                        'user_agent' => $view->user_agent,
+                        'created_at' => $view->created_at,
+                        'ipInfo' => $ipInfo,
+                        'user' => $view->user ? [
+                            'id' => $view->user->id,
+                            'name' => $view->user->first_name . ' ' . $view->user->last_name,
+                            'username' => $view->user->username,
+                            'profile_pic' => $view->user->profile_pic,
+                        ] : null,
+                    ];
+                });
+
+                $response['pagination'] = [
+                    'total' => $total,
+                    'current_page' => $currentPage,
+                    'per_page' => $perPage,
+                    'last_page' => $lastPage,
+                    'from' => ($currentPage - 1) * $perPage + 1,
+                    'to' => min($currentPage * $perPage, $total),
+                ];
+                break;
+
+            case 'videos':
+                $videosQuery = $episode->videos();
+
+                $sortOrder = $sort === 'asc' ? 'asc' : 'desc';
+                $videosQuery->orderBy('created_at', $sortOrder);
+
+                $total = $videosQuery->count();
+                $lastPage = ceil($total / $perPage);
+                $videos = $videosQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+                $response['videos'] = $videos->map(function ($video) {
+                    $diskUrl = config("filesystems.disks.{$video->disk}.url");
+                    $videoUrl = null;
+                    if ($diskUrl) {
+                        $videoUrl = rtrim($diskUrl, '/') . '/' . ltrim($video->path, '/');
+                    } else {
+                        $videoUrl = $video->path;
+                    }
+
+                    $fileSize = null;
+                    if (Storage::disk($video->disk)->exists($video->path)) {
+                        $fileSize = Storage::disk($video->disk)->size($video->path);
+                    }
+
+                    return [
+                        'id' => $video->id,
+                        'type' => $video->type,
+                        'status' => $video->status,
+                        'path' => $video->path,
+                        'disk' => $video->disk,
+                        'url' => $videoUrl,
+                        'duration' => $video->duration,
+                        'quality' => $video->quality,
+                        'size' => $fileSize,
+                        'created_at' => $video->created_at,
+                    ];
+                });
+
+                $response['pagination'] = [
+                    'total' => $total,
+                    'current_page' => $currentPage,
+                    'per_page' => $perPage,
+                    'last_page' => $lastPage,
+                    'from' => ($currentPage - 1) * $perPage + 1,
+                    'to' => min($currentPage * $perPage, $total),
+                ];
+                break;
+
+            case 'overview':
+            default:
+                // Return basic overview without pagination
+                $response['videos'] = $episode->videos->map(function ($video) {
+                    return [
+                        'id' => $video->id,
+                        'type' => $video->type,
+                        'status' => $video->status,
+                    ];
+                });
+                $response['attachs'] = $episode->attachs->map(function ($attach) {
+                    $details = $this->urlDetails($attach->url);
+                    return [
+                        'id' => $attach->id,
+                        'url' => $attach->url,
+                        'title' => $attach->title ?? null,
+                        'size' => $details ? ($details['size'] ?? null) : null,
+                        'ext' => $details ? ($details['ext'] ?? null) : null,
+                        'created_at' => $attach->created_at,
+                    ];
+                });
+                
+                // Get raw video URL for player
+                $rawVideo = $episode->videos->where('type', 'raw')->first();
+                $rawVideoUrl = null;
+                if ($rawVideo) {
+                    $diskUrl = config("filesystems.disks.{$rawVideo->disk}.url");
+                    if ($diskUrl) {
+                        $rawVideoUrl = rtrim($diskUrl, '/') . '/' . ltrim($rawVideo->path, '/');
+                    } else {
+                        $rawVideoUrl = $rawVideo->path;
+                    }
+                }
+                $response['raw_video_url'] = $rawVideoUrl;
+                break;
+        }
+
+        return response()->json($response, 200);
+    }
+
+    public function episodeStatus(Request $request, Course $course)
+    {
+        $validator = Validator::make($request->all(), [
+            'episode_id' => ['required', 'exists:episodes,id'],
+            'publish' => ['nullable', 'boolean'],
+            'lock' => ['nullable', 'boolean'],
+        ]);
+
+        if (!$validator->passes()) {
+            return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
+        }
+
+        $episode = Episode::find($request->input('episode_id'));
+        if (!$episode) {
+            return response()->json(['message' => 'Episode not found'], 404);
+        }
+
+        // Verify the episode belongs to the course
+        if ($episode->section->course_id != $course->id) {
+            return response()->json(['message' => 'error! this episode not belong to selected course'], 422);
+        }
+
+        $updateData = [];
+        if ($request->has('publish')) {
+            $updateData['publish'] = $request->input('publish');
+        }
+        if ($request->has('lock')) {
+            $updateData['lock'] = $request->input('lock');
+        }
+
+        if (!empty($updateData)) {
+            $episode->update($updateData);
+        }
+
+        return response()->json([
+            'message' => 'Success',
+            'episode' => [
+                'id' => $episode->id,
+                'publish' => $episode->publish,
+                'lock' => $episode->lock,
+            ]
         ], 200);
     }
 
@@ -596,11 +831,15 @@ class EpisodeController extends Controller
             $baseUrl = rtrim($config['url'], '/');
             if (str_starts_with($url, $baseUrl)) {
                 $relativePath = ltrim(str_replace($baseUrl, '', $url), '/');
+                $size = null;
+                if (Storage::disk($disk)->exists($relativePath)) {
+                    $size = Storage::disk($disk)->size($relativePath);
+                }
                 return [
                     'domain' => $baseUrl,
                     'disk' => $disk,
                     'path' => $relativePath,
-                    'size' => Storage::disk($disk)->size($relativePath),
+                    'size' => $size,
                     'ext' => pathinfo($relativePath, PATHINFO_EXTENSION),
                     'url' => $url,
                 ];
