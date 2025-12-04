@@ -162,6 +162,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/course/{courseSlug}/section/{section}/edit', [\App\Http\Controllers\Api\Admin\Course\SectionController::class, 'editSection'])->name('course.section.edit');
     Route::delete('/course/{courseSlug}/section/{section}/delete', [\App\Http\Controllers\Api\Admin\Course\SectionController::class, 'deleteSection'])->name('course.section.delete');
     Route::post('/course/{courseSlug}/baseDetails', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'baseDetails'])->name('course.base-details');
+    Route::post('/course/{courseSlug}/details', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'getCourseDetails'])->name('course.details');
     Route::post('/course/{courseSlug}/overview', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'overview'])->name('course.overview');
     Route::post('/course/{courseSlug}/users', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'users'])->name('course.users');
     Route::post('/course/{courseSlug}/users/assign', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'assignToUser'])->name('course.users.assign');

@@ -17,6 +17,8 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use App\Services\UploadTokenService;
+use Illuminate\Support\Facades\DB;
+use Ip2location\IP2LocationLaravel\Facade\IP2LocationLaravel;
 
 class CourseController extends Controller
 {
@@ -767,7 +769,12 @@ class CourseController extends Controller
         $trailerStatus = null;
         $trailerVideoId = null;
         if ($rawTrailer) {
-            $trailerUrl = Storage::disk($rawTrailer->disk)->url($rawTrailer->path);
+            $diskUrl = config("filesystems.disks.{$rawTrailer->disk}.url");
+            if ($diskUrl) {
+                $trailerUrl = rtrim($diskUrl, '/') . '/' . ltrim($rawTrailer->path, '/');
+            } else {
+                $trailerUrl = $rawTrailer->path;
+            }
             $trailerStatus = $rawTrailer->status ?? 'queued';
             $trailerVideoId = $rawTrailer->id;
         }
@@ -1104,6 +1111,541 @@ class CourseController extends Controller
 
     }
 
+
+    public function getCourseDetails(Request $request, Course $course)
+    {
+        // Get pagination parameters
+        $dataType = $request->input('data_type', 'overview'); // overview, comments, likes, bookmarks, views, videos, attachments, analytics
+        $perPage = (int) $request->input('perPage', 20);
+        $currentPage = (int) $request->input('page', 1);
+        $sort = $request->input('sort', 'desc'); // desc, asc
+        $filter = $request->input('filter', 'all'); // For comments: all, approved, unapproved | For likes: all, like, dislike
+        $viewMode = $request->input('viewMode', 'table'); // table | grid
+
+        // Load course basic info
+        $course->load([
+            'videos' => function ($query) {
+                $query->select('id', 'videoable_id', 'videoable_type', 'type', 'path', 'disk', 'status', 'duration', 'quality', 'created_at');
+            },
+            'attachs' => function ($query) {
+                $query->select('id', 'attachable_id', 'attachable_type', 'url', 'title', 'created_at');
+            }
+        ]);
+
+        // Get counts
+        $likesCount = $course->likes()->count();
+        $commentsCount = $course->comments()->where('approved', 1)->count();
+        $viewsCount = $course->views()->count();
+        $bookmarksCount = DB::table('bookmarks')
+            ->where('bookmarkable_type', Course::class)
+            ->where('bookmarkable_id', $course->id)
+            ->count();
+
+        $response = [
+            'message' => 'Success',
+            'course' => [
+                'id' => $course->id,
+                'title' => $course->title,
+                'english_title' => $course->english_title,
+                'slug' => $course->slug,
+                'description' => $course->description,
+                'meta_keywords' => $course->meta_keywords,
+                'publish' => $course->publish,
+                'total_time' => $course->totalTime(false),
+                'created_at' => $course->created_at,
+                'updated_at' => $course->updated_at,
+            ],
+            'statistics' => [
+                'likes_count' => $likesCount,
+                'comments_count' => $commentsCount,
+                'views_count' => $viewsCount,
+                'bookmarks_count' => $bookmarksCount,
+            ],
+        ];
+
+        // Handle paginated data based on data_type
+        switch ($dataType) {
+            case 'comments':
+                $sortOrder = $sort === 'asc' ? 'asc' : 'desc';
+                
+                if ($viewMode === 'grid') {
+                    // Grid view: Get only parent comments with their children
+                    $commentsQuery = $course->comments()->where('parent_id', 0)
+                        ->with([
+                            'user' => function ($q) {
+                                $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                            },
+                            'childs' => function ($q) use ($filter, $sortOrder) {
+                                $childQuery = $q->with([
+                                    'user' => function ($u) {
+                                        $u->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                                    }
+                                ]);
+                                
+                                if ($filter === 'approved') {
+                                    $childQuery->where('approved', 1);
+                                } elseif ($filter === 'unapproved') {
+                                    $childQuery->where('approved', 0);
+                                }
+                                
+                                $childQuery->orderBy('created_at', $sortOrder);
+                            }
+                        ]);
+
+                    if ($filter === 'approved') {
+                        $commentsQuery->where('approved', 1);
+                    } elseif ($filter === 'unapproved') {
+                        $commentsQuery->where('approved', 0);
+                    }
+
+                    $commentsQuery->orderBy('created_at', $sortOrder);
+
+                    $total = $commentsQuery->count();
+                    $lastPage = ceil($total / $perPage);
+                    $comments = $commentsQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+                    $response['comments'] = $comments->map(function ($comment) {
+                        return [
+                            'id' => $comment->id,
+                            'comment' => $comment->comment,
+                            'approved' => $comment->approved,
+                            'created_at' => $comment->created_at,
+                            'user' => $comment->user ? [
+                                'id' => $comment->user->id,
+                                'first_name' => $comment->user->first_name,
+                                'last_name' => $comment->user->last_name,
+                                'name' => $comment->user->first_name . ' ' . $comment->user->last_name,
+                                'username' => $comment->user->username,
+                                'profile_pic' => $comment->user->profile_pic,
+                            ] : null,
+                            'replies' => $comment->childs->map(function ($reply) {
+                                return [
+                                    'id' => $reply->id,
+                                    'comment' => $reply->comment,
+                                    'approved' => $reply->approved,
+                                    'created_at' => $reply->created_at,
+                                    'user' => $reply->user ? [
+                                        'id' => $reply->user->id,
+                                        'first_name' => $reply->user->first_name,
+                                        'last_name' => $reply->user->last_name,
+                                        'name' => $reply->user->first_name . ' ' . $reply->user->last_name,
+                                        'username' => $reply->user->username,
+                                        'profile_pic' => $reply->user->profile_pic,
+                                    ] : null,
+                                ];
+                            })->values(),
+                        ];
+                    });
+                } else {
+                    // Table view: Get all comments flat (including replies) sorted by time
+                    $commentsQuery = $course->comments()
+                        ->with([
+                            'user' => function ($q) {
+                                $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                            },
+                            'parent' => function ($q) {
+                                $q->with([
+                                    'user' => function ($u) {
+                                        $u->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                                    }
+                                ]);
+                            }
+                        ]);
+
+                    if ($filter === 'approved') {
+                        $commentsQuery->where('approved', 1);
+                    } elseif ($filter === 'unapproved') {
+                        $commentsQuery->where('approved', 0);
+                    }
+
+                    $commentsQuery->orderBy('created_at', $sortOrder);
+
+                    $total = $commentsQuery->count();
+                    $lastPage = ceil($total / $perPage);
+                    $comments = $commentsQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+                    $response['comments'] = $comments->map(function ($comment) {
+                        $base = [
+                            'id' => $comment->id,
+                            'comment' => $comment->comment,
+                            'approved' => $comment->approved,
+                            'created_at' => $comment->created_at,
+                            'parent_id' => $comment->parent_id,
+                            'user' => $comment->user ? [
+                                'id' => $comment->user->id,
+                                'first_name' => $comment->user->first_name,
+                                'last_name' => $comment->user->last_name,
+                                'name' => $comment->user->first_name . ' ' . $comment->user->last_name,
+                                'username' => $comment->user->username,
+                                'profile_pic' => $comment->user->profile_pic,
+                            ] : null,
+                        ];
+
+                        // Parent comment (if this is a reply)
+                        $base['parent'] = null;
+                        if ($comment->parent) {
+                            $base['parent'] = [
+                                'id' => $comment->parent->id,
+                                'comment' => $comment->parent->comment,
+                                'approved' => $comment->parent->approved,
+                                'created_at' => $comment->parent->created_at,
+                                'user' => $comment->parent->user ? [
+                                    'id' => $comment->parent->user->id,
+                                    'first_name' => $comment->parent->user->first_name,
+                                    'last_name' => $comment->parent->user->last_name,
+                                    'name' => $comment->parent->user->first_name . ' ' . $comment->parent->user->last_name,
+                                    'username' => $comment->parent->user->username,
+                                    'profile_pic' => $comment->parent->user->profile_pic,
+                                ] : null,
+                            ];
+                        }
+
+                        return $base;
+                    });
+                }
+
+                $response['pagination'] = [
+                    'total' => $total,
+                    'current_page' => $currentPage,
+                    'per_page' => $perPage,
+                    'last_page' => $lastPage,
+                    'from' => ($currentPage - 1) * $perPage + 1,
+                    'to' => min($currentPage * $perPage, $total),
+                ];
+                break;
+
+            case 'likes':
+                $likesQuery = $course->likes()->with([
+                    'user' => function ($q) {
+                        $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                    }
+                ]);
+
+                if ($filter !== 'all') {
+                    $likesQuery->where('type', $filter);
+                }
+
+                $sortOrder = $sort === 'asc' ? 'asc' : 'desc';
+                $likesQuery->orderBy('created_at', $sortOrder);
+
+                $total = $likesQuery->count();
+                $lastPage = ceil($total / $perPage);
+                $likes = $likesQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+                $response['likes'] = $likes->map(function ($like) {
+                    return [
+                        'id' => $like->id,
+                        'type' => $like->type,
+                        'created_at' => $like->created_at,
+                        'user' => $like->user ? [
+                            'id' => $like->user->id,
+                            'name' => $like->user->first_name . ' ' . $like->user->last_name,
+                            'username' => $like->user->username,
+                            'profile_pic' => $like->user->profile_pic,
+                        ] : null,
+                    ];
+                });
+
+                $response['pagination'] = [
+                    'total' => $total,
+                    'current_page' => $currentPage,
+                    'per_page' => $perPage,
+                    'last_page' => $lastPage,
+                    'from' => ($currentPage - 1) * $perPage + 1,
+                    'to' => min($currentPage * $perPage, $total),
+                ];
+                break;
+
+            case 'bookmarks':
+                $bookmarksQuery = DB::table('bookmarks')
+                    ->where('bookmarkable_type', Course::class)
+                    ->where('bookmarkable_id', $course->id)
+                    ->join('users', 'bookmarks.user_id', '=', 'users.id')
+                    ->select('bookmarks.id', 'bookmarks.created_at', 'users.id as user_id', 'users.first_name', 'users.last_name', 'users.username', 'users.profile_pic');
+
+                $sortOrder = $sort === 'asc' ? 'asc' : 'desc';
+                $bookmarksQuery->orderBy('bookmarks.created_at', $sortOrder);
+
+                $total = $bookmarksQuery->count();
+                $lastPage = ceil($total / $perPage);
+                $bookmarks = $bookmarksQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+                $response['bookmarks'] = $bookmarks->map(function ($bookmark) {
+                    return [
+                        'id' => $bookmark->id,
+                        'created_at' => $bookmark->created_at,
+                        'user' => [
+                            'id' => $bookmark->user_id,
+                            'name' => ($bookmark->first_name ?? '') . ' ' . ($bookmark->last_name ?? ''),
+                            'username' => $bookmark->username,
+                            'profile_pic' => $bookmark->profile_pic,
+                        ],
+                    ];
+                });
+
+                $response['pagination'] = [
+                    'total' => $total,
+                    'current_page' => $currentPage,
+                    'per_page' => $perPage,
+                    'last_page' => $lastPage,
+                    'from' => ($currentPage - 1) * $perPage + 1,
+                    'to' => min($currentPage * $perPage, $total),
+                ];
+                break;
+
+            case 'views':
+                $viewsQuery = $course->views()->with([
+                    'user' => function ($q) {
+                        $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
+                    }
+                ]);
+
+                $sortOrder = $sort === 'asc' ? 'asc' : 'desc';
+                $viewsQuery->orderBy('created_at', $sortOrder);
+
+                $total = $viewsQuery->count();
+                $lastPage = ceil($total / $perPage);
+                $views = $viewsQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+                $response['views'] = $views->map(function ($view) {
+                    $ipInfo = collect(IP2LocationLaravel::get($view->ip_address))->only(['countryName', 'countryCode', 'cityName', 'regionName']);
+                    return [
+                        'id' => $view->id,
+                        'ip_address' => $view->ip_address,
+                        'user_agent' => $view->user_agent,
+                        'created_at' => $view->created_at,
+                        'ipInfo' => $ipInfo,
+                        'user' => $view->user ? [
+                            'id' => $view->user->id,
+                            'name' => $view->user->first_name . ' ' . $view->user->last_name,
+                            'username' => $view->user->username,
+                            'profile_pic' => $view->user->profile_pic,
+                        ] : null,
+                    ];
+                });
+
+                $response['pagination'] = [
+                    'total' => $total,
+                    'current_page' => $currentPage,
+                    'per_page' => $perPage,
+                    'last_page' => $lastPage,
+                    'from' => ($currentPage - 1) * $perPage + 1,
+                    'to' => min($currentPage * $perPage, $total),
+                ];
+                break;
+
+            case 'videos':
+                $videosQuery = $course->videos();
+
+                $sortOrder = $sort === 'asc' ? 'asc' : 'desc';
+                $videosQuery->orderBy('created_at', $sortOrder);
+
+                $total = $videosQuery->count();
+                $lastPage = ceil($total / $perPage);
+                $videos = $videosQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+                $response['videos'] = $videos->map(function ($video) {
+                    $diskUrl = config("filesystems.disks.{$video->disk}.url");
+                    $videoUrl = null;
+                    if ($diskUrl) {
+                        $videoUrl = rtrim($diskUrl, '/') . '/' . ltrim($video->path, '/');
+                    } else {
+                        $videoUrl = $video->path;
+                    }
+
+                    $fileSize = null;
+                    if (Storage::disk($video->disk)->exists($video->path)) {
+                        $fileSize = Storage::disk($video->disk)->size($video->path);
+                    }
+
+                    return [
+                        'id' => $video->id,
+                        'type' => $video->type,
+                        'status' => $video->status,
+                        'path' => $video->path,
+                        'disk' => $video->disk,
+                        'url' => $videoUrl,
+                        'duration' => $video->duration,
+                        'quality' => $video->quality,
+                        'size' => $fileSize,
+                        'created_at' => $video->created_at,
+                    ];
+                });
+
+                $response['pagination'] = [
+                    'total' => $total,
+                    'current_page' => $currentPage,
+                    'per_page' => $perPage,
+                    'last_page' => $lastPage,
+                    'from' => ($currentPage - 1) * $perPage + 1,
+                    'to' => min($currentPage * $perPage, $total),
+                ];
+                break;
+
+            case 'attachments':
+                $attachsQuery = $course->attachs();
+
+                $sortOrder = $sort === 'asc' ? 'asc' : 'desc';
+                $attachsQuery->orderBy('created_at', $sortOrder);
+
+                $total = $attachsQuery->count();
+                $lastPage = ceil($total / $perPage);
+                $attachs = $attachsQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+                $response['attachs'] = $attachs->map(function ($attach) {
+                    $details = $this->urlDetails($attach->url);
+                    return [
+                        'id' => $attach->id,
+                        'url' => $attach->url,
+                        'title' => $attach->title ?? null,
+                        'size' => $details ? ($details['size'] ?? null) : null,
+                        'ext' => $details ? ($details['ext'] ?? null) : null,
+                        'created_at' => $attach->created_at,
+                    ];
+                });
+
+                $response['pagination'] = [
+                    'total' => $total,
+                    'current_page' => $currentPage,
+                    'per_page' => $perPage,
+                    'last_page' => $lastPage,
+                    'from' => ($currentPage - 1) * $perPage + 1,
+                    'to' => min($currentPage * $perPage, $total),
+                ];
+                break;
+
+            case 'analytics':
+                // Get detailed analytics data
+                $allViews = $course->views()->get();
+                $allLikes = $course->likes()->get();
+                $allComments = $course->comments()->get();
+                $allBookmarks = DB::table('bookmarks')
+                    ->where('bookmarkable_type', Course::class)
+                    ->where('bookmarkable_id', $course->id)
+                    ->get();
+                
+                // Views by date (last 30 days)
+                $viewsByDate = [];
+                for ($i = 29; $i >= 0; $i--) {
+                    $date = now()->subDays($i)->format('Y-m-d');
+                    $count = $allViews->filter(function ($view) use ($date) {
+                        return $view->created_at->format('Y-m-d') === $date;
+                    })->count();
+                    $viewsByDate[] = ['date' => $date, 'count' => $count];
+                }
+                
+                // Likes by date (last 30 days)
+                $likesByDate = [];
+                for ($i = 29; $i >= 0; $i--) {
+                    $date = now()->subDays($i)->format('Y-m-d');
+                    $count = $allLikes->filter(function ($like) use ($date) {
+                        return $like->created_at->format('Y-m-d') === $date;
+                    })->count();
+                    $likesByDate[] = ['date' => $date, 'count' => $count];
+                }
+                
+                // Comments by date (last 30 days)
+                $commentsByDate = [];
+                for ($i = 29; $i >= 0; $i--) {
+                    $date = now()->subDays($i)->format('Y-m-d');
+                    $count = $allComments->filter(function ($comment) use ($date) {
+                        return $comment->created_at->format('Y-m-d') === $date;
+                    })->count();
+                    $commentsByDate[] = ['date' => $date, 'count' => $count];
+                }
+                
+                // Bookmarks by date (last 30 days)
+                $bookmarksByDate = [];
+                for ($i = 29; $i >= 0; $i--) {
+                    $date = now()->subDays($i)->format('Y-m-d');
+                    $count = $allBookmarks->filter(function ($bookmark) use ($date) {
+                        return \Carbon\Carbon::parse($bookmark->created_at)->format('Y-m-d') === $date;
+                    })->count();
+                    $bookmarksByDate[] = ['date' => $date, 'count' => $count];
+                }
+                
+                // Views by hour
+                $viewsByHour = [];
+                for ($hour = 0; $hour < 24; $hour++) {
+                    $count = $allViews->filter(function ($view) use ($hour) {
+                        return (int)$view->created_at->format('H') === $hour;
+                    })->count();
+                    $viewsByHour[] = ['hour' => $hour, 'count' => $count];
+                }
+                
+                // Engagement rate (likes + comments + bookmarks) / views
+                $engagementRate = $viewsCount > 0 
+                    ? round((($likesCount + $commentsCount + $bookmarksCount) / $viewsCount) * 100, 2) 
+                    : 0;
+                
+                // Average views per day (since course creation)
+                $daysSinceCreation = max(1, now()->diffInDays($course->created_at));
+                $avgViewsPerDay = round($viewsCount / $daysSinceCreation, 2);
+                
+                // Growth rate (last 7 days vs previous 7 days)
+                $last7DaysViews = $allViews->filter(function ($view) {
+                    return $view->created_at->isAfter(now()->subDays(7));
+                })->count();
+                $previous7DaysViews = $allViews->filter(function ($view) {
+                    return $view->created_at->isAfter(now()->subDays(14)) && 
+                           $view->created_at->isBefore(now()->subDays(7));
+                })->count();
+                $viewsGrowthRate = $previous7DaysViews > 0 
+                    ? round((($last7DaysViews - $previous7DaysViews) / $previous7DaysViews) * 100, 2) 
+                    : ($last7DaysViews > 0 ? 100 : 0);
+                
+                $response['analytics'] = [
+                    'views_by_date' => $viewsByDate,
+                    'likes_by_date' => $likesByDate,
+                    'comments_by_date' => $commentsByDate,
+                    'bookmarks_by_date' => $bookmarksByDate,
+                    'views_by_hour' => $viewsByHour,
+                    'engagement_rate' => $engagementRate,
+                    'avg_views_per_day' => $avgViewsPerDay,
+                    'views_growth_rate' => $viewsGrowthRate,
+                    'days_since_creation' => $daysSinceCreation,
+                ];
+                break;
+
+            case 'overview':
+            default:
+                // Return basic overview without pagination
+                $response['videos'] = $course->videos->map(function ($video) {
+                    return [
+                        'id' => $video->id,
+                        'type' => $video->type,
+                        'status' => $video->status,
+                    ];
+                });
+                $response['attachs'] = $course->attachs->map(function ($attach) {
+                    $details = $this->urlDetails($attach->url);
+                    return [
+                        'id' => $attach->id,
+                        'url' => $attach->url,
+                        'title' => $attach->title ?? null,
+                        'size' => $details ? ($details['size'] ?? null) : null,
+                        'ext' => $details ? ($details['ext'] ?? null) : null,
+                        'created_at' => $attach->created_at,
+                    ];
+                });
+                
+                // Get raw video URL for player
+                $rawVideo = $course->videos->where('type', 'raw')->first();
+                $rawVideoUrl = null;
+                if ($rawVideo) {
+                    $diskUrl = config("filesystems.disks.{$rawVideo->disk}.url");
+                    if ($diskUrl) {
+                        $rawVideoUrl = rtrim($diskUrl, '/') . '/' . ltrim($rawVideo->path, '/');
+                    } else {
+                        $rawVideoUrl = $rawVideo->path;
+                    }
+                }
+                $response['raw_video_url'] = $rawVideoUrl;
+                break;
+        }
+
+        return response()->json($response, 200);
+    }
 
     public function urlDetails($url)
     {
