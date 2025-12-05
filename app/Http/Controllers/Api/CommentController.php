@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Comment;
 use App\Models\Course;
 use App\Models\Episode;
 use App\Models\Path;
@@ -168,6 +169,43 @@ class CommentController extends Controller
 
         $comment = $model->comments()->create($validData + ['user_id' => $user->id]);
 
+        // ارسال اطلاع‌رسانی در صورت پاسخ به کامنت
+        if ($validData['parent_id'] > 0) {
+            $parentComment = Comment::find($validData['parent_id']);
+            if ($parentComment && $parentComment->user && $parentComment->user_id != $user->id) {
+                $commentableTitle = $this->getCommentableTitle($parentComment);
+                $replierName = $user->first_name . ' ' . $user->last_name;
+                
+                sendNotification($parentComment->user, 'reply-to-comment', [
+                    'message' => "{$replierName} به دیدگاه شما در مورد «{$commentableTitle}» پاسخ داد.",
+                    'subject' => 'پاسخ به دیدگاه',
+                    'action_url' => $this->getCommentableUrl($parentComment),
+                    'action_text' => 'مشاهده پاسخ',
+                    'sms_message' => "شما یک پاسخ جدید به دیدگاه خود دریافت کرده‌اید.",
+                ]);
+            }
+        }
+        
+        // ارسال اطلاع‌رسانی ثبت دیدگاه در مقالات/محتوا (اگر صاحب محتوا با کامنت‌کننده متفاوت باشد)
+        if ($validData['parent_id'] == 0) {
+            $commentable = $comment->commentable;
+            if ($commentable && isset($commentable->user_id) && $commentable->user_id != $user->id) {
+                // بررسی اینکه آیا این یک Article یا محتوای قابل کامنت است
+                // در حال حاضر Course, Episode, Path commentable هستند
+                // اگر در آینده Article اضافه شد، می‌توانید اینجا چک کنید
+                $commentableTitle = $this->getCommentableTitle($comment);
+                $commenterName = $user->first_name . ' ' . $user->last_name;
+                
+                sendNotification($commentable->user, 'comment-on-article', [
+                    'message' => "{$commenterName} در «{$commentableTitle}» دیدگاه ثبت کرد.",
+                    'subject' => 'دیدگاه جدید',
+                    'action_url' => $this->getCommentableUrl($comment),
+                    'action_text' => 'مشاهده دیدگاه',
+                    'sms_message' => "دیدگاه جدیدی در محتوای شما ثبت شد.",
+                ]);
+            }
+        }
+
         $comment->load([
             'user' => function ($query) {
                 $query->select('id', 'first_name', 'last_name', 'username', 'profile_pic');
@@ -200,5 +238,39 @@ class CommentController extends Controller
         }
 
         return false;
+    }
+
+    private function getCommentableTitle($comment)
+    {
+        $commentable = $comment->commentable;
+        if (!$commentable) {
+            return 'محتوا';
+        }
+        
+        return $commentable->title ?? $commentable->subject ?? 'محتوا';
+    }
+
+    private function getCommentableUrl($comment)
+    {
+        $commentable = $comment->commentable;
+        if (!$commentable) {
+            return frontendUrl();
+        }
+        
+        $slug = $commentable->slug ?? null;
+        if (!$slug) {
+            return frontendUrl();
+        }
+        
+        // تعیین URL بر اساس نوع commentable
+        if ($commentable instanceof Course) {
+            return frontendUrl("course/{$slug}");
+        } elseif ($commentable instanceof Episode) {
+            return frontendUrl("course/{$commentable->section->course->slug}/episode/{$slug}");
+        } elseif ($commentable instanceof Path) {
+            return frontendUrl("path/{$slug}");
+        }
+        
+        return frontendUrl();
     }
 }

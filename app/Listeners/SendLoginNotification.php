@@ -28,5 +28,14 @@ class SendLoginNotification
     public function handle($event)
     {
         $event->user->notify(new LoginNotification());
+        
+        // ارسال اطلاع‌رسانی از طریق سیستم جدید
+        sendNotification($event->user, 'login', [
+            'message' => "ورود شما به حساب کاربری با موفقیت انجام شد.",
+            'subject' => 'ورود به سایت',
+            'action_url' => frontendUrl('panel'),
+            'action_text' => 'ورود به پنل',
+            'sms_message' => "ورود شما به حساب کاربری انجام شد.",
+        ]);
     }
 }

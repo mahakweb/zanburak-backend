@@ -22,6 +22,7 @@ class DatabaseSeeder extends Seeder
             QuestionsTableSeeder::class,
             CoursesTableSeeder::class,
             EpisodeTableSeeder::class,
+            EventGroupsAndEventsSeeder::class,
         ]);
     }
 }

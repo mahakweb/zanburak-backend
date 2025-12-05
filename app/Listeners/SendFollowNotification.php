@@ -28,5 +28,19 @@ class SendFollowNotification
     public function handle(FollowUser $event)
     {
         $event->follower->notify(new FollowNotification());
+
+        // ارسال اطلاع‌رسانی از طریق سیستم جدید
+        $follower = auth()->user() ?? auth('api')->user();
+        if ($follower) {
+            $followerName = $follower->first_name . ' ' . $follower->last_name;
+            
+            sendNotification($event->follower, 'new-follower', [
+                'message' => "{$followerName} شما را دنبال کرد.",
+                'subject' => 'دنبال‌کننده جدید',
+                'action_url' => frontendUrl("profile/" . $follower->username),
+                'action_text' => 'مشاهده پروفایل',
+                'sms_message' => "شما یک دنبال‌کننده جدید دارید.",
+            ]);
+        }
     }
 }

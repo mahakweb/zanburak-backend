@@ -257,6 +257,10 @@ class DiscussController extends Controller
             $answer->pinned_at = null;
             $answer->answer = $request->answer;
             $answer->save();
+            
+            // Fire event for new answer
+            event(new \App\Events\Score\Discuss\SubmitNewAnswer($user, $answer));
+            
             $answer->likes_count = 0;
             $answer->is_editable = true;
             $answer->user = $user->only('id', 'first_name', 'last_name', 'username', 'profile_pic');
@@ -300,24 +304,56 @@ class DiscussController extends Controller
 
         $existingLike = $obj->likes()->where('user_id', $user->id)->first();
 
+        $wasLiked = false;
+        $wasDisliked = false;
+        
         if ($type === 'like') {
             if ($existingLike && $existingLike->type === 'dislike') {
                 $existingLike->delete();
+                $wasLiked = true;
             } elseif (!$existingLike) {
                 $obj->likes()->create([
                     'user_id' => $user->id,
                     'type' => 'like',
                 ]);
+                $wasLiked = true;
             }
         } elseif ($type === 'dislike') {
             if ($existingLike && $existingLike->type === 'like') {
                 $existingLike->delete();
+                $wasDisliked = true;
             } elseif (!$existingLike) {
                 $obj->likes()->create([
                     'user_id' => $user->id,
                     'type' => 'dislike',
                 ]);
+                $wasDisliked = true;
             }
+        }
+
+        // ارسال اطلاع‌رسانی لایک/دیس‌لایک
+        if (($wasLiked || $wasDisliked) && $obj->user && $obj->user_id != $user->id) {
+            $likerName = $user->first_name . ' ' . $user->last_name;
+            $postTitle = '';
+            
+            // تعیین عنوان پست بر اساس نوع
+            if ($obj instanceof \App\Models\Answer) {
+                $postTitle = $obj->question->subject ?? 'پاسخ شما';
+            } elseif ($obj instanceof \App\Models\Question) {
+                $postTitle = $obj->subject;
+            } elseif ($obj instanceof \App\Models\Comment) {
+                $commentable = $obj->commentable;
+                $postTitle = $commentable->title ?? $commentable->subject ?? 'دیدگاه شما';
+            }
+            
+            $actionType = $wasLiked ? 'لایک' : 'دیس‌لایک';
+            sendNotification($obj->user, 'like-dislike-post', [
+                'message' => "{$likerName} مطلب شما «{$postTitle}» را {$actionType} کرد.",
+                'subject' => $actionType . ' مطلب',
+                'action_url' => $this->getLikeableUrl($obj),
+                'action_text' => 'مشاهده',
+                'sms_message' => "مطلب شما {$actionType} شد.",
+            ]);
         }
 
         $likesCount = $obj->likes()->where('type', 'like')->count() - $obj->likes()->where('type', 'dislike')->count();
@@ -432,12 +468,28 @@ class DiscussController extends Controller
 
                 $userIds = User::whereIn('username', $usernames)->pluck('id')->toArray();
                 $question->allowed_user_ids = json_encode($userIds);
+                
+                // ارسال اطلاع‌رسانی Mention
+                $mentionedUsers = User::whereIn('username', $usernames)->get();
+                $questionerName = $user->first_name . ' ' . $user->last_name;
+                foreach ($mentionedUsers as $mentionedUser) {
+                    sendNotification($mentionedUser, 'mention', [
+                        'message' => "{$questionerName} در گفتگوی «{$question->subject}» به شما اشاره کرد.",
+                        'subject' => 'اشاره به شما',
+                        'action_url' => frontendUrl("discuss/{$question->slug}"),
+                        'action_text' => 'مشاهده گفتگو',
+                        'sms_message' => "در گفتگویی به شما اشاره شده است.",
+                    ]);
+                }
             }
 
             $question->save();
 
             if ($request->tags)
                 $question->tag($request->tags);
+
+            // Fire event for new question
+            event(new \App\Events\Score\Discuss\SubmitNewQuestion($question));
 
             return response()->json(['message' => 'Success', 'question' => $question], 200);
         }
@@ -584,6 +636,19 @@ class DiscussController extends Controller
 
                 $userIds = User::whereIn('username', $usernames)->pluck('id')->toArray();
                 $question->allowed_user_ids = json_encode($userIds);
+                
+                // ارسال اطلاع‌رسانی Mention
+                $mentionedUsers = User::whereIn('username', $usernames)->get();
+                $questionerName = $user->first_name . ' ' . $user->last_name;
+                foreach ($mentionedUsers as $mentionedUser) {
+                    sendNotification($mentionedUser, 'mention', [
+                        'message' => "{$questionerName} در گفتگوی «{$question->subject}» به شما اشاره کرد.",
+                        'subject' => 'اشاره به شما',
+                        'action_url' => frontendUrl("discuss/{$question->slug}"),
+                        'action_text' => 'مشاهده گفتگو',
+                        'sms_message' => "در گفتگویی به شما اشاره شده است.",
+                    ]);
+                }
             } else {
                 $question->is_private = false;
                 $question->allowed_user_ids = null;

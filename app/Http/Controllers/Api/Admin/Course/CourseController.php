@@ -712,6 +712,49 @@ class CourseController extends Controller
                 $course->tag($tag);
             }
 
+            // ارسال اطلاع‌رسانی دوره جدید (اگر publish شده باشد)
+            if ($validData['publish']) {
+                // جمع‌آوری کاربران برای اطلاع‌رسانی
+                $userIds = collect();
+                
+                // 1. کاربرانی که دوره‌های مشابه را bookmark کرده‌اند
+                $categoryIds = $course->category()->pluck('categories.id');
+                if ($categoryIds->isNotEmpty()) {
+                    $bookmarkedUsers = \App\Models\User::whereHas('bookmarkableBookmarks', function ($query) use ($categoryIds) {
+                        $query->whereHasMorph('bookmarkable', [\App\Models\Course::class], function ($q) use ($categoryIds) {
+                            $q->whereHas('category', function ($catQuery) use ($categoryIds) {
+                                $catQuery->whereIn('categories.id', $categoryIds);
+                            });
+                        });
+                    })->pluck('id');
+                    $userIds = $userIds->merge($bookmarkedUsers);
+                }
+                
+                // 2. کاربرانی که در دسته‌بندی‌های مشابه دوره خریداری کرده‌اند
+                if ($categoryIds->isNotEmpty()) {
+                    $purchasedUsers = \App\Models\User::whereHas('courses', function ($query) use ($categoryIds) {
+                        $query->whereHas('category', function ($catQuery) use ($categoryIds) {
+                            $catQuery->whereIn('categories.id', $categoryIds);
+                        });
+                    })->pluck('id');
+                    $userIds = $userIds->merge($purchasedUsers);
+                }
+                
+                // حذف تکراری‌ها و صاحب دوره
+                $userIds = $userIds->unique()->reject(fn($id) => $id == $user->id);
+                
+                // ارسال اطلاع‌رسانی به کاربران
+                if ($userIds->isNotEmpty()) {
+                    sendBulkNotification($userIds->toArray(), 'new-course-notification', [
+                        'message' => "دوره جدید «{$course->title}» منتشر شد.",
+                        'subject' => 'دوره جدید',
+                        'action_url' => frontendUrl("course/{$course->slug}"),
+                        'action_text' => 'مشاهده دوره',
+                        'sms_message' => "دوره جدید {$course->title} منتشر شد.",
+                    ]);
+                }
+            }
+
             return response()->json(['message' => "Course created successfully", 'course' => $course], 200);
 
         }
@@ -893,6 +936,18 @@ class CourseController extends Controller
             }
             
             $course->retag($validData['tags']);
+
+            // ارسال اطلاع‌رسانی به کاربرانی که در دوره ثبت‌نام کرده‌اند
+            $enrolledUsers = $course->users;
+            foreach ($enrolledUsers as $user) {
+                sendNotification($user, 'course-updated', [
+                    'message' => "دوره «{$course->title}» به‌روزرسانی شد و محتوای جدیدی اضافه شده است.",
+                    'subject' => 'به‌روزرسانی دوره',
+                    'action_url' => frontendUrl("course/{$course->slug}"),
+                    'action_text' => 'مشاهده دوره',
+                    'sms_message' => "دوره {$course->title} به‌روزرسانی شد.",
+                ]);
+            }
 
             return response()->json(['message' => "Course updated successfully", 'course' => $course], 200);
 

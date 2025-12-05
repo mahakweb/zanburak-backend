@@ -245,6 +245,24 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::get('/user-activity-report/stats', [\App\Http\Controllers\Api\Admin\UserActivityReportController::class, 'stats'])->name('user-activity-report.stats');
     Route::get('/user-activity-report/analytics', [\App\Http\Controllers\Api\Admin\UserActivityReportController::class, 'analytics'])->name('user-activity-report.analytics');
     Route::get('/user-activity-report/export', [\App\Http\Controllers\Api\Admin\UserActivityReportController::class, 'export'])->name('user-activity-report.export');
+
+    // Notification Management
+    Route::prefix('notification-management')->as('notification-management.')->group(function () {
+        // Event Groups
+        Route::post('/event-groups', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'eventGroups'])->name('event-groups.index');
+        Route::get('/event-groups/all', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'getAllEventGroups'])->name('event-groups.all');
+        Route::post('/event-group/create', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'createEventGroup'])->name('event-group.create');
+        Route::get('/event-group/{eventGroup}', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'getEventGroup'])->name('event-group.show');
+        Route::post('/event-group/{eventGroup}/update', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'updateEventGroup'])->name('event-group.update');
+        Route::delete('/event-group/{eventGroup}', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'deleteEventGroup'])->name('event-group.delete');
+
+        // Events
+        Route::post('/events', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'events'])->name('events.index');
+        Route::post('/event/create', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'createEvent'])->name('event.create');
+        Route::get('/event/{event}', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'getEvent'])->name('event.show');
+        Route::post('/event/{event}/update', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'updateEvent'])->name('event.update');
+        Route::delete('/event/{event}', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'deleteEvent'])->name('event.delete');
+    });
 });
 
 

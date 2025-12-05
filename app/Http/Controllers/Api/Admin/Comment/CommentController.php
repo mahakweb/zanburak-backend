@@ -298,8 +298,23 @@ class CommentController extends Controller
         if (!$comment) {
             return response()->json(['message' => 'Comment not found'], 404);
         }
+        
+        $wasApproved = $comment->approved;
         $comment->approved = !$comment->approved;
         $comment->save();
+
+        // ارسال اطلاع‌رسانی در صورت تایید کامنت
+        if ($comment->approved && !$wasApproved && $comment->user) {
+            $commentableTitle = $this->getCommentableTitle($comment);
+            
+            sendNotification($comment->user, 'comment-approved', [
+                'message' => "دیدگاه شما در مورد «{$commentableTitle}» تایید شد.",
+                'subject' => 'تایید دیدگاه',
+                'action_url' => $this->getCommentableUrl($comment),
+                'action_text' => 'مشاهده',
+                'sms_message' => "دیدگاه شما در سایت زنبورک تایید شد.",
+            ]);
+        }
 
         $response = [
             'id' => $comment->id,
@@ -311,6 +326,40 @@ class CommentController extends Controller
         ];
 
         return response()->json(['message' => 'Success, comment updated successfully', 'comment' => $response], 200);
+    }
+
+    private function getCommentableTitle($comment)
+    {
+        $commentable = $comment->commentable;
+        if (!$commentable) {
+            return 'محتوا';
+        }
+        
+        return $commentable->title ?? $commentable->subject ?? 'محتوا';
+    }
+
+    private function getCommentableUrl($comment)
+    {
+        $commentable = $comment->commentable;
+        if (!$commentable) {
+            return frontendUrl();
+        }
+        
+        $slug = $commentable->slug ?? null;
+        if (!$slug) {
+            return frontendUrl();
+        }
+        
+        // تعیین URL بر اساس نوع commentable
+        if ($commentable instanceof \App\Models\Course) {
+            return frontendUrl("course/{$slug}");
+        } elseif ($commentable instanceof \App\Models\Episode) {
+            return frontendUrl("course/{$commentable->section->course->slug}/episode/{$slug}");
+        } elseif ($commentable instanceof \App\Models\Path) {
+            return frontendUrl("path/{$slug}");
+        }
+        
+        return frontendUrl();
     }
 
     public function sendReply(Request $request)
@@ -343,6 +392,20 @@ class CommentController extends Controller
             if ($request->parent_approved) {
                 $parent->approved = true;
                 $parent->save();
+            }
+
+            // ارسال اطلاع‌رسانی به صاحب کامنت والد در صورت وجود
+            if ($parent && $parent->user && $parent->user_id != auth('api')->user()->id) {
+                $commentableTitle = $this->getCommentableTitle($parent);
+                $replierName = auth('api')->user()->first_name . ' ' . auth('api')->user()->last_name;
+                
+                sendNotification($parent->user, 'reply-to-comment', [
+                    'message' => "{$replierName} به دیدگاه شما در مورد «{$commentableTitle}» پاسخ داد.",
+                    'subject' => 'پاسخ به دیدگاه',
+                    'action_url' => $this->getCommentableUrl($parent),
+                    'action_text' => 'مشاهده پاسخ',
+                    'sms_message' => "شما یک پاسخ جدید به دیدگاه خود دریافت کرده‌اید.",
+                ]);
             }
 
             $response = [

@@ -32,5 +32,17 @@ class SubmitNewQuestionListener
             'description' => 'ثبت پرسش جدید: '.$question->subject,
             'score'       => 130,
         ]);
+        
+        // ارسال اطلاع‌رسانی به دنبال‌کنندگان کاربر
+        $followers = $user->followers()->get();
+        foreach ($followers as $follower) {
+            sendNotification($follower, 'new-discussion', [
+                'message' => "{$user->first_name} {$user->last_name} گفتگوی جدیدی با عنوان «{$question->subject}» ارسال کرد.",
+                'subject' => 'گفتگوی جدید',
+                'action_url' => frontendUrl("discuss/{$question->slug}"),
+                'action_text' => 'مشاهده گفتگو',
+                'sms_message' => "گفتگوی جدیدی از فردی که دنبال می‌کنید ارسال شد.",
+            ]);
+        }
     }
 }

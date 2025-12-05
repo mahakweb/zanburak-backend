@@ -248,6 +248,18 @@ class EpisodeController extends Controller
                     $this->reorderCourseEpisodes($course->id);
                 // }
 
+                // ارسال اطلاع‌رسانی به کاربرانی که در دوره ثبت‌نام کرده‌اند
+                $enrolledUsers = $course->users;
+                foreach ($enrolledUsers as $user) {
+                    sendNotification($user, 'course-updated', [
+                        'message' => "اپیزود جدیدی به دوره «{$course->title}» اضافه شد.",
+                        'subject' => 'به‌روزرسانی دوره',
+                        'action_url' => frontendUrl("course/{$course->slug}"),
+                        'action_text' => 'مشاهده دوره',
+                        'sms_message' => "اپیزود جدیدی به دوره {$course->title} اضافه شد.",
+                    ]);
+                }
+
                 return response()->json(['message' => 'Success, episode updated successfully.'], 200);
             }
 

@@ -953,6 +953,11 @@ class PaymentController extends Controller
         // Check if this payment includes wallet charging
         $hasWalletPayment = str_contains($payment->description ?? '', 'کیف پول');
         
+        // جمع‌آوری اطلاعات خریدها برای ارسال یک نوتیف واحد
+        $courses = [];
+        $plans = [];
+        $paths = [];
+        
         // Process regular payment items (if any)
         if ($payment->items()->count() > 0) {
             foreach ($payment->items as $item) {
@@ -972,6 +977,7 @@ class PaymentController extends Controller
                                 'payment_id' => $payment->id,
                             ]
                         ]);
+                        $courses[] = $payable;
                         break;
 
                     case \App\Models\Path::class:
@@ -991,6 +997,7 @@ class PaymentController extends Controller
                                 'price' => (int) round($course->price - ($course->price * $discountPercentForPath / 100)),
                             ]);
                         }
+                        $paths[] = $payable;
                         break;
 
                     case \App\Models\Plan::class:
@@ -1001,6 +1008,7 @@ class PaymentController extends Controller
                             'purchase_type' => 'online',
                             'payment_id' => $payment->id,
                         ]);
+                        $plans[] = $payable;
                         break;
 
                     default:
@@ -1011,6 +1019,9 @@ class PaymentController extends Controller
                 }
             }
         }
+        
+        // ارسال نوتیف‌های مناسب بر اساس محتویات خرید
+        $this->sendPurchaseNotifications($user, $courses, $plans, $paths);
         
         // If payment description includes wallet charging, also handle wallet
         if ($hasWalletPayment) {
@@ -1082,6 +1093,85 @@ class PaymentController extends Controller
             // Update user wallet balance
             $user->update([
                 'wallet_balance' => $wallet->after_balance,
+            ]);
+        }
+    }
+    
+    /**
+     * ارسال نوتیف‌های خرید بر اساس محتویات
+     */
+    private function sendPurchaseNotifications($user, $courses, $plans, $paths)
+    {
+        $totalItems = count($courses) + count($plans) + count($paths);
+        
+        if ($totalItems === 0) {
+            return;
+        }
+        
+        // اگر فقط دوره خریداری شده
+        if (count($courses) > 0 && count($plans) === 0 && count($paths) === 0) {
+            if (count($courses) === 1) {
+                // یک دوره
+                sendNotification($user, 'course-purchase', [
+                    'message' => "دوره «{$courses[0]->title}» با موفقیت برای شما فعال شد.",
+                    'subject' => 'خرید دوره',
+                    'action_url' => frontendUrl("course/{$courses[0]->slug}"),
+                    'action_text' => 'مشاهده دوره',
+                    'sms_message' => "دوره {$courses[0]->title} با موفقیت برای شما فعال شد.",
+                ]);
+            } else {
+                // چند دوره
+                $courseTitles = collect($courses)->pluck('title')->implode('، ');
+                sendNotification($user, 'course-purchase', [
+                    'message' => count($courses) . " دوره با موفقیت برای شما فعال شد: {$courseTitles}",
+                    'subject' => 'خرید دوره',
+                    'action_url' => frontendUrl('panel/courses'),
+                    'action_text' => 'مشاهده دوره‌ها',
+                    'sms_message' => count($courses) . " دوره با موفقیت برای شما فعال شد.",
+                ]);
+            }
+        }
+        // اگر فقط پلن VIP خریداری شده
+        elseif (count($plans) > 0 && count($courses) === 0 && count($paths) === 0) {
+            if (count($plans) === 1) {
+                sendNotification($user, 'vip-upgrade', [
+                    'message' => "عضویت ویژه «{$plans[0]->title}» با موفقیت برای شما فعال شد.",
+                    'subject' => 'ارتقاء عضویت ویژه',
+                    'action_url' => frontendUrl('panel/vip'),
+                    'action_text' => 'مشاهده پلن',
+                    'sms_message' => "عضویت ویژه {$plans[0]->title} برای شما فعال شد.",
+                ]);
+            } else {
+                $planTitles = collect($plans)->pluck('title')->implode('، ');
+                sendNotification($user, 'vip-upgrade', [
+                    'message' => count($plans) . " پلن عضویت ویژه با موفقیت برای شما فعال شد: {$planTitles}",
+                    'subject' => 'ارتقاء عضویت ویژه',
+                    'action_url' => frontendUrl('panel/vip'),
+                    'action_text' => 'مشاهده پلن‌ها',
+                    'sms_message' => count($plans) . " پلن عضویت ویژه برای شما فعال شد.",
+                ]);
+            }
+        }
+        // اگر ترکیبی از دوره و پلن
+        else {
+            $items = [];
+            if (count($courses) > 0) {
+                $items[] = count($courses) . " دوره";
+            }
+            if (count($plans) > 0) {
+                $items[] = count($plans) . " پلن عضویت ویژه";
+            }
+            if (count($paths) > 0) {
+                $items[] = count($paths) . " مسیر یادگیری";
+            }
+            
+            $itemsText = implode(' و ', $items);
+            sendNotification($user, 'course-purchase', [
+                'message' => "خرید شما با موفقیت انجام شد و {$itemsText} برای شما فعال شد.",
+                'subject' => 'خرید موفق',
+                'action_url' => frontendUrl('panel/courses'),
+                'action_text' => 'مشاهده خریدها',
+                'sms_message' => "خرید شما با موفقیت انجام شد و {$itemsText} برای شما فعال شد.",
             ]);
         }
     }

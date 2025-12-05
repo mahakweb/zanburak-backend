@@ -43,6 +43,7 @@ return [
     'meliPayamak' => [
         'username' => env('MELI_PAYAMAK_USERNAME', '19168474970'),
         'password' => env('MELI_PAYAMAK_PASSWORD', 'EQ9FG'),
+        'notification_template_id' => env('MELI_PAYAMAK_NOTIFICATION_TEMPLATE_ID', null), // ID الگوی اطلاع‌رسانی در پنل MeliPayamak
     ],
 
     'google' => [

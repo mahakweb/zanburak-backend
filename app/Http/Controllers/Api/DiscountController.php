@@ -61,6 +61,16 @@ class DiscountController extends Controller
             if (!$appliedToAnyItem) {
                 return response()->json(['error' => 'این کد برای هیچ‌یک از آیتم‌های سبد شما قابل اعمال نیست.'], 422);
             }
+            
+            // ارسال اطلاع‌رسانی تخفیف
+            $totalDiscount = $carts->sum('discount_amount');
+            sendNotification($user, 'discount-notification', [
+                'message' => "کد تخفیف «{$discount->code}» با موفقیت اعمال شد و {$totalDiscount} تومان از قیمت شما کسر شد.",
+                'subject' => 'اعمال کد تخفیف',
+                'action_url' => frontendUrl('cart'),
+                'action_text' => 'مشاهده سبد خرید',
+                'sms_message' => "کد تخفیف {$discount->code} با موفقیت اعمال شد.",
+            ]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 422);
         }
