@@ -22,6 +22,13 @@ class NotificationService
     public function sendNotification(User $user, string $eventSlug, array $data = [])
     {
         try {
+            // بررسی اینکه آیا کاربر اطلاع‌رسانی‌ها را غیرفعال کرده است
+            // اگر فیلد null باشد، به صورت پیش‌فرض true در نظر می‌گیریم
+            if ($user->notifications_enabled === false) {
+                Log::info("Notifications disabled for user {$user->id}");
+                return;
+            }
+
             // پیدا کردن رویداد
             $event = Event::where('slug', $eventSlug)->first();
             
@@ -106,6 +113,79 @@ class NotificationService
         
         foreach ($users as $user) {
             $this->sendNotification($user, $eventSlug, $data);
+        }
+    }
+
+    /**
+     * دریافت کانال‌های فعال برای یک کاربر و رویداد (بدون ارسال)
+     * این متد فقط کانال‌ها را برمی‌گرداند تا Notification فیزیکی خودش ارسال کند
+     *
+     * @param User $user کاربری که باید اطلاع‌رسانی دریافت کند
+     * @param string $eventSlug slug رویداد
+     * @return array آرایه‌ای از کانال‌های فعال
+     */
+    public function getChannels(User $user, string $eventSlug): array
+    {
+        try {
+            // بررسی اینکه آیا کاربر اطلاع‌رسانی‌ها را غیرفعال کرده است
+            if ($user->notifications_enabled === false) {
+                Log::info("Notifications disabled for user {$user->id}");
+                return [];
+            }
+
+            // پیدا کردن رویداد
+            $event = Event::where('slug', $eventSlug)->first();
+            
+            if (!$event) {
+                Log::warning("Event not found: {$eventSlug}");
+                return [];
+            }
+
+            // بررسی تنظیمات کاربر برای این رویداد
+            $preference = NotificationPreference::where('user_id', $user->id)
+                ->where('event_id', $event->id)
+                ->first();
+
+            // اگر تنظیمات کاربر وجود نداشت، از تنظیمات پیش‌فرض Event استفاده می‌کنیم
+            $channels = [];
+            
+            if ($preference) {
+                // بررسی کانال‌های فعال برای کاربر
+                if ($preference->via_site && $event->is_site_enabled) {
+                    $channels[] = 'database';
+                }
+                if ($preference->via_email && $event->is_email_enabled) {
+                    $channels[] = 'mail';
+                }
+                if ($preference->via_sms && $event->is_sms_enabled) {
+                    $channels[] = SmsChannel::class;
+                }
+                // Telegram فعلا غیرفعال است
+                // if ($preference->via_telegram && $event->is_telegram_enabled) {
+                //     $channels[] = 'telegram';
+                // }
+            } else {
+                // استفاده از تنظیمات پیش‌فرض Event
+                if ($event->is_site_enabled) {
+                    $channels[] = 'database';
+                }
+                if ($event->is_email_enabled) {
+                    $channels[] = 'mail';
+                }
+                if ($event->is_sms_enabled) {
+                    $channels[] = SmsChannel::class;
+                }
+            }
+
+            return $channels;
+
+        } catch (\Exception $e) {
+            Log::error("Error getting channels: " . $e->getMessage(), [
+                'user_id' => $user->id,
+                'event_slug' => $eventSlug,
+                'trace' => $e->getTraceAsString()
+            ]);
+            return [];
         }
     }
 }

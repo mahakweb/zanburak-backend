@@ -303,17 +303,12 @@ class CommentController extends Controller
         $comment->approved = !$comment->approved;
         $comment->save();
 
-        // ارسال اطلاع‌رسانی در صورت تایید کامنت
+        // ارسال اطلاع‌رسانی در صورت تایید کامنت - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
         if ($comment->approved && !$wasApproved && $comment->user) {
             $commentableTitle = $this->getCommentableTitle($comment);
+            $commentableUrl = $this->getCommentableUrl($comment);
             
-            sendNotification($comment->user, 'comment-approved', [
-                'message' => "دیدگاه شما در مورد «{$commentableTitle}» تایید شد.",
-                'subject' => 'تایید دیدگاه',
-                'action_url' => $this->getCommentableUrl($comment),
-                'action_text' => 'مشاهده',
-                'sms_message' => "دیدگاه شما در سایت زنبورک تایید شد.",
-            ]);
+            $comment->user->notify(new \App\Notifications\Comment\CommentApprovedNotification($comment, $commentableTitle, $commentableUrl));
         }
 
         $response = [
@@ -397,15 +392,12 @@ class CommentController extends Controller
             // ارسال اطلاع‌رسانی به صاحب کامنت والد در صورت وجود
             if ($parent && $parent->user && $parent->user_id != auth('api')->user()->id) {
                 $commentableTitle = $this->getCommentableTitle($parent);
-                $replierName = auth('api')->user()->first_name . ' ' . auth('api')->user()->last_name;
+                $replier = auth('api')->user();
+                $replierName = $replier->first_name . ' ' . $replier->last_name;
+                $commentableUrl = $this->getCommentableUrl($parent);
                 
-                sendNotification($parent->user, 'reply-to-comment', [
-                    'message' => "{$replierName} به دیدگاه شما در مورد «{$commentableTitle}» پاسخ داد.",
-                    'subject' => 'پاسخ به دیدگاه',
-                    'action_url' => $this->getCommentableUrl($parent),
-                    'action_text' => 'مشاهده پاسخ',
-                    'sms_message' => "شما یک پاسخ جدید به دیدگاه خود دریافت کرده‌اید.",
-                ]);
+                // ارسال اطلاع‌رسانی - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
+                $parent->user->notify(new \App\Notifications\Comment\ReplyToCommentNotification($parent, $replier, $commentableTitle, $commentableUrl));
             }
 
             $response = [

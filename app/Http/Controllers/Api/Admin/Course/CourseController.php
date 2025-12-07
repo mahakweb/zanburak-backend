@@ -743,15 +743,12 @@ class CourseController extends Controller
                 // حذف تکراری‌ها و صاحب دوره
                 $userIds = $userIds->unique()->reject(fn($id) => $id == $user->id);
                 
-                // ارسال اطلاع‌رسانی به کاربران
+                // ارسال اطلاع‌رسانی به کاربران - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
                 if ($userIds->isNotEmpty()) {
-                    sendBulkNotification($userIds->toArray(), 'new-course-notification', [
-                        'message' => "دوره جدید «{$course->title}» منتشر شد.",
-                        'subject' => 'دوره جدید',
-                        'action_url' => frontendUrl("course/{$course->slug}"),
-                        'action_text' => 'مشاهده دوره',
-                        'sms_message' => "دوره جدید {$course->title} منتشر شد.",
-                    ]);
+                    $users = \App\Models\User::whereIn('id', $userIds->toArray())->get();
+                    foreach ($users as $user) {
+                        $user->notify(new \App\Notifications\Course\NewCourseNotification($course));
+                    }
                 }
             }
 
@@ -937,16 +934,10 @@ class CourseController extends Controller
             
             $course->retag($validData['tags']);
 
-            // ارسال اطلاع‌رسانی به کاربرانی که در دوره ثبت‌نام کرده‌اند
+            // ارسال اطلاع‌رسانی به کاربرانی که در دوره ثبت‌نام کرده‌اند - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
             $enrolledUsers = $course->users;
             foreach ($enrolledUsers as $user) {
-                sendNotification($user, 'course-updated', [
-                    'message' => "دوره «{$course->title}» به‌روزرسانی شد و محتوای جدیدی اضافه شده است.",
-                    'subject' => 'به‌روزرسانی دوره',
-                    'action_url' => frontendUrl("course/{$course->slug}"),
-                    'action_text' => 'مشاهده دوره',
-                    'sms_message' => "دوره {$course->title} به‌روزرسانی شد.",
-                ]);
+                $user->notify(new \App\Notifications\Course\CourseUpdatedNotification($course));
             }
 
             return response()->json(['message' => "Course updated successfully", 'course' => $course], 200);

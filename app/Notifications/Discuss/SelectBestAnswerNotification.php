@@ -3,16 +3,18 @@
 namespace App\Notifications\Discuss;
 
 use App\Models\Answer;
+use App\Notifications\BaseNotification;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
-use Illuminate\Notifications\Notification;
+use App\Notifications\Channels\SmsChannel;
 
-class SelectBestAnswerNotification extends Notification
+class SelectBestAnswerNotification extends BaseNotification implements ShouldQueue
 {
     use Queueable;
 
     public $answer;
+
     /**
      * Create a new notification instance.
      *
@@ -20,18 +22,18 @@ class SelectBestAnswerNotification extends Notification
      */
     public function __construct(Answer $answer)
     {
+        parent::__construct();
         $this->answer = $answer;
     }
 
     /**
-     * Get the notification's delivery channels.
+     * Get the event slug for this notification.
      *
-     * @param  mixed  $notifiable
-     * @return array
+     * @return string
      */
-    public function via($notifiable)
+    protected function getEventSlug(): ?string
     {
-        return ['database'];
+        return 'best-answer';
     }
 
     /**
@@ -42,10 +44,31 @@ class SelectBestAnswerNotification extends Notification
      */
     public function toMail($notifiable)
     {
+        $question = $this->answer->question;
+        
         return (new MailMessage)
-                    ->line('The introduction to the notification.')
-                    ->action('Notification Action', url('/'))
-                    ->line('Thank you for using our application!');
+                    ->subject('بهترین پاسخ')
+                    ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
+                    ->line("پاسخ شما به سوال «{$question->subject}» به عنوان بهترین پاسخ انتخاب شد.")
+                    ->action('مشاهده سوال', url("/discuss/{$question->slug}"))
+                    ->line('با تشکر از مشارکت شما در زنبورک');
+    }
+
+    /**
+     * Get the SMS representation of the notification.
+     *
+     * @param  mixed  $notifiable
+     * @return array
+     */
+    public function toSms($notifiable)
+    {
+        $question = $this->answer->question;
+        
+        return [
+            'message' => "پاسخ شما به سوال «{$question->subject}» به عنوان بهترین پاسخ انتخاب شد. زنبورک",
+            'phone' => $notifiable->mobile,
+            'body_id' => config('services.meliPayamak.notification_template_id', null),
+        ];
     }
 
     /**

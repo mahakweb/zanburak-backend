@@ -258,48 +258,41 @@ class PaymentService
             return;
         }
         
+        // ارسال اطلاع‌رسانی - Notification های فیزیکی خودشان کانال‌ها را از NotificationService می‌گیرند
         // اگر فقط دوره خریداری شده
         if (count($courses) > 0 && count($plans) === 0 && count($paths) === 0) {
             if (count($courses) === 1) {
                 // یک دوره
-                sendNotification($user, 'course-purchase', [
-                    'message' => "دوره «{$courses[0]->title}» با موفقیت برای شما فعال شد.",
-                    'subject' => 'خرید دوره',
-                    'action_url' => frontendUrl("course/{$courses[0]->slug}"),
-                    'action_text' => 'مشاهده دوره',
-                    'sms_message' => "دوره {$courses[0]->title} با موفقیت برای شما فعال شد.",
-                ]);
+                $user->notify(new \App\Notifications\Payment\CoursePurchaseNotification(
+                    "دوره «{$courses[0]->title}» با موفقیت برای شما فعال شد.",
+                    frontendUrl("course/{$courses[0]->slug}"),
+                    'مشاهده دوره'
+                ));
             } else {
                 // چند دوره
                 $courseTitles = collect($courses)->pluck('title')->implode('، ');
-                sendNotification($user, 'course-purchase', [
-                    'message' => count($courses) . " دوره با موفقیت برای شما فعال شد: {$courseTitles}",
-                    'subject' => 'خرید دوره',
-                    'action_url' => frontendUrl('panel/courses'),
-                    'action_text' => 'مشاهده دوره‌ها',
-                    'sms_message' => count($courses) . " دوره با موفقیت برای شما فعال شد.",
-                ]);
+                $user->notify(new \App\Notifications\Payment\CoursePurchaseNotification(
+                    count($courses) . " دوره با موفقیت برای شما فعال شد: {$courseTitles}",
+                    frontendUrl('panel/courses'),
+                    'مشاهده دوره‌ها'
+                ));
             }
         }
         // اگر فقط پلن VIP خریداری شده
         elseif (count($plans) > 0 && count($courses) === 0 && count($paths) === 0) {
             if (count($plans) === 1) {
-                sendNotification($user, 'vip-upgrade', [
-                    'message' => "عضویت ویژه «{$plans[0]->title}» با موفقیت برای شما فعال شد.",
-                    'subject' => 'ارتقاء عضویت ویژه',
-                    'action_url' => frontendUrl('panel/vip'),
-                    'action_text' => 'مشاهده پلن',
-                    'sms_message' => "عضویت ویژه {$plans[0]->title} برای شما فعال شد.",
-                ]);
+                $user->notify(new \App\Notifications\Payment\VipUpgradeNotification(
+                    "عضویت ویژه «{$plans[0]->title}» با موفقیت برای شما فعال شد.",
+                    frontendUrl('panel/vip'),
+                    'مشاهده پلن'
+                ));
             } else {
                 $planTitles = collect($plans)->pluck('title')->implode('، ');
-                sendNotification($user, 'vip-upgrade', [
-                    'message' => count($plans) . " پلن عضویت ویژه با موفقیت برای شما فعال شد: {$planTitles}",
-                    'subject' => 'ارتقاء عضویت ویژه',
-                    'action_url' => frontendUrl('panel/vip'),
-                    'action_text' => 'مشاهده پلن‌ها',
-                    'sms_message' => count($plans) . " پلن عضویت ویژه برای شما فعال شد.",
-                ]);
+                $user->notify(new \App\Notifications\Payment\VipUpgradeNotification(
+                    count($plans) . " پلن عضویت ویژه با موفقیت برای شما فعال شد: {$planTitles}",
+                    frontendUrl('panel/vip'),
+                    'مشاهده پلن‌ها'
+                ));
             }
         }
         // اگر ترکیبی از دوره و پلن
@@ -316,13 +309,11 @@ class PaymentService
             }
             
             $itemsText = implode(' و ', $items);
-            sendNotification($user, 'course-purchase', [
-                'message' => "خرید شما با موفقیت انجام شد و {$itemsText} برای شما فعال شد.",
-                'subject' => 'خرید موفق',
-                'action_url' => frontendUrl('panel/courses'),
-                'action_text' => 'مشاهده خریدها',
-                'sms_message' => "خرید شما با موفقیت انجام شد و {$itemsText} برای شما فعال شد.",
-            ]);
+            $user->notify(new \App\Notifications\Payment\CoursePurchaseNotification(
+                "خرید شما با موفقیت انجام شد و {$itemsText} برای شما فعال شد.",
+                frontendUrl('panel/courses'),
+                'مشاهده خریدها'
+            ));
         }
     }
 

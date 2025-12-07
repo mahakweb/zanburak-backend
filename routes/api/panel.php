@@ -37,6 +37,9 @@ Route::middleware('auth:sanctum')->prefix('panel')->as('api.panel.')->group(func
         Route::post('/change-password', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'changePassword'])->name('change-password');
         Route::post('/information-management', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'getUserPreferences'])->name('information-management');
         Route::post('/update-preference', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'updateSinglePreference'])->name('update-preference');
+        Route::post('/toggle-all-notifications', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'toggleAllNotifications'])->name('toggle-all-notifications');
+        Route::post('/bulk-update-preferences', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'bulkUpdatePreferences'])->name('bulk-update-preferences');
+        Route::post('/test-notification', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'testNotification'])->name('test-notification');
         Route::post('/userData', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'getUserData'])->name('user-data');
         Route::post('/update', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'updateProfile'])->name('update');
         Route::post('/change-profile-pic', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'changeProfilePic'])->name('change-profile-pic');

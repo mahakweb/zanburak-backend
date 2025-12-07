@@ -78,6 +78,18 @@ class EventGroupsAndEventsSeeder extends Seeder
                 'description' => 'سایر اطلاع‌رسانی‌های متفرقه',
                 'slug' => 'miscellaneous-notification',
             ],
+            [
+                'title' => 'تغییر رمز عبور',
+                'english_title' => 'Change Password',
+                'description' => 'زمانی که رمز عبور شما تغییر می‌کند',
+                'slug' => 'change-password',
+            ],
+            [
+                'title' => 'تغییر شماره موبایل',
+                'english_title' => 'Change Mobile',
+                'description' => 'زمانی که شماره موبایل شما تغییر می‌کند',
+                'slug' => 'change-mobile',
+            ],
         ];
 
         foreach ($yourActivityEvents as $event) {
@@ -205,4 +217,5 @@ class EventGroupsAndEventsSeeder extends Seeder
         }
     }
 }
+
 

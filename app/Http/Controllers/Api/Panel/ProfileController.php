@@ -438,7 +438,14 @@ class ProfileController extends Controller
             $groupedPreferences[] = $groupData;
         }
 
-        return response()->json(['message' => 'Success', 'grouped_preferences' => $groupedPreferences], 200);
+        // اگر notifications_enabled null باشد، به صورت پیش‌فرض true در نظر می‌گیریم
+        $notificationsEnabled = $user->notifications_enabled !== null ? (bool)$user->notifications_enabled : true;
+        
+        return response()->json([
+            'message' => 'Success', 
+            'grouped_preferences' => $groupedPreferences,
+            'notifications_enabled' => $notificationsEnabled
+        ], 200);
     }
 
     public function updateSinglePreference(Request $request)
@@ -480,6 +487,202 @@ class ProfileController extends Controller
             $notificationPreference->save();
 
             return response()->json(['message' => 'Record updated', 'notification_preference' => $notificationPreference], 200);
+        }
+    }
+
+    /**
+     * Toggle کردن همه اطلاع‌رسانی‌ها (Global Toggle)
+     */
+    public function toggleAllNotifications(Request $request)
+    {
+        $user = auth('api')->user();
+        
+        // اگر null باشد، به صورت پیش‌فرض true در نظر می‌گیریم
+        $currentValue = $user->notifications_enabled !== null ? (bool)$user->notifications_enabled : true;
+        $user->notifications_enabled = !$currentValue;
+        $user->save();
+
+        return response()->json([
+            'message' => $user->notifications_enabled ? 'All notifications enabled' : 'All notifications disabled',
+            'notifications_enabled' => (bool)$user->notifications_enabled
+        ], 200);
+    }
+
+    /**
+     * به‌روزرسانی دسته‌جمعی تنظیمات (Bulk Update)
+     */
+    public function bulkUpdatePreferences(Request $request)
+    {
+        $user = auth('api')->user();
+        $userId = $user->id;
+        
+        $validData = Validator::make($request->all(), [
+            'action' => ['required', 'in:enable_all,disable_all,enable_channel,disable_channel,reset_to_default'],
+            'channel' => ['required_if:action,enable_channel,disable_channel', 'in:via_email,via_sms,via_telegram,via_site'],
+            'event_ids' => ['nullable', 'array'],
+            'event_ids.*' => ['exists:events,id']
+        ]);
+
+        if (!$validData->passes()) {
+            return response()->json(['message' => 'Error', 'errors' => $validData->errors()->toArray()], 422);
+        }
+
+        $action = $request->input('action');
+        $channel = $request->input('channel');
+        $eventIds = $request->input('event_ids', []);
+
+        // دریافت همه Event ها
+        $events = Event::when(!empty($eventIds), function($query) use ($eventIds) {
+            return $query->whereIn('id', $eventIds);
+        })->get();
+
+        $updatedCount = 0;
+
+        foreach ($events as $event) {
+            $preference = NotificationPreference::where('user_id', $userId)
+                ->where('event_id', $event->id)
+                ->first();
+
+            if (!$preference) {
+                $preference = NotificationPreference::create([
+                    'user_id' => $userId,
+                    'event_id' => $event->id,
+                    'via_email' => $event->is_email_enabled,
+                    'via_sms' => $event->is_sms_enabled,
+                    'via_telegram' => $event->is_telegram_enabled,
+                    'via_site' => $event->is_site_enabled,
+                ]);
+            }
+
+            switch ($action) {
+                case 'enable_all':
+                    $preference->via_email = $event->is_email_enabled ? true : $preference->via_email;
+                    $preference->via_sms = $event->is_sms_enabled ? true : $preference->via_sms;
+                    $preference->via_telegram = $event->is_telegram_enabled ? true : $preference->via_telegram;
+                    $preference->via_site = $event->is_site_enabled ? true : $preference->via_site;
+                    break;
+
+                case 'disable_all':
+                    $preference->via_email = false;
+                    $preference->via_sms = false;
+                    $preference->via_telegram = false;
+                    $preference->via_site = false;
+                    break;
+
+                case 'enable_channel':
+                    if ($event->isChannelEnabled($channel)) {
+                        $preference->$channel = true;
+                    }
+                    break;
+
+                case 'disable_channel':
+                    $preference->$channel = false;
+                    break;
+
+                case 'reset_to_default':
+                    $preference->via_email = $event->is_email_enabled;
+                    $preference->via_sms = $event->is_sms_enabled;
+                    $preference->via_telegram = $event->is_telegram_enabled;
+                    $preference->via_site = $event->is_site_enabled;
+                    break;
+            }
+
+            $preference->save();
+            $updatedCount++;
+        }
+
+        return response()->json([
+            'message' => 'Bulk update completed successfully',
+            'updated_count' => $updatedCount,
+            'action' => $action
+        ], 200);
+    }
+
+    /**
+     * ارسال اطلاع‌رسانی تستی (Test Notification)
+     */
+    public function testNotification(Request $request)
+    {
+        $user = auth('api')->user();
+        
+        $validData = Validator::make($request->all(), [
+            'event_id' => ['required', 'exists:events,id'],
+            'channels' => ['required', 'array'],
+            'channels.*' => ['in:email,sms,site,telegram']
+        ]);
+
+        if (!$validData->passes()) {
+            return response()->json(['message' => 'Error', 'errors' => $validData->errors()->toArray()], 422);
+        }
+
+        $event = Event::findOrFail($request->input('event_id'));
+        $channels = $request->input('channels');
+        
+        // تبدیل channels به فرمت مورد نیاز
+        $notificationChannels = [];
+        foreach ($channels as $channel) {
+            switch ($channel) {
+                case 'email':
+                    if ($event->is_email_enabled) {
+                        $notificationChannels[] = 'mail';
+                    }
+                    break;
+                case 'sms':
+                    if ($event->is_sms_enabled) {
+                        $notificationChannels[] = \App\Notifications\Channels\SmsChannel::class;
+                    }
+                    break;
+                case 'site':
+                    if ($event->is_site_enabled) {
+                        $notificationChannels[] = 'database';
+                    }
+                    break;
+                case 'telegram':
+                    if ($event->is_telegram_enabled) {
+                        // Telegram فعلا غیرفعال است
+                        // $notificationChannels[] = 'telegram';
+                    }
+                    break;
+            }
+        }
+
+        if (empty($notificationChannels)) {
+            return response()->json([
+                'message' => 'No valid channels available for this event',
+                'available_channels' => [
+                    'email' => $event->is_email_enabled,
+                    'sms' => $event->is_sms_enabled,
+                    'site' => $event->is_site_enabled,
+                    'telegram' => $event->is_telegram_enabled
+                ]
+            ], 400);
+        }
+
+        try {
+            $notificationData = [
+                'event_id' => $event->id,
+                'event_title' => $event->title,
+                'event_slug' => $event->slug,
+                'message' => 'این یک اطلاع‌رسانی تستی است. تنظیمات شما به درستی کار می‌کند.',
+                'is_test' => true
+            ];
+
+            $user->notify(new \App\Notifications\CustomEventNotification($event, $notificationData, $notificationChannels));
+
+            return response()->json([
+                'message' => 'Test notification sent successfully',
+                'channels' => $channels,
+                'event' => [
+                    'id' => $event->id,
+                    'title' => $event->title
+                ]
+            ], 200);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Error sending test notification',
+                'error' => $e->getMessage()
+            ], 500);
         }
     }
 

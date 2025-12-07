@@ -2,11 +2,12 @@
 
 namespace App\Notifications\User;
 
+use App\Notifications\BaseNotification;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
-use Illuminate\Notifications\Notification;
 
-class LoginNotification extends Notification
+class LoginNotification extends BaseNotification implements ShouldQueue
 {
     use Queueable;
 
@@ -17,18 +18,17 @@ class LoginNotification extends Notification
      */
     public function __construct()
     {
-        //
+        parent::__construct();
     }
 
     /**
-     * Get the notification's delivery channels.
+     * Get the event slug for this notification.
      *
-     * @param  mixed  $notifiable
-     * @return array
+     * @return string
      */
-    public function via($notifiable)
+    protected function getEventSlug(): ?string
     {
-        return ['database'];
+        return 'login';
     }
 
     /**
@@ -40,9 +40,27 @@ class LoginNotification extends Notification
     public function toMail($notifiable)
     {
         return (new MailMessage)
-            ->line('The introduction to the notification.')
-            ->action('Notification Action', url('/'))
-            ->line('Thank you for using our application!');
+            ->subject('ورود به سایت')
+            ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
+            ->line('ورود شما به حساب کاربری با موفقیت انجام شد.')
+            ->line('اگر این کار توسط شما انجام نشده است، لطفاً فوراً رمز عبور خود را تغییر دهید.')
+            ->action('ورود به پنل', url('/panel'))
+            ->line('با تشکر از شما');
+    }
+
+    /**
+     * Get the SMS representation of the notification.
+     *
+     * @param  mixed  $notifiable
+     * @return array
+     */
+    public function toSms($notifiable)
+    {
+        return [
+            'message' => "ورود شما به حساب کاربری انجام شد. اگر این کار توسط شما انجام نشده است، لطفاً فوراً رمز عبور خود را تغییر دهید. زنبورک",
+            'phone' => $notifiable->mobile,
+            'body_id' => config('services.meliPayamak.notification_template_id', null),
+        ];
     }
 
     /**

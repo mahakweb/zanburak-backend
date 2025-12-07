@@ -2,12 +2,12 @@
 
 namespace App\Notifications\User;
 
+use App\Notifications\BaseNotification;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
-use Illuminate\Notifications\Notification;
 
-class ChangePasswordNotification extends Notification
+class ChangePasswordNotification extends BaseNotification implements ShouldQueue
 {
     use Queueable;
 
@@ -18,18 +18,17 @@ class ChangePasswordNotification extends Notification
      */
     public function __construct()
     {
-        //
+        parent::__construct();
     }
 
     /**
-     * Get the notification's delivery channels.
+     * Get the event slug for this notification.
      *
-     * @param  mixed  $notifiable
-     * @return array
+     * @return string
      */
-    public function via($notifiable)
+    protected function getEventSlug(): ?string
     {
-        return ['database'];
+        return 'change-password';
     }
 
     /**
@@ -41,9 +40,27 @@ class ChangePasswordNotification extends Notification
     public function toMail($notifiable)
     {
         return (new MailMessage)
-                    ->line('The introduction to the notification.')
-                    ->action('Notification Action', url('/'))
-                    ->line('Thank you for using our application!');
+            ->subject('تغییر رمز عبور')
+            ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
+            ->line('گذرواژه شما تغییر یافت.')
+            ->line('در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً به بخش مدیریت نشست‌ها در پنل کاربری مراجعه کنید و نشست مورد نظر را حذف کنید.')
+            ->action('ورود به پنل', url('/panel'))
+            ->line('با تشکر از شما');
+    }
+
+    /**
+     * Get the SMS representation of the notification.
+     *
+     * @param  mixed  $notifiable
+     * @return array
+     */
+    public function toSms($notifiable)
+    {
+        return [
+            'message' => "گذرواژه شما تغییر یافت. در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً به بخش مدیریت نشست‌ها مراجعه کنید. زنبورک",
+            'phone' => $notifiable->mobile,
+            'body_id' => config('services.meliPayamak.notification_template_id', null),
+        ];
     }
 
     /**

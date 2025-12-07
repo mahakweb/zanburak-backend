@@ -2,12 +2,12 @@
 
 namespace App\Notifications\User;
 
+use App\Notifications\BaseNotification;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
-use Illuminate\Notifications\Notification;
 
-class ChangeMobileNotification extends Notification
+class ChangeMobileNotification extends BaseNotification implements ShouldQueue
 {
     use Queueable;
 
@@ -18,18 +18,17 @@ class ChangeMobileNotification extends Notification
      */
     public function __construct()
     {
-        //
+        parent::__construct();
     }
 
     /**
-     * Get the notification's delivery channels.
+     * Get the event slug for this notification.
      *
-     * @param  mixed  $notifiable
-     * @return array
+     * @return string
      */
-    public function via($notifiable)
+    protected function getEventSlug(): ?string
     {
-        return ['database'];
+        return 'change-mobile';
     }
 
     /**
@@ -41,9 +40,27 @@ class ChangeMobileNotification extends Notification
     public function toMail($notifiable)
     {
         return (new MailMessage)
-                    ->line('The introduction to the notification.')
-                    ->action('Notification Action', url('/'))
-                    ->line('Thank you for using our application!');
+            ->subject('تغییر شماره موبایل')
+            ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
+            ->line('شماره موبایل شما با موفقیت تغییر یافت.')
+            ->line('در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً با پشتیبانی تماس بگیرید.')
+            ->action('ورود به پنل', url('/panel'))
+            ->line('با تشکر از شما');
+    }
+
+    /**
+     * Get the SMS representation of the notification.
+     *
+     * @param  mixed  $notifiable
+     * @return array
+     */
+    public function toSms($notifiable)
+    {
+        return [
+            'message' => "شماره موبایل شما با موفقیت تغییر یافت. در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً با پشتیبانی تماس بگیرید. زنبورک",
+            'phone' => $notifiable->mobile,
+            'body_id' => config('services.meliPayamak.notification_template_id', null),
+        ];
     }
 
     /**

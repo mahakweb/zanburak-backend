@@ -169,20 +169,14 @@ class CommentController extends Controller
 
         $comment = $model->comments()->create($validData + ['user_id' => $user->id]);
 
-        // ارسال اطلاع‌رسانی در صورت پاسخ به کامنت
+        // ارسال اطلاع‌رسانی در صورت پاسخ به کامنت - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
         if ($validData['parent_id'] > 0) {
             $parentComment = Comment::find($validData['parent_id']);
             if ($parentComment && $parentComment->user && $parentComment->user_id != $user->id) {
                 $commentableTitle = $this->getCommentableTitle($parentComment);
-                $replierName = $user->first_name . ' ' . $user->last_name;
+                $commentableUrl = $this->getCommentableUrl($parentComment);
                 
-                sendNotification($parentComment->user, 'reply-to-comment', [
-                    'message' => "{$replierName} به دیدگاه شما در مورد «{$commentableTitle}» پاسخ داد.",
-                    'subject' => 'پاسخ به دیدگاه',
-                    'action_url' => $this->getCommentableUrl($parentComment),
-                    'action_text' => 'مشاهده پاسخ',
-                    'sms_message' => "شما یک پاسخ جدید به دیدگاه خود دریافت کرده‌اید.",
-                ]);
+                $parentComment->user->notify(new \App\Notifications\Comment\ReplyToCommentNotification($parentComment, $user, $commentableTitle, $commentableUrl));
             }
         }
         
@@ -194,15 +188,9 @@ class CommentController extends Controller
                 // در حال حاضر Course, Episode, Path commentable هستند
                 // اگر در آینده Article اضافه شد، می‌توانید اینجا چک کنید
                 $commentableTitle = $this->getCommentableTitle($comment);
-                $commenterName = $user->first_name . ' ' . $user->last_name;
+                $commentableUrl = $this->getCommentableUrl($comment);
                 
-                sendNotification($commentable->user, 'comment-on-article', [
-                    'message' => "{$commenterName} در «{$commentableTitle}» دیدگاه ثبت کرد.",
-                    'subject' => 'دیدگاه جدید',
-                    'action_url' => $this->getCommentableUrl($comment),
-                    'action_text' => 'مشاهده دیدگاه',
-                    'sms_message' => "دیدگاه جدیدی در محتوای شما ثبت شد.",
-                ]);
+                $commentable->user->notify(new \App\Notifications\Comment\CommentOnArticleNotification($comment, $user, $commentableTitle, $commentableUrl));
             }
         }
 

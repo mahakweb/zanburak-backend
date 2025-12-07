@@ -346,14 +346,16 @@ class DiscussController extends Controller
                 $postTitle = $commentable->title ?? $commentable->subject ?? 'دیدگاه شما';
             }
             
+            // ارسال اطلاع‌رسانی لایک/دیس‌لایک - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
             $actionType = $wasLiked ? 'لایک' : 'دیس‌لایک';
-            sendNotification($obj->user, 'like-dislike-post', [
-                'message' => "{$likerName} مطلب شما «{$postTitle}» را {$actionType} کرد.",
-                'subject' => $actionType . ' مطلب',
-                'action_url' => $this->getLikeableUrl($obj),
-                'action_text' => 'مشاهده',
-                'sms_message' => "مطلب شما {$actionType} شد.",
-            ]);
+            $actionUrl = $this->getLikeableUrl($obj);
+            
+            $obj->user->notify(new \App\Notifications\Post\LikeDislikePostNotification(
+                $user,
+                $postTitle,
+                $actionType,
+                $actionUrl
+            ));
         }
 
         $likesCount = $obj->likes()->where('type', 'like')->count() - $obj->likes()->where('type', 'dislike')->count();
@@ -469,17 +471,10 @@ class DiscussController extends Controller
                 $userIds = User::whereIn('username', $usernames)->pluck('id')->toArray();
                 $question->allowed_user_ids = json_encode($userIds);
                 
-                // ارسال اطلاع‌رسانی Mention
+                // ارسال اطلاع‌رسانی Mention - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
                 $mentionedUsers = User::whereIn('username', $usernames)->get();
-                $questionerName = $user->first_name . ' ' . $user->last_name;
                 foreach ($mentionedUsers as $mentionedUser) {
-                    sendNotification($mentionedUser, 'mention', [
-                        'message' => "{$questionerName} در گفتگوی «{$question->subject}» به شما اشاره کرد.",
-                        'subject' => 'اشاره به شما',
-                        'action_url' => frontendUrl("discuss/{$question->slug}"),
-                        'action_text' => 'مشاهده گفتگو',
-                        'sms_message' => "در گفتگویی به شما اشاره شده است.",
-                    ]);
+                    $mentionedUser->notify(new \App\Notifications\Discuss\MentionNotification($question, $user));
                 }
             }
 
@@ -637,17 +632,10 @@ class DiscussController extends Controller
                 $userIds = User::whereIn('username', $usernames)->pluck('id')->toArray();
                 $question->allowed_user_ids = json_encode($userIds);
                 
-                // ارسال اطلاع‌رسانی Mention
+                // ارسال اطلاع‌رسانی Mention - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
                 $mentionedUsers = User::whereIn('username', $usernames)->get();
-                $questionerName = $user->first_name . ' ' . $user->last_name;
                 foreach ($mentionedUsers as $mentionedUser) {
-                    sendNotification($mentionedUser, 'mention', [
-                        'message' => "{$questionerName} در گفتگوی «{$question->subject}» به شما اشاره کرد.",
-                        'subject' => 'اشاره به شما',
-                        'action_url' => frontendUrl("discuss/{$question->slug}"),
-                        'action_text' => 'مشاهده گفتگو',
-                        'sms_message' => "در گفتگویی به شما اشاره شده است.",
-                    ]);
+                    $mentionedUser->notify(new \App\Notifications\Discuss\MentionNotification($question, $user));
                 }
             } else {
                 $question->is_private = false;

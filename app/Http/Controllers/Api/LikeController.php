@@ -37,18 +37,17 @@ class LikeController extends Controller
             $isLikedNow = $user->hasLiked($modelInstance);
             $likesCount = $modelInstance->likes()->count();
             
-            // ارسال اطلاع‌رسانی لایک/دیس‌لایک (فقط اگر لایک جدید اضافه شده باشد)
+            // ارسال اطلاع‌رسانی لایک/دیس‌لایک (فقط اگر لایک جدید اضافه شده باشد) - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
             if ($isLikedNow && !$wasLikedBefore && $modelInstance->user && $modelInstance->user_id != $user->id) {
-                $likerName = $user->first_name . ' ' . $user->last_name;
                 $postTitle = $this->getLikeableTitle($modelInstance);
+                $actionUrl = $this->getLikeableUrl($modelInstance);
                 
-                sendNotification($modelInstance->user, 'like-dislike-post', [
-                    'message' => "{$likerName} مطلب شما «{$postTitle}» را لایک کرد.",
-                    'subject' => 'لایک مطلب',
-                    'action_url' => $this->getLikeableUrl($modelInstance),
-                    'action_text' => 'مشاهده',
-                    'sms_message' => "مطلب شما لایک شد.",
-                ]);
+                $modelInstance->user->notify(new \App\Notifications\Post\LikeDislikePostNotification(
+                    $user,
+                    $postTitle,
+                    'لایک',
+                    $actionUrl
+                ));
             }
     
             return response()->json([

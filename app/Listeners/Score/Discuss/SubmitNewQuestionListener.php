@@ -33,16 +33,10 @@ class SubmitNewQuestionListener
             'score'       => 130,
         ]);
         
-        // ارسال اطلاع‌رسانی به دنبال‌کنندگان کاربر
+        // ارسال اطلاع‌رسانی به دنبال‌کنندگان کاربر - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
         $followers = $user->followers()->get();
         foreach ($followers as $follower) {
-            sendNotification($follower, 'new-discussion', [
-                'message' => "{$user->first_name} {$user->last_name} گفتگوی جدیدی با عنوان «{$question->subject}» ارسال کرد.",
-                'subject' => 'گفتگوی جدید',
-                'action_url' => frontendUrl("discuss/{$question->slug}"),
-                'action_text' => 'مشاهده گفتگو',
-                'sms_message' => "گفتگوی جدیدی از فردی که دنبال می‌کنید ارسال شد.",
-            ]);
+            $follower->notify(new \App\Notifications\Discuss\NewDiscussionNotification($question, $user));
         }
     }
 }

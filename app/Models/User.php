@@ -50,6 +50,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'profile_pic',
         'cover_pic',
         'active',
+        'notifications_enabled',
         'deactivated_by',
         'deactivation_reason',
         'deactivated_until',
@@ -77,6 +78,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'active' => 'boolean',
         'is_superuser' => 'boolean',
         'is_staff' => 'boolean',
+        'notifications_enabled' => 'boolean',
     ];
 
 
