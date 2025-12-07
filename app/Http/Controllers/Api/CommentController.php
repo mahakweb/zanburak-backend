@@ -169,14 +169,14 @@ class CommentController extends Controller
 
         $comment = $model->comments()->create($validData + ['user_id' => $user->id]);
 
-        // ارسال اطلاع‌رسانی در صورت پاسخ به کامنت - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
+        // ارسال اطلاع‌رسانی در صورت پاسخ به کامنت
         if ($validData['parent_id'] > 0) {
             $parentComment = Comment::find($validData['parent_id']);
             if ($parentComment && $parentComment->user && $parentComment->user_id != $user->id) {
                 $commentableTitle = $this->getCommentableTitle($parentComment);
                 $commentableUrl = $this->getCommentableUrl($parentComment);
                 
-                $parentComment->user->notify(new \App\Notifications\Comment\ReplyToCommentNotification($parentComment, $user, $commentableTitle, $commentableUrl));
+                event(new \App\Events\Comment\ReplyToComment($parentComment, $user, $commentableTitle, $commentableUrl));
             }
         }
         
@@ -184,13 +184,10 @@ class CommentController extends Controller
         if ($validData['parent_id'] == 0) {
             $commentable = $comment->commentable;
             if ($commentable && isset($commentable->user_id) && $commentable->user_id != $user->id) {
-                // بررسی اینکه آیا این یک Article یا محتوای قابل کامنت است
-                // در حال حاضر Course, Episode, Path commentable هستند
-                // اگر در آینده Article اضافه شد، می‌توانید اینجا چک کنید
                 $commentableTitle = $this->getCommentableTitle($comment);
                 $commentableUrl = $this->getCommentableUrl($comment);
                 
-                $commentable->user->notify(new \App\Notifications\Comment\CommentOnArticleNotification($comment, $user, $commentableTitle, $commentableUrl));
+                event(new \App\Events\Comment\CommentOnArticle($comment, $user, $commentableTitle, $commentableUrl));
             }
         }
 

@@ -1108,12 +1108,13 @@ class PaymentController extends Controller
             return;
         }
         
-        // ارسال اطلاع‌رسانی - Notification های فیزیکی خودشان کانال‌ها را از NotificationService می‌گیرند
+        // ارسال اطلاع‌رسانی
         // اگر فقط دوره خریداری شده
         if (count($courses) > 0 && count($plans) === 0 && count($paths) === 0) {
             if (count($courses) === 1) {
                 // یک دوره
-                $user->notify(new \App\Notifications\Payment\CoursePurchaseNotification(
+                event(new \App\Events\Payment\CoursePurchased(
+                    $user,
                     "دوره «{$courses[0]->title}» با موفقیت برای شما فعال شد.",
                     frontendUrl("course/{$courses[0]->slug}"),
                     'مشاهده دوره'
@@ -1121,7 +1122,8 @@ class PaymentController extends Controller
             } else {
                 // چند دوره
                 $courseTitles = collect($courses)->pluck('title')->implode('، ');
-                $user->notify(new \App\Notifications\Payment\CoursePurchaseNotification(
+                event(new \App\Events\Payment\CoursePurchased(
+                    $user,
                     count($courses) . " دوره با موفقیت برای شما فعال شد: {$courseTitles}",
                     frontendUrl('panel/courses'),
                     'مشاهده دوره‌ها'
@@ -1131,14 +1133,16 @@ class PaymentController extends Controller
         // اگر فقط پلن VIP خریداری شده
         elseif (count($plans) > 0 && count($courses) === 0 && count($paths) === 0) {
             if (count($plans) === 1) {
-                $user->notify(new \App\Notifications\Payment\VipUpgradeNotification(
+                event(new \App\Events\Payment\VipUpgraded(
+                    $user,
                     "عضویت ویژه «{$plans[0]->title}» با موفقیت برای شما فعال شد.",
                     frontendUrl('panel/vip'),
                     'مشاهده پلن'
                 ));
             } else {
                 $planTitles = collect($plans)->pluck('title')->implode('، ');
-                $user->notify(new \App\Notifications\Payment\VipUpgradeNotification(
+                event(new \App\Events\Payment\VipUpgraded(
+                    $user,
                     count($plans) . " پلن عضویت ویژه با موفقیت برای شما فعال شد: {$planTitles}",
                     frontendUrl('panel/vip'),
                     'مشاهده پلن‌ها'
@@ -1159,7 +1163,8 @@ class PaymentController extends Controller
             }
             
             $itemsText = implode(' و ', $items);
-            $user->notify(new \App\Notifications\Payment\CoursePurchaseNotification(
+            event(new \App\Events\Payment\CoursePurchased(
+                $user,
                 "خرید شما با موفقیت انجام شد و {$itemsText} برای شما فعال شد.",
                 frontendUrl('panel/courses'),
                 'مشاهده خریدها'

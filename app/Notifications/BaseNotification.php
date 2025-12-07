@@ -5,6 +5,7 @@ namespace App\Notifications;
 use App\Services\NotificationService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Base Notification Class
@@ -22,6 +23,8 @@ abstract class BaseNotification extends Notification
     use Queueable;
 
     protected $notificationService;
+    protected $ip;
+    protected $browser;
 
     /**
      * Create a new notification instance.
@@ -29,6 +32,15 @@ abstract class BaseNotification extends Notification
     public function __construct()
     {
         $this->notificationService = new NotificationService();
+        // ذخیره IP و Browser در constructor چون در queue ممکن است request در دسترس نباشد
+        try {
+            $this->ip = request()->ip() ?? null;
+            $this->browser = request()->header('User-Agent') ?? null;
+        } catch (\Exception $e) {
+            // اگر request در دسترس نباشد (مثلاً در queue)
+            $this->ip = null;
+            $this->browser = null;
+        }
     }
 
     /**
@@ -44,14 +56,24 @@ abstract class BaseNotification extends Notification
         
         if (!$eventSlug) {
             // اگر event slug تعریف نشده باشد، فقط database را برمی‌گردانیم
+            Log::warning("BaseNotification: Event slug not defined for " . get_class($this));
             return ['database'];
         }
 
         // دریافت کانال‌های فعال از NotificationService
         $channels = $this->notificationService->getChannels($notifiable, $eventSlug);
 
+        Log::info("BaseNotification: Channels for event '{$eventSlug}' and user {$notifiable->id}", [
+            'channels' => $channels,
+            'notification_class' => get_class($this)
+        ]);
+
         // اگر هیچ کانالی فعال نبود، حداقل database را برمی‌گردانیم
         if (empty($channels)) {
+            Log::warning("BaseNotification: No channels found for event '{$eventSlug}', using database only", [
+                'user_id' => $notifiable->id,
+                'notification_class' => get_class($this)
+            ]);
             return ['database'];
         }
 
@@ -66,4 +88,5 @@ abstract class BaseNotification extends Notification
      */
     abstract protected function getEventSlug(): ?string;
 }
+
 

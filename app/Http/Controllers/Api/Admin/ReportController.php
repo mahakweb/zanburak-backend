@@ -523,6 +523,11 @@ class ReportController extends Controller
 
             DB::commit();
 
+            // ارسال notification تایید گزارش
+            $reportTitle = $this->getReportTitle($report);
+            $actionTaken = $this->getActionTaken($report, 'deactivated');
+            event(new \App\Events\Report\ReportApproved($report->user, $reportTitle, $actionTaken));
+
             return response()->json([
                 'message' => 'Content deactivated successfully',
                 'report' => $report->fresh(['user', 'reportable'])
@@ -646,6 +651,11 @@ class ReportController extends Controller
 
             DB::commit();
 
+            // ارسال notification رد گزارش
+            $reportTitle = $this->getReportTitle($report);
+            $reason = $request->input('reason', 'گزارش شما بررسی شد و محتوا دوباره فعال شد.');
+            event(new \App\Events\Report\ReportRejected($report->user, $reportTitle, $reason));
+
             return response()->json([
                 'message' => 'Content activated successfully',
                 'report' => $report->fresh(['user', 'reportable'])
@@ -656,6 +666,53 @@ class ReportController extends Controller
                 'message' => 'Error activating content',
                 'error' => $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Get report title for notification
+     */
+    private function getReportTitle(Report $report): string
+    {
+        $type = class_basename($report->reportable_type);
+        $reportable = $report->reportable;
+        
+        if ($reportable) {
+            switch (strtolower($type)) {
+                case 'question':
+                    return $reportable->subject ?? "گزارش #{$report->id}";
+                case 'answer':
+                    return "پاسخ به سوال: " . ($reportable->question->subject ?? "گزارش #{$report->id}");
+                case 'comment':
+                    return "دیدگاه: " . (substr($reportable->comment ?? '', 0, 50) . '...' ?? "گزارش #{$report->id}");
+                case 'course':
+                    return $reportable->title ?? "گزارش #{$report->id}";
+                default:
+                    return "گزارش #{$report->id}";
+            }
+        }
+        
+        return "گزارش #{$report->id}";
+    }
+
+    /**
+     * Get action taken for notification
+     */
+    private function getActionTaken(Report $report, string $action): string
+    {
+        $type = class_basename($report->reportable_type);
+        
+        switch (strtolower($type)) {
+            case 'question':
+                return $action === 'deactivated' ? 'سوال غیرفعال شد' : 'سوال دوباره فعال شد';
+            case 'answer':
+                return $action === 'deactivated' ? 'پاسخ غیرفعال شد' : 'پاسخ دوباره فعال شد';
+            case 'comment':
+                return $action === 'deactivated' ? 'دیدگاه غیرفعال شد' : 'دیدگاه دوباره فعال شد';
+            case 'course':
+                return $action === 'deactivated' ? 'دوره غیرفعال شد' : 'دوره دوباره فعال شد';
+            default:
+                return $action === 'deactivated' ? 'محتوا غیرفعال شد' : 'محتوا دوباره فعال شد';
         }
     }
 }

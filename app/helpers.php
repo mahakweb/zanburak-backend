@@ -188,6 +188,12 @@ if (!function_exists("upgrade_mission_for_user")) {
             $userMission->completed_at = Carbon::now();
             $userMission->save();
             echo 'completed <br>';
+            
+            // ارسال notification دستیابی به Mission
+            $user = User::find($userId);
+            if ($user) {
+                $user->notify(new \App\Notifications\Achievement\MissionAchievedNotification($mission));
+            }
         }
         if ($newCurrentLevel->level != $currentLevel->level && $newCurrentLevel->exp > 0) {
             User::find($userId)->scores()->create([

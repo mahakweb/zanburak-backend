@@ -90,6 +90,84 @@ class EventGroupsAndEventsSeeder extends Seeder
                 'description' => 'زمانی که شماره موبایل شما تغییر می‌کند',
                 'slug' => 'change-mobile',
             ],
+            [
+                'title' => 'تکمیل دوره',
+                'english_title' => 'Course Completed',
+                'description' => 'زمانی که دوره را 100% تماشا می‌کنید',
+                'slug' => 'course-completed',
+            ],
+            [
+                'title' => 'دریافت گواهینامه',
+                'english_title' => 'Certificate Issued',
+                'description' => 'زمانی که گواهینامه شما صادر می‌شود',
+                'slug' => 'certificate-issued',
+            ],
+            [
+                'title' => 'پیشرفت در دوره',
+                'english_title' => 'Course Progress',
+                'description' => 'زمانی که به درصد خاصی از دوره می‌رسید',
+                'slug' => 'course-progress',
+            ],
+            [
+                'title' => 'دستیابی به Mission',
+                'english_title' => 'Mission Achieved',
+                'description' => 'زمانی که یک Mission را کامل می‌کنید',
+                'slug' => 'mission-achieved',
+            ],
+            [
+                'title' => 'دستیابی به امتیاز خاص',
+                'english_title' => 'Score Milestone',
+                'description' => 'زمانی که به امتیاز خاصی می‌رسید',
+                'slug' => 'score-milestone',
+            ],
+            [
+                'title' => 'یادآوری دوره ناتمام',
+                'english_title' => 'Course Reminder',
+                'description' => 'یادآوری برای ادامه تماشای دوره',
+                'slug' => 'course-reminder',
+            ],
+            [
+                'title' => 'نزدیک شدن به اتمام دوره',
+                'english_title' => 'Course Near Completion',
+                'description' => 'زمانی که به 90% دوره می‌رسید',
+                'slug' => 'course-near-completion',
+            ],
+            [
+                'title' => 'دوره جدید در دسته‌بندی مورد علاقه',
+                'english_title' => 'New Course in Category',
+                'description' => 'زمانی که دوره جدیدی در دسته‌بندی مورد علاقه شما منتشر می‌شود',
+                'slug' => 'new-course-in-category',
+            ],
+            [
+                'title' => 'ورود از دستگاه جدید',
+                'english_title' => 'Login from New Device',
+                'description' => 'زمانی که از IP یا دستگاه جدیدی وارد می‌شوید',
+                'slug' => 'login-from-new-device',
+            ],
+            [
+                'title' => 'تغییر ایمیل',
+                'english_title' => 'Email Changed',
+                'description' => 'زمانی که ایمیل شما تغییر می‌کند',
+                'slug' => 'email-changed',
+            ],
+            [
+                'title' => 'پایان عضویت VIP (یادآوری)',
+                'english_title' => 'VIP Expiring',
+                'description' => 'یادآوری 7 روز قبل از اتمام عضویت VIP',
+                'slug' => 'vip-expiring',
+            ],
+            [
+                'title' => 'پایان عضویت VIP',
+                'english_title' => 'VIP Expired',
+                'description' => 'زمانی که عضویت VIP شما به پایان می‌رسد',
+                'slug' => 'vip-expired',
+            ],
+            [
+                'title' => 'پرداخت ناموفق',
+                'english_title' => 'Payment Failed',
+                'description' => 'زمانی که پرداخت شما ناموفق است',
+                'slug' => 'payment-failed',
+            ],
         ];
 
         foreach ($yourActivityEvents as $event) {
@@ -163,6 +241,24 @@ class EventGroupsAndEventsSeeder extends Seeder
                 'description' => 'زمانی که کسی در پست یا کامنتی به شما اشاره می‌کند',
                 'slug' => 'mention',
             ],
+            [
+                'title' => 'پاسخ به سوال قدیمی',
+                'english_title' => 'Old Question Answered',
+                'description' => 'زمانی که به سوال قدیمی شما پاسخ داده می‌شود',
+                'slug' => 'old-question-answered',
+            ],
+            [
+                'title' => 'تایید گزارش',
+                'english_title' => 'Report Approved',
+                'description' => 'زمانی که گزارش شما تایید می‌شود',
+                'slug' => 'report-approved',
+            ],
+            [
+                'title' => 'رد گزارش',
+                'english_title' => 'Report Rejected',
+                'description' => 'زمانی که گزارش شما رد می‌شود',
+                'slug' => 'report-rejected',
+            ],
         ];
 
         foreach ($othersActivityEvents as $event) {
@@ -209,6 +305,49 @@ class EventGroupsAndEventsSeeder extends Seeder
                 'slug' => $event['slug'],
                 'description' => $event['description'],
                 'event_group_id' => $followedActivityGroup->id,
+                'is_email_enabled' => true,
+                'is_sms_enabled' => true,
+                'is_telegram_enabled' => false, // فعلا غیرفعال
+                'is_site_enabled' => true,
+            ]);
+        }
+
+        // گروه چهارم: مدیریت و امنیت
+        $managementGroup = EventGroup::create([
+            'title' => 'مدیریت و امنیت',
+            'english_title' => 'Management & Security',
+            'description' => 'اطلاع‌رسانی‌های مربوط به مدیریت حساب کاربری و امنیت',
+            'icon' => '<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 1L3 5V11C3 16.55 6.84 21.74 12 23C17.16 21.74 21 16.55 21 11V5L12 1ZM12 7C13.4 7 14.8 8.6 14.8 10V11.5C15.4 11.5 16 12.1 16 12.7V16.2C16 16.8 15.4 17.3 14.8 17.3H9.2C8.6 17.3 8 16.8 8 16.2V12.7C8 12.1 8.6 11.5 9.2 11.5V10C9.2 8.6 10.6 7 12 7ZM12 8.2C11.2 8.2 10.5 8.7 10.5 10V11.5H13.5V10C13.5 8.7 12.8 8.2 12 8.2Z" fill="currentColor"/></svg>',
+        ]);
+
+        $managementEvents = [
+            [
+                'title' => 'تغییر نقش',
+                'english_title' => 'Role Changed',
+                'description' => 'زمانی که نقش‌های شما تغییر می‌کند',
+                'slug' => 'role-changed',
+            ],
+            [
+                'title' => 'مسدود شدن حساب',
+                'english_title' => 'Account Suspended',
+                'description' => 'زمانی که حساب کاربری شما مسدود می‌شود',
+                'slug' => 'account-suspended',
+            ],
+            [
+                'title' => 'رفع مسدودیت حساب',
+                'english_title' => 'Account Unsuspended',
+                'description' => 'زمانی که مسدودیت حساب کاربری شما رفع می‌شود',
+                'slug' => 'account-unsuspended',
+            ],
+        ];
+
+        foreach ($managementEvents as $event) {
+            Event::create([
+                'title' => $event['title'],
+                'english_title' => $event['english_title'],
+                'slug' => $event['slug'],
+                'description' => $event['description'],
+                'event_group_id' => $managementGroup->id,
                 'is_email_enabled' => true,
                 'is_sms_enabled' => true,
                 'is_telegram_enabled' => false, // فعلا غیرفعال

@@ -56,7 +56,14 @@ class SubmitNewAnswerListener
         // ارسال اطلاع‌رسانی - Notification های فیزیکی خودشان کانال‌ها را از NotificationService می‌گیرند
         // به صاحب سوال (اگر خودش نباشد)
         if ($question->user_id != $user->id) {
-            $question->user->notify(new \App\Notifications\Discuss\ReplyToDiscussionNotification($question, $user));
+            // بررسی اینکه آیا سوال قدیمی است (بیش از 30 روز)
+            $isOldQuestion = $question->created_at->diffInDays(now()) > 30;
+            
+            if ($isOldQuestion) {
+                $question->user->notify(new \App\Notifications\Discuss\OldQuestionAnsweredNotification($question, $user));
+            } else {
+                $question->user->notify(new \App\Notifications\Discuss\ReplyToDiscussionNotification($question, $user));
+            }
         }
         
         // به bookmark کنندگان سوال (اگر خودشان نباشند)

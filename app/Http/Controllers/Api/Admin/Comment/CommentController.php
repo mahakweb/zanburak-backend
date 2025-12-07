@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Comment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Log;
 
 class CommentController extends Controller
 {
@@ -303,12 +304,12 @@ class CommentController extends Controller
         $comment->approved = !$comment->approved;
         $comment->save();
 
-        // ارسال اطلاع‌رسانی در صورت تایید کامنت - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
+        // ارسال اطلاع‌رسانی در صورت تایید کامنت
         if ($comment->approved && !$wasApproved && $comment->user) {
             $commentableTitle = $this->getCommentableTitle($comment);
             $commentableUrl = $this->getCommentableUrl($comment);
             
-            $comment->user->notify(new \App\Notifications\Comment\CommentApprovedNotification($comment, $commentableTitle, $commentableUrl));
+            event(new \App\Events\Comment\CommentApproved($comment, $commentableTitle, $commentableUrl));
         }
 
         $response = [
@@ -393,11 +394,9 @@ class CommentController extends Controller
             if ($parent && $parent->user && $parent->user_id != auth('api')->user()->id) {
                 $commentableTitle = $this->getCommentableTitle($parent);
                 $replier = auth('api')->user();
-                $replierName = $replier->first_name . ' ' . $replier->last_name;
                 $commentableUrl = $this->getCommentableUrl($parent);
                 
-                // ارسال اطلاع‌رسانی - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
-                $parent->user->notify(new \App\Notifications\Comment\ReplyToCommentNotification($parent, $replier, $commentableTitle, $commentableUrl));
+                event(new \App\Events\Comment\ReplyToComment($parent, $replier, $commentableTitle, $commentableUrl));
             }
 
             $response = [

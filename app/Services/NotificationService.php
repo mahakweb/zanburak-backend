@@ -129,7 +129,7 @@ class NotificationService
         try {
             // بررسی اینکه آیا کاربر اطلاع‌رسانی‌ها را غیرفعال کرده است
             if ($user->notifications_enabled === false) {
-                Log::info("Notifications disabled for user {$user->id}");
+                Log::info("NotificationService: Notifications disabled for user {$user->id}");
                 return [];
             }
 
@@ -137,8 +137,9 @@ class NotificationService
             $event = Event::where('slug', $eventSlug)->first();
             
             if (!$event) {
-                Log::warning("Event not found: {$eventSlug}");
-                return [];
+                Log::warning("NotificationService: Event not found: {$eventSlug} for user {$user->id}");
+                // اگر event پیدا نشد، حداقل database را برمی‌گردانیم
+                return ['database'];
             }
 
             // بررسی تنظیمات کاربر برای این رویداد
@@ -177,15 +178,35 @@ class NotificationService
                 }
             }
 
+            Log::info("NotificationService: Channels for user {$user->id} and event '{$eventSlug}'", [
+                'channels' => $channels,
+                'has_preference' => $preference ? true : false,
+                'event_enabled_channels' => [
+                    'site' => $event->is_site_enabled,
+                    'email' => $event->is_email_enabled,
+                    'sms' => $event->is_sms_enabled,
+                ]
+            ]);
+
+            // اگر هیچ کانالی فعال نبود، حداقل database را برمی‌گردانیم
+            if (empty($channels)) {
+                Log::warning("NotificationService: No channels found, using database only", [
+                    'user_id' => $user->id,
+                    'event_slug' => $eventSlug
+                ]);
+                return ['database'];
+            }
+
             return $channels;
 
         } catch (\Exception $e) {
-            Log::error("Error getting channels: " . $e->getMessage(), [
+            Log::error("NotificationService: Error getting channels: " . $e->getMessage(), [
                 'user_id' => $user->id,
                 'event_slug' => $eventSlug,
                 'trace' => $e->getTraceAsString()
             ]);
-            return [];
+            // در صورت خطا، حداقل database را برمی‌گردانیم
+            return ['database'];
         }
     }
 }

@@ -346,11 +346,12 @@ class DiscussController extends Controller
                 $postTitle = $commentable->title ?? $commentable->subject ?? 'دیدگاه شما';
             }
             
-            // ارسال اطلاع‌رسانی لایک/دیس‌لایک - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
+            // ارسال اطلاع‌رسانی لایک/دیس‌لایک
             $actionType = $wasLiked ? 'لایک' : 'دیس‌لایک';
             $actionUrl = $this->getLikeableUrl($obj);
             
-            $obj->user->notify(new \App\Notifications\Post\LikeDislikePostNotification(
+            event(new \App\Events\Post\PostLiked(
+                $obj->user,
                 $user,
                 $postTitle,
                 $actionType,
@@ -471,10 +472,10 @@ class DiscussController extends Controller
                 $userIds = User::whereIn('username', $usernames)->pluck('id')->toArray();
                 $question->allowed_user_ids = json_encode($userIds);
                 
-                // ارسال اطلاع‌رسانی Mention - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
+                // ارسال اطلاع‌رسانی Mention
                 $mentionedUsers = User::whereIn('username', $usernames)->get();
                 foreach ($mentionedUsers as $mentionedUser) {
-                    $mentionedUser->notify(new \App\Notifications\Discuss\MentionNotification($question, $user));
+                    event(new \App\Events\Discuss\Mentioned($mentionedUser, $question, $user));
                 }
             }
 
@@ -632,10 +633,10 @@ class DiscussController extends Controller
                 $userIds = User::whereIn('username', $usernames)->pluck('id')->toArray();
                 $question->allowed_user_ids = json_encode($userIds);
                 
-                // ارسال اطلاع‌رسانی Mention - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
+                // ارسال اطلاع‌رسانی Mention
                 $mentionedUsers = User::whereIn('username', $usernames)->get();
                 foreach ($mentionedUsers as $mentionedUser) {
-                    $mentionedUser->notify(new \App\Notifications\Discuss\MentionNotification($question, $user));
+                    event(new \App\Events\Discuss\Mentioned($mentionedUser, $question, $user));
                 }
             } else {
                 $question->is_private = false;

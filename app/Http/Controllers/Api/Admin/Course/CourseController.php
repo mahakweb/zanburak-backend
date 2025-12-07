@@ -743,11 +743,17 @@ class CourseController extends Controller
                 // حذف تکراری‌ها و صاحب دوره
                 $userIds = $userIds->unique()->reject(fn($id) => $id == $user->id);
                 
-                // ارسال اطلاع‌رسانی به کاربران - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
+                // ارسال اطلاع‌رسانی به کاربران
                 if ($userIds->isNotEmpty()) {
                     $users = \App\Models\User::whereIn('id', $userIds->toArray())->get();
                     foreach ($users as $user) {
-                        $user->notify(new \App\Notifications\Course\NewCourseNotification($course));
+                        // ارسال notification دوره جدید
+                        event(new \App\Events\Course\NewCourse($user, $course));
+                        
+                        // ارسال notification دوره جدید در دسته‌بندی مورد علاقه
+                        foreach ($course->category as $category) {
+                            event(new \App\Events\Course\NewCourseInCategory($user, $course, $category));
+                        }
                     }
                 }
             }
@@ -934,10 +940,10 @@ class CourseController extends Controller
             
             $course->retag($validData['tags']);
 
-            // ارسال اطلاع‌رسانی به کاربرانی که در دوره ثبت‌نام کرده‌اند - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
+            // ارسال اطلاع‌رسانی به کاربرانی که در دوره ثبت‌نام کرده‌اند
             $enrolledUsers = $course->users;
             foreach ($enrolledUsers as $user) {
-                $user->notify(new \App\Notifications\Course\CourseUpdatedNotification($course));
+                event(new \App\Events\Course\CourseUpdated($user, $course));
             }
 
             return response()->json(['message' => "Course updated successfully", 'course' => $course], 200);

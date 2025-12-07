@@ -54,7 +54,26 @@ class VideoViewsController extends Controller
             $full_watched && $video->videoable_type == 'App\Models\Episode') {
             $episode = Episode::find($video->videoable_id);
             $course = $episode->section->course;
+            
+            // محاسبه پیشرفت دوره
+            $progress = \App\Models\VideoView::getCourseProgressForUser($user->id, $course->id);
+            $progressPercentage = (int) round($progress['progress_percentage']);
+            
+            // ارسال notification پیشرفت (برای 25%, 50%, 75% و 70%+)
+            if (in_array($progressPercentage, [25, 50, 75]) || ($progressPercentage >= 70 && $progressPercentage < 100)) {
+                event(new \App\Events\Course\CourseProgress($user, $course, $progressPercentage));
+            }
+            
+            // ارسال notification نزدیک به اتمام (90%+)
+            if ($progressPercentage >= 90 && $progressPercentage < 100) {
+                $remainingPercent = 100 - $progressPercentage;
+                event(new \App\Events\Course\CourseNearCompletion($user, $course, $remainingPercent));
+            }
+            
+            // بررسی تکمیل دوره و صدور گواهینامه
             if($course->isCompletedByUser($user->id) && $course->end_date && $course->end_date <= now()) {
+                $wasCompleted = $user->courses()->where('course_id', $course->id)->whereNotNull('completed_at')->exists();
+                
                 $user->courses()->updateExistingPivot($course->id, [
                     'completed_at' => now(),
                 ]);
@@ -64,7 +83,7 @@ class VideoViewsController extends Controller
                     $uuid = Str::uuid();
                 } while (Certificate::where('uuid', $uuid)->exists());
 
-                $user->certificates()->create([
+                $certificate = $user->certificates()->create([
                     'course_id' => $course->id,
                     'uuid' => $uuid,
                     'user_name' => $user->first_name.' '.$user->last_name,
@@ -72,6 +91,14 @@ class VideoViewsController extends Controller
                     'time_completed' => $course->totalTime(),
                     'issued_at' => now(),
                 ]);
+                
+                // ارسال notification تکمیل دوره (فقط اگر قبلاً کامل نشده بود)
+                if (!$wasCompleted) {
+                    event(new \App\Events\Course\CourseCompleted($user, $course));
+                }
+                
+                // ارسال notification صدور گواهینامه
+                event(new \App\Events\Course\CertificateIssued($user, $course, $certificate));
             }
         }
 

@@ -62,9 +62,10 @@ class DiscountController extends Controller
                 return response()->json(['error' => 'این کد برای هیچ‌یک از آیتم‌های سبد شما قابل اعمال نیست.'], 422);
             }
             
-            // ارسال اطلاع‌رسانی تخفیف - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
+            // ارسال اطلاع‌رسانی تخفیف
             $totalDiscount = $carts->sum('discount_amount');
-            $user->notify(new \App\Notifications\Discount\DiscountNotification(
+            event(new \App\Events\Discount\DiscountApplied(
+                $user,
                 "کد تخفیف «{$discount->code}» با موفقیت اعمال شد و {$totalDiscount} تومان از قیمت شما کسر شد.",
                 frontendUrl('cart')
             ));

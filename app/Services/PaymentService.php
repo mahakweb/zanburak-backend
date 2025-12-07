@@ -158,6 +158,14 @@ class PaymentService
             return ['status' => 'paid'];
         } catch (InvalidPaymentException $e) {
             $payment->update(['status' => 'failed']);
+            
+            // ارسال notification پرداخت ناموفق
+            event(new \App\Events\Payment\PaymentFailed(
+                $payment->user,
+                $payment->amount,
+                $e->getMessage()
+            ));
+            
             return ['status' => 'failed', 'error' => $e->getMessage()];
         }
     }
@@ -236,7 +244,7 @@ class PaymentService
                     break;
 
                 default:
-                    \Log::warning("نوع ناشناخته در پرداخت: {$item->payable_type}", [
+                    Log::warning("نوع ناشناخته در پرداخت: {$item->payable_type}", [
                         'payment_id' => $payment->id,
                         'item_id' => $item->id,
                     ]);
@@ -244,13 +252,13 @@ class PaymentService
         }
         
         // ارسال نوتیف‌های مناسب بر اساس محتویات خرید
-        $this->sendPurchaseNotifications($user, $courses, $plans, $paths);
+        $this->sendPurchaseNotifications($user, $courses, $plans, $paths, $payment);
     }
     
     /**
      * ارسال نوتیف‌های خرید بر اساس محتویات
      */
-    private function sendPurchaseNotifications($user, $courses, $plans, $paths)
+    private function sendPurchaseNotifications($user, $courses, $plans, $paths, $payment)
     {
         $totalItems = count($courses) + count($plans) + count($paths);
         
@@ -258,12 +266,13 @@ class PaymentService
             return;
         }
         
-        // ارسال اطلاع‌رسانی - Notification های فیزیکی خودشان کانال‌ها را از NotificationService می‌گیرند
+        // ارسال اطلاع‌رسانی
         // اگر فقط دوره خریداری شده
         if (count($courses) > 0 && count($plans) === 0 && count($paths) === 0) {
             if (count($courses) === 1) {
                 // یک دوره
-                $user->notify(new \App\Notifications\Payment\CoursePurchaseNotification(
+                event(new \App\Events\Payment\CoursePurchased(
+                    $user,
                     "دوره «{$courses[0]->title}» با موفقیت برای شما فعال شد.",
                     frontendUrl("course/{$courses[0]->slug}"),
                     'مشاهده دوره'
@@ -271,7 +280,8 @@ class PaymentService
             } else {
                 // چند دوره
                 $courseTitles = collect($courses)->pluck('title')->implode('، ');
-                $user->notify(new \App\Notifications\Payment\CoursePurchaseNotification(
+                event(new \App\Events\Payment\CoursePurchased(
+                    $user,
                     count($courses) . " دوره با موفقیت برای شما فعال شد: {$courseTitles}",
                     frontendUrl('panel/courses'),
                     'مشاهده دوره‌ها'
@@ -281,14 +291,16 @@ class PaymentService
         // اگر فقط پلن VIP خریداری شده
         elseif (count($plans) > 0 && count($courses) === 0 && count($paths) === 0) {
             if (count($plans) === 1) {
-                $user->notify(new \App\Notifications\Payment\VipUpgradeNotification(
+                event(new \App\Events\Payment\VipUpgraded(
+                    $user,
                     "عضویت ویژه «{$plans[0]->title}» با موفقیت برای شما فعال شد.",
                     frontendUrl('panel/vip'),
                     'مشاهده پلن'
                 ));
             } else {
                 $planTitles = collect($plans)->pluck('title')->implode('، ');
-                $user->notify(new \App\Notifications\Payment\VipUpgradeNotification(
+                event(new \App\Events\Payment\VipUpgraded(
+                    $user,
                     count($plans) . " پلن عضویت ویژه با موفقیت برای شما فعال شد: {$planTitles}",
                     frontendUrl('panel/vip'),
                     'مشاهده پلن‌ها'
@@ -309,35 +321,35 @@ class PaymentService
             }
             
             $itemsText = implode(' و ', $items);
-            $user->notify(new \App\Notifications\Payment\CoursePurchaseNotification(
+            event(new \App\Events\Payment\CoursePurchased(
+                $user,
                 "خرید شما با موفقیت انجام شد و {$itemsText} برای شما فعال شد.",
                 frontendUrl('panel/courses'),
                 'مشاهده خریدها'
             ));
         }
-    }
-
-		// Record discount/coupon usage(s) for this successful payment
-		$codes = collect();
-		if ($payment->discount_code) {
-			$codes->push($payment->discount_code);
-		}
-		foreach ($payment->items as $item) {
-			if (!empty($item->discount_code)) {
-				$codes->push($item->discount_code);
-			}
-		}
-		$codes = $codes->filter()->unique();
-		foreach ($codes as $code) {
-			$discount = Discount::where('code', $code)->first();
-			if ($discount) {
-				$discount->usages()->create([
-					'user_id' => $payment->user_id,
-					'payment_id' => $payment->id,
-					'used_at' => now(),
-				]);
-			}
-		}
+        
+        // Record discount/coupon usage(s) for this successful payment
+        $codes = collect();
+        if ($payment->discount_code) {
+            $codes->push($payment->discount_code);
+        }
+        foreach ($payment->items as $item) {
+            if (!empty($item->discount_code)) {
+                $codes->push($item->discount_code);
+            }
+        }
+        $codes = $codes->filter()->unique();
+        foreach ($codes as $code) {
+            $discount = Discount::where('code', $code)->first();
+            if ($discount) {
+                $discount->usages()->create([
+                    'user_id' => $payment->user_id,
+                    'payment_id' => $payment->id,
+                    'used_at' => now(),
+                ]);
+            }
+        }
     }
 
 	/**

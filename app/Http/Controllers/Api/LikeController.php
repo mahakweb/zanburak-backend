@@ -42,7 +42,8 @@ class LikeController extends Controller
                 $postTitle = $this->getLikeableTitle($modelInstance);
                 $actionUrl = $this->getLikeableUrl($modelInstance);
                 
-                $modelInstance->user->notify(new \App\Notifications\Post\LikeDislikePostNotification(
+                event(new \App\Events\Post\PostLiked(
+                    $modelInstance->user,
                     $user,
                     $postTitle,
                     'لایک',

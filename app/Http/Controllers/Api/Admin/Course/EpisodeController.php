@@ -248,10 +248,10 @@ class EpisodeController extends Controller
                     $this->reorderCourseEpisodes($course->id);
                 // }
 
-                // ارسال اطلاع‌رسانی به کاربرانی که در دوره ثبت‌نام کرده‌اند - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
+                // ارسال اطلاع‌رسانی به کاربرانی که در دوره ثبت‌نام کرده‌اند
                 $enrolledUsers = $course->users;
                 foreach ($enrolledUsers as $user) {
-                    $user->notify(new \App\Notifications\Course\CourseUpdatedNotification($course));
+                    event(new \App\Events\Course\CourseUpdated($user, $course));
                 }
 
                 return response()->json(['message' => 'Success, episode updated successfully.'], 200);
