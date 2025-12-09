@@ -44,7 +44,7 @@ class ChangePasswordNotification extends BaseNotification implements ShouldQueue
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line('گذرواژه شما تغییر یافت.')
             ->line('در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً به بخش مدیریت نشست‌ها در پنل کاربری مراجعه کنید و نشست مورد نظر را حذف کنید.')
-            ->action('ورود به پنل', url('/panel'))
+            ->action('ورود به پنل', frontendUrl('panel'))
             ->line('با تشکر از شما');
     }
 

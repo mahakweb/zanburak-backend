@@ -50,7 +50,7 @@ class SelectBestAnswerNotification extends BaseNotification implements ShouldQue
                     ->subject('بهترین پاسخ')
                     ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
                     ->line("پاسخ شما به سوال «{$question->subject}» به عنوان بهترین پاسخ انتخاب شد.")
-                    ->action('مشاهده سوال', url("/discuss/{$question->slug}"))
+                    ->action('مشاهده سوال', frontendUrl("discuss/{$question->slug}"))
                     ->line('با تشکر از مشارکت شما در زنبورک');
     }
 

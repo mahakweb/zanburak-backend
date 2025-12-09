@@ -44,7 +44,7 @@ class AccountUnsuspendedNotification extends BaseNotification implements ShouldQ
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line('مسدودیت حساب کاربری شما رفع شد.')
             ->line('اکنون می‌توانید از تمام امکانات سایت استفاده کنید.')
-            ->action('ورود به پنل', url('/panel'))
+            ->action('ورود به پنل', frontendUrl('panel'))
             ->line('با تشکر از شما');
     }
 

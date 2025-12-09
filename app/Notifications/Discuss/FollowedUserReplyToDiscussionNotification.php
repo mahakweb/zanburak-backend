@@ -52,7 +52,7 @@ class FollowedUserReplyToDiscussionNotification extends BaseNotification impleme
             ->subject('پاسخ به گفتگو')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("{$answererName} که دنبال می‌کنید به گفتگویی پاسخ داد.")
-            ->action('مشاهده پاسخ', url("/discuss/{$this->question->slug}"))
+            ->action('مشاهده پاسخ', frontendUrl("discuss/{$this->question->slug}"))
             ->line('با تشکر از شما');
     }
 

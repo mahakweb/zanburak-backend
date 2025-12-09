@@ -56,7 +56,7 @@ class AccountSuspendedNotification extends BaseNotification implements ShouldQue
         }
         
         $mail->line('در صورت نیاز می‌توانید با پشتیبانی تماس بگیرید.')
-            ->action('تماس با پشتیبانی', url('/contact'))
+            ->action('تماس با پشتیبانی', frontendUrl('contact'))
             ->line('با تشکر از شما');
 
         return $mail;

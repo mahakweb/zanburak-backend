@@ -51,7 +51,7 @@ class NewCourseInCategoryNotification extends BaseNotification implements Should
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("دوره جدیدی در دسته‌بندی «{$this->category->title}» منتشر شد.")
             ->line("دوره «{$this->course->title}» آماده تماشا است.")
-            ->action('مشاهده دوره', url("/course/{$this->course->slug}"))
+            ->action('مشاهده دوره', frontendUrl("course/{$this->course->slug}"))
             ->line('با تشکر از شما');
     }
 

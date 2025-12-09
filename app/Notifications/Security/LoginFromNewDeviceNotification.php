@@ -58,7 +58,7 @@ class LoginFromNewDeviceNotification extends BaseNotification implements ShouldQ
                 return $mail->line($deviceInfo);
             })
             ->line('در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً رمز عبور خود را تغییر دهید.')
-            ->action('تغییر رمز عبور', url('/panel/change-password'))
+            ->action('تغییر رمز عبور', frontendUrl('panel/change-password'))
             ->line('با تشکر از شما');
     }
 

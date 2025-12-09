@@ -3,8 +3,11 @@
 namespace App\Notifications;
 
 use App\Services\NotificationService;
+use App\Notifications\Channels\SyncDatabaseChannel;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Notification;
+use Illuminate\Support\Facades\Notification as NotificationFacade;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -46,6 +49,8 @@ abstract class BaseNotification extends Notification
     /**
      * Get the notification's delivery channels.
      * این متد از NotificationService برای دریافت کانال‌های فعال استفاده می‌کند.
+     * اگر notification از ShouldQueue استفاده کند، کانال‌های دیتابیس را فوراً ارسال می‌کند
+     * و فقط کانال‌های دیگر (ایمیل، SMS) را برمی‌گرداند تا در صف قرار گیرند.
      *
      * @param  mixed  $notifiable
      * @return array
@@ -57,26 +62,81 @@ abstract class BaseNotification extends Notification
         if (!$eventSlug) {
             // اگر event slug تعریف نشده باشد، فقط database را برمی‌گردانیم
             Log::warning("BaseNotification: Event slug not defined for " . get_class($this));
-            return ['database'];
-        }
+            $channels = [SyncDatabaseChannel::class];
+        } else {
+            // دریافت کانال‌های فعال از NotificationService
+            $channels = $this->notificationService->getChannels($notifiable, $eventSlug);
 
-        // دریافت کانال‌های فعال از NotificationService
-        $channels = $this->notificationService->getChannels($notifiable, $eventSlug);
-
-        Log::info("BaseNotification: Channels for event '{$eventSlug}' and user {$notifiable->id}", [
-            'channels' => $channels,
-            'notification_class' => get_class($this)
-        ]);
-
-        // اگر هیچ کانالی فعال نبود، حداقل database را برمی‌گردانیم
-        if (empty($channels)) {
-            Log::warning("BaseNotification: No channels found for event '{$eventSlug}', using database only", [
-                'user_id' => $notifiable->id,
+            Log::info("BaseNotification: Channels for event '{$eventSlug}' and user {$notifiable->id}", [
+                'channels' => $channels,
                 'notification_class' => get_class($this)
             ]);
-            return ['database'];
+
+            // اگر هیچ کانالی فعال نبود، حداقل database را برمی‌گردانیم
+            if (empty($channels)) {
+                Log::warning("BaseNotification: No channels found for event '{$eventSlug}', using database only", [
+                    'user_id' => $notifiable->id,
+                    'notification_class' => get_class($this)
+                ]);
+                $channels = [SyncDatabaseChannel::class];
+            }
         }
 
+        // اگر notification از ShouldQueue استفاده می‌کند، کانال‌های دیتابیس را فوراً ارسال می‌کنیم
+        if ($this instanceof ShouldQueue) {
+            $databaseChannels = [];
+            $otherChannels = [];
+            
+            foreach ($channels as $channel) {
+                if ($channel === SyncDatabaseChannel::class || $channel === 'database') {
+                    $databaseChannels[] = SyncDatabaseChannel::class;
+                } else {
+                    $otherChannels[] = $channel;
+                }
+            }
+            
+            // ارسال فوری نوتیفیکیشن‌های دیتابیس
+            if (!empty($databaseChannels)) {
+                try {
+                    // ایجاد یک notification wrapper که از ShouldQueue استفاده نمی‌کند
+                    $databaseNotification = new class($this) extends Notification {
+                        protected $originalNotification;
+                        
+                        public function __construct($originalNotification) {
+                            $this->originalNotification = $originalNotification;
+                        }
+                        
+                        public function via($notifiable) {
+                            return [SyncDatabaseChannel::class];
+                        }
+                        
+                        public function toArray($notifiable) {
+                            return $this->originalNotification->toArray($notifiable);
+                        }
+                    };
+                    
+                    // ارسال فوری بدون queue
+                    NotificationFacade::sendNow($notifiable, $databaseNotification);
+                    
+                    Log::info("BaseNotification: Database notification sent immediately", [
+                        'user_id' => $notifiable->id ?? null,
+                        'notification_class' => get_class($this),
+                        'channels' => $databaseChannels
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error("BaseNotification: Error sending database notification immediately: " . $e->getMessage(), [
+                        'user_id' => $notifiable->id ?? null,
+                        'notification_class' => get_class($this),
+                        'trace' => $e->getTraceAsString()
+                    ]);
+                }
+            }
+            
+            // فقط کانال‌های غیر دیتابیس را برمی‌گردانیم تا در صف قرار گیرند
+            return $otherChannels;
+        }
+
+        // اگر ShouldQueue نیست، همه کانال‌ها را برمی‌گردانیم
         return $channels;
     }
 

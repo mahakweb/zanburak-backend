@@ -7,6 +7,7 @@ use App\Models\Event;
 use App\Models\NotificationPreference;
 use App\Notifications\CustomEventNotification;
 use App\Notifications\Channels\SmsChannel;
+use App\Notifications\Channels\SyncDatabaseChannel;
 use Illuminate\Support\Facades\Log;
 
 class NotificationService
@@ -48,7 +49,7 @@ class NotificationService
             if ($preference) {
                 // بررسی کانال‌های فعال برای کاربر
                 if ($preference->via_site && $event->is_site_enabled) {
-                    $channels[] = 'database';
+                    $channels[] = SyncDatabaseChannel::class;
                 }
                 if ($preference->via_email && $event->is_email_enabled) {
                     $channels[] = 'mail';
@@ -63,7 +64,7 @@ class NotificationService
             } else {
                 // استفاده از تنظیمات پیش‌فرض Event
                 if ($event->is_site_enabled) {
-                    $channels[] = 'database';
+                    $channels[] = SyncDatabaseChannel::class;
                 }
                 if ($event->is_email_enabled) {
                     $channels[] = 'mail';
@@ -139,7 +140,7 @@ class NotificationService
             if (!$event) {
                 Log::warning("NotificationService: Event not found: {$eventSlug} for user {$user->id}");
                 // اگر event پیدا نشد، حداقل database را برمی‌گردانیم
-                return ['database'];
+                return [SyncDatabaseChannel::class];
             }
 
             // بررسی تنظیمات کاربر برای این رویداد
@@ -153,7 +154,7 @@ class NotificationService
             if ($preference) {
                 // بررسی کانال‌های فعال برای کاربر
                 if ($preference->via_site && $event->is_site_enabled) {
-                    $channels[] = 'database';
+                    $channels[] = SyncDatabaseChannel::class;
                 }
                 if ($preference->via_email && $event->is_email_enabled) {
                     $channels[] = 'mail';
@@ -168,7 +169,7 @@ class NotificationService
             } else {
                 // استفاده از تنظیمات پیش‌فرض Event
                 if ($event->is_site_enabled) {
-                    $channels[] = 'database';
+                    $channels[] = SyncDatabaseChannel::class;
                 }
                 if ($event->is_email_enabled) {
                     $channels[] = 'mail';
@@ -194,7 +195,7 @@ class NotificationService
                     'user_id' => $user->id,
                     'event_slug' => $eventSlug
                 ]);
-                return ['database'];
+                return [SyncDatabaseChannel::class];
             }
 
             return $channels;
@@ -206,7 +207,7 @@ class NotificationService
                 'trace' => $e->getTraceAsString()
             ]);
             // در صورت خطا، حداقل database را برمی‌گردانیم
-            return ['database'];
+            return [SyncDatabaseChannel::class];
         }
     }
 }

@@ -48,7 +48,7 @@ class CourseCompletedNotification extends BaseNotification implements ShouldQueu
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("تبریک! شما دوره «{$this->course->title}» را با موفقیت تکمیل کردید.")
             ->line('امیدواریم از این دوره لذت برده باشید.')
-            ->action('مشاهده گواهینامه', url("/certificate/{$this->course->slug}"))
+            ->action('مشاهده گواهینامه', frontendUrl("certificate/{$this->course->slug}"))
             ->line('با تشکر از شما');
     }
 

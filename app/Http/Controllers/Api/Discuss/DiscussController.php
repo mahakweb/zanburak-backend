@@ -785,4 +785,33 @@ class DiscussController extends Controller
 
         return response()->json(['message' => 'Success', 'similarQuestions' => $similarQuestions], 200);
     }
+
+    /**
+     * Get URL for likeable item
+     */
+    private function getLikeableUrl($likeable)
+    {
+        if ($likeable instanceof \App\Models\Answer) {
+            return frontendUrl("discuss/{$likeable->question->slug}");
+        } elseif ($likeable instanceof \App\Models\Question) {
+            return frontendUrl("discuss/{$likeable->slug}");
+        } elseif ($likeable instanceof \App\Models\Comment) {
+            $commentable = $likeable->commentable;
+            if (!$commentable) {
+                return frontendUrl();
+            }
+            $slug = $commentable->slug ?? null;
+            if (!$slug) {
+                return frontendUrl();
+            }
+            if ($commentable instanceof \App\Models\Course) {
+                return frontendUrl("course/{$slug}");
+            } elseif ($commentable instanceof \App\Models\Episode) {
+                return frontendUrl("course/{$commentable->section->course->slug}/episode/{$slug}");
+            } elseif ($commentable instanceof \App\Models\Path) {
+                return frontendUrl("path/{$slug}");
+            }
+        }
+        return frontendUrl();
+    }
 }

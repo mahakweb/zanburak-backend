@@ -52,7 +52,7 @@ class ReplyToDiscussionNotification extends BaseNotification implements ShouldQu
             ->subject('پاسخ به گفتگو')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("{$answererName} به گفتگوی شما «{$this->question->subject}» پاسخ داد.")
-            ->action('مشاهده پاسخ', url("/discuss/{$this->question->slug}"))
+            ->action('مشاهده پاسخ', frontendUrl("discuss/{$this->question->slug}"))
             ->line('با تشکر از شما');
     }
 

@@ -57,7 +57,7 @@ class RoleChangedNotification extends BaseNotification implements ShouldQueue
             $mail->line("نقش‌های قبلی: {$oldRolesText}");
         }
         
-        $mail->action('ورود به پنل', url('/panel'))
+        $mail->action('ورود به پنل', frontendUrl('panel'))
             ->line('با تشکر از شما');
 
         return $mail;

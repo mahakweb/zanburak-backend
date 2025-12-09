@@ -54,7 +54,7 @@ class PaymentFailedNotification extends BaseNotification implements ShouldQueue
         }
         
         $mail->line('لطفاً دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.')
-            ->action('تلاش مجدد', url('/cart'))
+            ->action('تلاش مجدد', frontendUrl('cart'))
             ->line('با تشکر از شما');
 
         return $mail;

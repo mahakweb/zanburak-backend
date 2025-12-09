@@ -50,7 +50,7 @@ class CourseNearCompletionNotification extends BaseNotification implements Shoul
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("فقط {$this->remainingPercent}% باقی مانده! شما نزدیک به تکمیل دوره «{$this->course->title}» هستید.")
             ->line('ادامه بدهید تا گواهینامه خود را دریافت کنید.')
-            ->action('ادامه تماشا', url("/course/{$this->course->slug}"))
+            ->action('ادامه تماشا', frontendUrl("course/{$this->course->slug}"))
             ->line('با تشکر از شما');
     }
 

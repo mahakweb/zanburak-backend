@@ -245,3 +245,21 @@ if (!function_exists("calculate_progress_percent")) {
         return 0;
     }
 }
+
+if (!function_exists('frontendUrl')) {
+    /**
+     * Helper function برای ساخت URL فرانت‌اند
+     * 
+     * این تابع از FRONT_APP_URL در .env استفاده می‌کند
+     * که در config/app.php به عنوان frontend_url تعریف شده است.
+     *
+     * @param string $path
+     * @return string
+     */
+    function frontendUrl(string $path = ''): string
+    {
+        $baseUrl = rtrim(config('app.frontend_url', 'https://zanburak.ir'), '/');
+        $path = ltrim($path, '/');
+        return $path ? "{$baseUrl}/{$path}" : $baseUrl;
+    }
+}

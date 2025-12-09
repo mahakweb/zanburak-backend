@@ -44,7 +44,7 @@ class LoginNotification extends BaseNotification implements ShouldQueue
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line('ورود شما به حساب کاربری با موفقیت انجام شد.')
             ->line('اگر این کار توسط شما انجام نشده است، لطفاً فوراً رمز عبور خود را تغییر دهید.')
-            ->action('ورود به پنل', url('/panel'))
+            ->action('ورود به پنل', frontendUrl('panel'))
             ->line('با تشکر از شما');
     }
 

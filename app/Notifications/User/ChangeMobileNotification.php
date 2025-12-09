@@ -44,7 +44,7 @@ class ChangeMobileNotification extends BaseNotification implements ShouldQueue
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line('شماره موبایل شما با موفقیت تغییر یافت.')
             ->line('در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً با پشتیبانی تماس بگیرید.')
-            ->action('ورود به پنل', url('/panel'))
+            ->action('ورود به پنل', frontendUrl('panel'))
             ->line('با تشکر از شما');
     }
 

@@ -48,7 +48,7 @@ class CourseReminderNotification extends BaseNotification implements ShouldQueue
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("یادآوری: شما در حال تماشای دوره «{$this->course->title}» هستید.")
             ->line('امیدواریم به زودی به تماشای دوره ادامه دهید.')
-            ->action('ادامه تماشا', url("/course/{$this->course->slug}"))
+            ->action('ادامه تماشا', frontendUrl("course/{$this->course->slug}"))
             ->line('با تشکر از شما');
     }
 

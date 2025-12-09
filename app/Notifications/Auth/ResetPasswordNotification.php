@@ -47,7 +47,7 @@ class ResetPasswordNotification extends Notification
             ->from('noreply@zanburak.ir', config('mail.from.name'))
             ->subject('بازیابی رمز عبور')
             ->line('شما این ایمیل را دریافت کرده‌اید زیرا درخواست بازنشانی رمز عبور برای حساب شما ثبت شده است.')
-            ->action('بازیابی رمز عبور', url(env('FRONT_APP_URL') . '/auth' . route('password.reset', ['token' => $this->token, 'email' => $notifiable->email], false)))
+            ->action('بازیابی رمز عبور', frontendUrl('auth/reset-password?token=' . $this->token . '&email=' . urlencode($notifiable->email)))
             ->line('اگر شما درخواست بازنشانی رمز عبور نکرده‌اید، هیچ اقدامی نیاز نیست.');
     }
 

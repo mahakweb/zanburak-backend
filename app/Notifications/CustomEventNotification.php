@@ -3,10 +3,12 @@
 namespace App\Notifications;
 
 use App\Models\Event;
+use App\Notifications\Channels\SyncDatabaseChannel;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
+use Illuminate\Support\Facades\Notification as NotificationFacade;
 use Illuminate\Support\Facades\Log;
 
 class CustomEventNotification extends Notification implements ShouldQueue
@@ -33,12 +35,69 @@ class CustomEventNotification extends Notification implements ShouldQueue
 
     /**
      * Get the notification's delivery channels.
+     * اگر notification از ShouldQueue استفاده کند، کانال‌های دیتابیس را فوراً ارسال می‌کند
+     * و فقط کانال‌های دیگر (ایمیل، SMS) را برمی‌گرداند تا در صف قرار گیرند.
      *
      * @param  mixed  $notifiable
      * @return array
      */
     public function via($notifiable)
     {
+        // اگر notification از ShouldQueue استفاده می‌کند، کانال‌های دیتابیس را فوراً ارسال می‌کنیم
+        if ($this instanceof ShouldQueue) {
+            $databaseChannels = [];
+            $otherChannels = [];
+            
+            foreach ($this->channels as $channel) {
+                if ($channel === SyncDatabaseChannel::class || $channel === 'database') {
+                    $databaseChannels[] = SyncDatabaseChannel::class;
+                } else {
+                    $otherChannels[] = $channel;
+                }
+            }
+            
+            // ارسال فوری نوتیفیکیشن‌های دیتابیس
+            if (!empty($databaseChannels)) {
+                try {
+                    // ایجاد یک notification wrapper که از ShouldQueue استفاده نمی‌کند
+                    $databaseNotification = new class($this) extends Notification {
+                        protected $originalNotification;
+                        
+                        public function __construct($originalNotification) {
+                            $this->originalNotification = $originalNotification;
+                        }
+                        
+                        public function via($notifiable) {
+                            return [SyncDatabaseChannel::class];
+                        }
+                        
+                        public function toArray($notifiable) {
+                            return $this->originalNotification->toArray($notifiable);
+                        }
+                    };
+                    
+                    // ارسال فوری بدون queue
+                    NotificationFacade::sendNow($notifiable, $databaseNotification);
+                    
+                    Log::info("CustomEventNotification: Database notification sent immediately", [
+                        'user_id' => $notifiable->id ?? null,
+                        'event_slug' => $this->event->slug ?? null,
+                        'channels' => $databaseChannels
+                    ]);
+                } catch (\Exception $e) {
+                    Log::error("CustomEventNotification: Error sending database notification immediately: " . $e->getMessage(), [
+                        'user_id' => $notifiable->id ?? null,
+                        'event_slug' => $this->event->slug ?? null,
+                        'trace' => $e->getTraceAsString()
+                    ]);
+                }
+            }
+            
+            // فقط کانال‌های غیر دیتابیس را برمی‌گردانیم تا در صف قرار گیرند
+            return $otherChannels;
+        }
+
+        // اگر ShouldQueue نیست، همه کانال‌ها را برمی‌گردانیم
         return $this->channels;
     }
 

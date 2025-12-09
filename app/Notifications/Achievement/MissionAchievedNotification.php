@@ -48,7 +48,7 @@ class MissionAchievedNotification extends BaseNotification implements ShouldQueu
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("تبریک! شما Mission «{$this->mission->title}» را کامل کردید.")
             ->line('امیدواریم از این دستاورد لذت برده باشید.')
-            ->action('مشاهده Mission', url('/panel/missions'))
+            ->action('مشاهده Mission', frontendUrl('panel/missions'))
             ->line('با تشکر از شما');
     }
 

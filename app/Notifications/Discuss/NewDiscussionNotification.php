@@ -52,7 +52,7 @@ class NewDiscussionNotification extends BaseNotification implements ShouldQueue
             ->subject('گفتگوی جدید')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("{$authorName} گفتگوی جدیدی با عنوان «{$this->question->subject}» ارسال کرد.")
-            ->action('مشاهده گفتگو', url("/discuss/{$this->question->slug}"))
+            ->action('مشاهده گفتگو', frontendUrl("discuss/{$this->question->slug}"))
             ->line('با تشکر از شما');
     }
 

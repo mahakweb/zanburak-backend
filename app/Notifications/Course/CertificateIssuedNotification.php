@@ -51,7 +51,7 @@ class CertificateIssuedNotification extends BaseNotification implements ShouldQu
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("گواهینامه شما برای دوره «{$this->course->title}» آماده است.")
             ->line('می‌توانید گواهینامه خود را دانلود کنید.')
-            ->action('دانلود گواهینامه', url("/certificate/{$this->certificate->uuid}"))
+            ->action('دانلود گواهینامه', frontendUrl("certificate/{$this->certificate->uuid}"))
             ->line('با تشکر از شما');
     }
 

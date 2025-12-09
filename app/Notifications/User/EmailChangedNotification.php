@@ -51,7 +51,7 @@ class EmailChangedNotification extends BaseNotification implements ShouldQueue
             ->line("ایمیل قبلی: {$this->oldEmail}")
             ->line("ایمیل جدید: {$this->newEmail}")
             ->line('در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً با پشتیبانی تماس بگیرید.')
-            ->action('ورود به پنل', url('/panel'))
+            ->action('ورود به پنل', frontendUrl('panel'))
             ->line('با تشکر از شما');
     }
 

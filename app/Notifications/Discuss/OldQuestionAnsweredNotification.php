@@ -53,7 +53,7 @@ class OldQuestionAnsweredNotification extends BaseNotification implements Should
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("به سوال قدیمی شما «{$this->question->subject}» پاسخ داده شد.")
             ->line("{$answererName} به سوال شما پاسخ داد.")
-            ->action('مشاهده پاسخ', url("/discuss/{$this->question->slug}"))
+            ->action('مشاهده پاسخ', frontendUrl("discuss/{$this->question->slug}"))
             ->line('با تشکر از شما');
     }
 

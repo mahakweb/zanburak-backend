@@ -47,7 +47,7 @@ class VipExpiringNotification extends BaseNotification implements ShouldQueue
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("عضویت VIP شما در {$this->daysRemaining} روز دیگر به پایان می‌رسد.")
             ->line('برای ادامه استفاده از امکانات VIP، لطفاً عضویت خود را تمدید کنید.')
-            ->action('تمدید عضویت VIP', url('/vip'))
+            ->action('تمدید عضویت VIP', frontendUrl('vip'))
             ->line('با تشکر از شما');
     }
 
