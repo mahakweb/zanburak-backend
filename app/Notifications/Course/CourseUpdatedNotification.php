@@ -45,6 +45,7 @@ class CourseUpdatedNotification extends BaseNotification implements ShouldQueue
     {
         return (new MailMessage)
             ->subject('به‌روزرسانی دوره')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("دوره «{$this->course->title}» به‌روزرسانی شد و محتوای جدیدی اضافه شده است.")
             ->action('مشاهده دوره', frontendUrl("course/{$this->course->slug}"))

@@ -41,6 +41,7 @@ class ChangeMobileNotification extends BaseNotification implements ShouldQueue
     {
         return (new MailMessage)
             ->subject('تغییر شماره موبایل')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line('شماره موبایل شما با موفقیت تغییر یافت.')
             ->line('در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً با پشتیبانی تماس بگیرید.')

@@ -50,6 +50,7 @@ class MiscellaneousNotification extends BaseNotification implements ShouldQueue
     {
         $mailMessage = (new MailMessage)
             ->subject($this->subject)
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line($this->message);
 

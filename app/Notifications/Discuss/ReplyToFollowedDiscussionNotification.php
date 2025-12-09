@@ -45,6 +45,7 @@ class ReplyToFollowedDiscussionNotification extends BaseNotification implements 
     {
         return (new MailMessage)
             ->subject('پاسخ به گفتگوی ذخیره شده')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("به گفتگویی که ذخیره کرده‌اید «{$this->question->subject}» پاسخ جدیدی داده شد.")
             ->action('مشاهده پاسخ', frontendUrl("discuss/{$this->question->slug}"))

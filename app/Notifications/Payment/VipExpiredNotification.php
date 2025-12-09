@@ -41,6 +41,7 @@ class VipExpiredNotification extends BaseNotification implements ShouldQueue
     {
         return (new MailMessage)
             ->subject('پایان عضویت VIP')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line('عضویت VIP شما به پایان رسید.')
             ->line('برای ادامه استفاده از امکانات VIP، لطفاً عضویت خود را تمدید کنید.')

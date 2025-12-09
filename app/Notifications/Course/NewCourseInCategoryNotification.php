@@ -48,6 +48,7 @@ class NewCourseInCategoryNotification extends BaseNotification implements Should
     {
         return (new MailMessage)
             ->subject('دوره جدید در دسته‌بندی مورد علاقه')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("دوره جدیدی در دسته‌بندی «{$this->category->title}» منتشر شد.")
             ->line("دوره «{$this->course->title}» آماده تماشا است.")

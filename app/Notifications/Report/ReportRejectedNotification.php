@@ -46,6 +46,7 @@ class ReportRejectedNotification extends BaseNotification implements ShouldQueue
     {
         $mail = (new MailMessage)
             ->subject('رد گزارش')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("گزارش شما «{$this->reportTitle}» رد شد.");
         

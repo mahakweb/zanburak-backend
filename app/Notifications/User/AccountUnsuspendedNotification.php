@@ -41,6 +41,7 @@ class AccountUnsuspendedNotification extends BaseNotification implements ShouldQ
     {
         return (new MailMessage)
             ->subject('رفع مسدودیت حساب کاربری')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line('مسدودیت حساب کاربری شما رفع شد.')
             ->line('اکنون می‌توانید از تمام امکانات سایت استفاده کنید.')

@@ -111,6 +111,7 @@ class CustomEventNotification extends Notification implements ShouldQueue
     {
         $message = (new MailMessage)
             ->subject($this->data['subject'] ?? $this->event->title)
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line($this->data['message'] ?? $this->event->description);
 

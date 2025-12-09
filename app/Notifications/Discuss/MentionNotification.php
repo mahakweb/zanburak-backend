@@ -50,6 +50,7 @@ class MentionNotification extends BaseNotification implements ShouldQueue
         
         return (new MailMessage)
             ->subject('اشاره به شما')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("{$mentionerName} در گفتگوی «{$this->question->subject}» به شما اشاره کرد.")
             ->action('مشاهده گفتگو', frontendUrl("discuss/{$this->question->slug}"))

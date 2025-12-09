@@ -46,6 +46,7 @@ class FollowNotification extends BaseNotification implements ShouldQueue
         
         return (new MailMessage)
             ->subject('دنبال‌کننده جدید')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("{$followerName} شما را دنبال کرد.")
             ->action('مشاهده پروفایل', frontendUrl("profile/" . ($this->follower->username ?? '')))

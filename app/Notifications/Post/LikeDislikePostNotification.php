@@ -53,6 +53,7 @@ class LikeDislikePostNotification extends BaseNotification implements ShouldQueu
         
         return (new MailMessage)
             ->subject($this->actionType . ' مطلب')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("{$likerName} مطلب شما «{$this->postTitle}» را {$this->actionType} کرد.")
             ->action('مشاهده', $this->actionUrl)

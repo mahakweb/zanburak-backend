@@ -46,6 +46,7 @@ class PaymentFailedNotification extends BaseNotification implements ShouldQueue
     {
         $mail = (new MailMessage)
             ->subject('پرداخت ناموفق')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("پرداخت شما به مبلغ " . number_format($this->amount) . " تومان ناموفق بود.");
         

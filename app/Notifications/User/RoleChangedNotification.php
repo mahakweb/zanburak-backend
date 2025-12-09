@@ -49,6 +49,7 @@ class RoleChangedNotification extends BaseNotification implements ShouldQueue
         
         $mail = (new MailMessage)
             ->subject('تغییر نقش')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("نقش‌های شما به «{$rolesText}» تغییر یافت.");
         

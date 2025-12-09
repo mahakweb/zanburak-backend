@@ -21,6 +21,12 @@ Route::middleware('auth:sanctum')->prefix('panel')->as('api.panel.')->group(func
         Route::post('/details', [\App\Http\Controllers\Api\Panel\NotificationController::class, 'notificationDetails'])->name('details');
         Route::post('/unread', [\App\Http\Controllers\Api\Panel\NotificationController::class, 'unreadNotifications'])->name('unread');
         Route::post('/delete', [\App\Http\Controllers\Api\Panel\NotificationController::class, 'deleteNotification'])->name('delete');
+        Route::post('/bulk-delete', [\App\Http\Controllers\Api\Panel\NotificationController::class, 'bulkDelete'])->name('bulk-delete');
+        Route::post('/delete-all', [\App\Http\Controllers\Api\Panel\NotificationController::class, 'deleteAll'])->name('delete-all');
+        Route::post('/bulk-mark-read', [\App\Http\Controllers\Api\Panel\NotificationController::class, 'bulkMarkAsRead'])->name('bulk-mark-read');
+        Route::post('/bulk-mark-unread', [\App\Http\Controllers\Api\Panel\NotificationController::class, 'bulkMarkAsUnread'])->name('bulk-mark-unread');
+        Route::post('/mark-all-read', [\App\Http\Controllers\Api\Panel\NotificationController::class, 'markAllAsRead'])->name('mark-all-read');
+        Route::post('/mark-all-unread', [\App\Http\Controllers\Api\Panel\NotificationController::class, 'markAllAsUnread'])->name('mark-all-unread');
     });
 
     Route::prefix('vip')->as('vip.')->group(function () {

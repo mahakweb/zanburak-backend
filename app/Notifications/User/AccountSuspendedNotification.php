@@ -46,6 +46,7 @@ class AccountSuspendedNotification extends BaseNotification implements ShouldQue
     {
         $mail = (new MailMessage)
             ->subject('مسدود شدن حساب کاربری')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line('حساب کاربری شما مسدود شد.');
         

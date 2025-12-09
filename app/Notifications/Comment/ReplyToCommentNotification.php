@@ -54,6 +54,7 @@ class ReplyToCommentNotification extends BaseNotification implements ShouldQueue
         
         return (new MailMessage)
             ->subject('پاسخ به دیدگاه')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("{$replierName} به دیدگاه شما در مورد «{$this->commentableTitle}» پاسخ داد.")
             ->action('مشاهده پاسخ', $this->commentableUrl)

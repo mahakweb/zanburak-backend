@@ -48,6 +48,7 @@ class CertificateIssuedNotification extends BaseNotification implements ShouldQu
     {
         return (new MailMessage)
             ->subject('گواهینامه شما آماده است')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("گواهینامه شما برای دوره «{$this->course->title}» آماده است.")
             ->line('می‌توانید گواهینامه خود را دانلود کنید.')

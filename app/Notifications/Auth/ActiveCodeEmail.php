@@ -25,7 +25,7 @@ class ActiveCodeEmail extends Notification
     public function toMail($notifiable)
     {
         return (new MailMessage)
-            ->from('noreply@zanburak.ir', config('mail.from.name'))
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->subject('کد ورود یکبار مصرف')
             ->line('کد یکبار مصرف شما: ' . $this->code)
             ->line('این کد تا ۵ دقیقه معتبر است.');

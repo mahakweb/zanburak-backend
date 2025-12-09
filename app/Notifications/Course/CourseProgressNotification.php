@@ -53,6 +53,7 @@ class CourseProgressNotification extends BaseNotification implements ShouldQueue
 
         return (new MailMessage)
             ->subject('پیشرفت در دوره')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line($message)
             ->action('ادامه تماشا', frontendUrl("course/{$this->course->slug}"))

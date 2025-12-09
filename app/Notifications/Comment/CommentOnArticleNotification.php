@@ -54,6 +54,7 @@ class CommentOnArticleNotification extends BaseNotification implements ShouldQue
         
         return (new MailMessage)
             ->subject('دیدگاه جدید')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("{$commenterName} در «{$this->commentableTitle}» دیدگاه ثبت کرد.")
             ->action('مشاهده دیدگاه', $this->commentableUrl)

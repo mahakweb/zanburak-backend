@@ -50,6 +50,7 @@ class LoginFromNewDeviceNotification extends BaseNotification implements ShouldQ
         
         return (new MailMessage)
             ->subject('ورود از دستگاه جدید')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line('ورود از دستگاه جدید:')
             ->line("IP: {$this->ip}")

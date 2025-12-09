@@ -90,4 +90,98 @@ class NotificationController extends Controller
         return response()->json(['message' => 'success', 'unread_count' => $unreadNotifications], 200);
     }
 
+    public function bulkDelete(Request $request)
+    {
+        $user = auth('api')->user();
+        $ids = $request->input('ids', []);
+
+        if (empty($ids)) {
+            return response()->json(['message' => 'Error! No notification IDs provided.'], 400);
+        }
+
+        $deleted = $user->notifications()->whereIn('id', $ids)->delete();
+
+        return response()->json([
+            'message' => 'Success! ' . $deleted . ' notification(s) have been deleted.',
+            'deleted_count' => $deleted
+        ], 200);
+    }
+
+    public function deleteAll(Request $request)
+    {
+        $user = auth('api')->user();
+        $deleted = $user->notifications()->delete();
+
+        return response()->json([
+            'message' => 'Success! All notifications have been deleted.',
+            'deleted_count' => $deleted
+        ], 200);
+    }
+
+    public function bulkMarkAsRead(Request $request)
+    {
+        $user = auth('api')->user();
+        $ids = $request->input('ids', []);
+
+        if (empty($ids)) {
+            return response()->json(['message' => 'Error! No notification IDs provided.'], 400);
+        }
+
+        $updated = $user->notifications()
+            ->whereIn('id', $ids)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        return response()->json([
+            'message' => 'Success! ' . $updated . ' notification(s) have been marked as read.',
+            'updated_count' => $updated
+        ], 200);
+    }
+
+    public function bulkMarkAsUnread(Request $request)
+    {
+        $user = auth('api')->user();
+        $ids = $request->input('ids', []);
+
+        if (empty($ids)) {
+            return response()->json(['message' => 'Error! No notification IDs provided.'], 400);
+        }
+
+        $updated = $user->notifications()
+            ->whereIn('id', $ids)
+            ->whereNotNull('read_at')
+            ->update(['read_at' => null]);
+
+        return response()->json([
+            'message' => 'Success! ' . $updated . ' notification(s) have been marked as unread.',
+            'updated_count' => $updated
+        ], 200);
+    }
+
+    public function markAllAsRead(Request $request)
+    {
+        $user = auth('api')->user();
+        $updated = $user->notifications()
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+
+        return response()->json([
+            'message' => 'Success! All notifications have been marked as read.',
+            'updated_count' => $updated
+        ], 200);
+    }
+
+    public function markAllAsUnread(Request $request)
+    {
+        $user = auth('api')->user();
+        $updated = $user->notifications()
+            ->whereNotNull('read_at')
+            ->update(['read_at' => null]);
+
+        return response()->json([
+            'message' => 'Success! All notifications have been marked as unread.',
+            'updated_count' => $updated
+        ], 200);
+    }
+
 }

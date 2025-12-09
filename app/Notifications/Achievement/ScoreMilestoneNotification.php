@@ -52,6 +52,7 @@ class ScoreMilestoneNotification extends BaseNotification implements ShouldQueue
 
         return (new MailMessage)
             ->subject('دستیابی به امتیاز جدید')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line($message)
             ->action('مشاهده کیف پول', frontendUrl('panel/wallet'))

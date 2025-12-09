@@ -50,6 +50,7 @@ class MessageFromResumeNotification extends BaseNotification implements ShouldQu
     {
         $mailMessage = (new MailMessage)
             ->subject('پیام از طرف رزومه')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("{$this->senderName} از طریق رزومه شما پیامی ارسال کرده است.");
 

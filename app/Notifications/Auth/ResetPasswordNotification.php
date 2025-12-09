@@ -44,7 +44,7 @@ class ResetPasswordNotification extends Notification
     public function toMail($notifiable)
     {
         return (new MailMessage)
-            ->from('noreply@zanburak.ir', config('mail.from.name'))
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->subject('بازیابی رمز عبور')
             ->line('شما این ایمیل را دریافت کرده‌اید زیرا درخواست بازنشانی رمز عبور برای حساب شما ثبت شده است.')
             ->action('بازیابی رمز عبور', frontendUrl('auth/reset-password?token=' . $this->token . '&email=' . urlencode($notifiable->email)))

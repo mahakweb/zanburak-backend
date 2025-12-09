@@ -46,6 +46,7 @@ class EmailChangedNotification extends BaseNotification implements ShouldQueue
     {
         return (new MailMessage)
             ->subject('تغییر ایمیل')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line('ایمیل شما با موفقیت تغییر یافت.')
             ->line("ایمیل قبلی: {$this->oldEmail}")

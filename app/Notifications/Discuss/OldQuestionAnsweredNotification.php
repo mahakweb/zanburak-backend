@@ -50,6 +50,7 @@ class OldQuestionAnsweredNotification extends BaseNotification implements Should
         
         return (new MailMessage)
             ->subject('پاسخ به سوال قدیمی')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("به سوال قدیمی شما «{$this->question->subject}» پاسخ داده شد.")
             ->line("{$answererName} به سوال شما پاسخ داد.")

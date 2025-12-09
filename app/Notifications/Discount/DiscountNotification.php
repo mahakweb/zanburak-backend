@@ -46,6 +46,7 @@ class DiscountNotification extends BaseNotification implements ShouldQueue
     {
         return (new MailMessage)
             ->subject('اعمال کد تخفیف')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line($this->message)
             ->action('مشاهده سبد خرید', $this->actionUrl)

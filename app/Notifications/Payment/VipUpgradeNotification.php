@@ -48,6 +48,7 @@ class VipUpgradeNotification extends BaseNotification implements ShouldQueue
     {
         return (new MailMessage)
             ->subject('ارتقاء عضویت ویژه')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line($this->message)
             ->action($this->actionText, $this->actionUrl)

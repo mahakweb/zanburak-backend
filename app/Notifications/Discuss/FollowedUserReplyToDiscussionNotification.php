@@ -50,6 +50,7 @@ class FollowedUserReplyToDiscussionNotification extends BaseNotification impleme
         
         return (new MailMessage)
             ->subject('پاسخ به گفتگو')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("{$answererName} که دنبال می‌کنید به گفتگویی پاسخ داد.")
             ->action('مشاهده پاسخ', frontendUrl("discuss/{$this->question->slug}"))

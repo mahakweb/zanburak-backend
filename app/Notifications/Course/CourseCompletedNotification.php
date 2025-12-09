@@ -45,6 +45,7 @@ class CourseCompletedNotification extends BaseNotification implements ShouldQueu
     {
         return (new MailMessage)
             ->subject('تبریک! تکمیل دوره')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("تبریک! شما دوره «{$this->course->title}» را با موفقیت تکمیل کردید.")
             ->line('امیدواریم از این دوره لذت برده باشید.')

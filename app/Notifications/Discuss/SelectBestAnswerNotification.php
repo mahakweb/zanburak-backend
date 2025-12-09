@@ -48,6 +48,7 @@ class SelectBestAnswerNotification extends BaseNotification implements ShouldQue
         
         return (new MailMessage)
                     ->subject('بهترین پاسخ')
+                    ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
                     ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
                     ->line("پاسخ شما به سوال «{$question->subject}» به عنوان بهترین پاسخ انتخاب شد.")
                     ->action('مشاهده سوال', frontendUrl("discuss/{$question->slug}"))

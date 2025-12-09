@@ -41,6 +41,7 @@ class LoginNotification extends BaseNotification implements ShouldQueue
     {
         return (new MailMessage)
             ->subject('ورود به سایت')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line('ورود شما به حساب کاربری با موفقیت انجام شد.')
             ->line('اگر این کار توسط شما انجام نشده است، لطفاً فوراً رمز عبور خود را تغییر دهید.')

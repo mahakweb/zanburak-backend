@@ -47,6 +47,7 @@ class CourseNearCompletionNotification extends BaseNotification implements Shoul
     {
         return (new MailMessage)
             ->subject('نزدیک به تکمیل دوره')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("فقط {$this->remainingPercent}% باقی مانده! شما نزدیک به تکمیل دوره «{$this->course->title}» هستید.")
             ->line('ادامه بدهید تا گواهینامه خود را دریافت کنید.')

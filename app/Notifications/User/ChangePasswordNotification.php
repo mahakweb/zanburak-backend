@@ -41,6 +41,7 @@ class ChangePasswordNotification extends BaseNotification implements ShouldQueue
     {
         return (new MailMessage)
             ->subject('تغییر رمز عبور')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line('گذرواژه شما تغییر یافت.')
             ->line('در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً به بخش مدیریت نشست‌ها در پنل کاربری مراجعه کنید و نشست مورد نظر را حذف کنید.')

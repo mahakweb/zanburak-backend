@@ -43,6 +43,7 @@ class SubmitAnswerNotification extends Notification
     public function toMail($notifiable)
     {
         return (new MailMessage)
+                    ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
                     ->line('The introduction to the notification.')
                     ->action('Notification Action', frontendUrl())
                     ->line('Thank you for using our application!');

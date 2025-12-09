@@ -49,6 +49,7 @@ class CommentApprovedNotification extends BaseNotification implements ShouldQueu
     {
         return (new MailMessage)
             ->subject('تایید دیدگاه')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("دیدگاه شما در مورد «{$this->commentableTitle}» تایید شد.")
             ->action('مشاهده', $this->commentableUrl)

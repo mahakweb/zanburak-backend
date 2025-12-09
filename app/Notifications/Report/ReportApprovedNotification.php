@@ -46,6 +46,7 @@ class ReportApprovedNotification extends BaseNotification implements ShouldQueue
     {
         $mail = (new MailMessage)
             ->subject('تایید گزارش')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("گزارش شما «{$this->reportTitle}» تایید شد و اقدامات لازم انجام شد.");
         

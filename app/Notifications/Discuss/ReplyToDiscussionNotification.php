@@ -50,6 +50,7 @@ class ReplyToDiscussionNotification extends BaseNotification implements ShouldQu
         
         return (new MailMessage)
             ->subject('پاسخ به گفتگو')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("{$answererName} به گفتگوی شما «{$this->question->subject}» پاسخ داد.")
             ->action('مشاهده پاسخ', frontendUrl("discuss/{$this->question->slug}"))

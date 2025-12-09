@@ -45,6 +45,7 @@ class MissionAchievedNotification extends BaseNotification implements ShouldQueu
     {
         return (new MailMessage)
             ->subject('تبریک! دستیابی به Mission')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("تبریک! شما Mission «{$this->mission->title}» را کامل کردید.")
             ->line('امیدواریم از این دستاورد لذت برده باشید.')

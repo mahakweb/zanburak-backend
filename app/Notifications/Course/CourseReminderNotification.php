@@ -45,6 +45,7 @@ class CourseReminderNotification extends BaseNotification implements ShouldQueue
     {
         return (new MailMessage)
             ->subject('یادآوری: ادامه تماشای دوره')
+            ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line("یادآوری: شما در حال تماشای دوره «{$this->course->title}» هستید.")
             ->line('امیدواریم به زودی به تماشای دوره ادامه دهید.')
