@@ -61,10 +61,16 @@ class FollowNotification extends BaseNotification implements ShouldQueue
      */
     public function toSms($notifiable)
     {
+        $followerName = $this->follower ? ($this->follower->first_name . ' ' . $this->follower->last_name) : 'کسی';
+        
+        // الگو در پنل ملی پیامک: FollowNotification
+        // متغیرها: {0} = نام دنبال‌کننده
         return [
-            'message' => "شما یک دنبال‌کننده جدید دارید. زنبورک",
+            'params' => [
+                $followerName, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

@@ -57,10 +57,12 @@ class LoginNotification extends BaseNotification implements ShouldQueue
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: LoginNotification
+        // بدون متغیر
         return [
-            'message' => "ورود شما به حساب کاربری انجام شد. اگر این کار توسط شما انجام نشده است، لطفاً فوراً رمز عبور خود را تغییر دهید. زنبورک",
+            'params' => [],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

@@ -57,10 +57,12 @@ class AccountUnsuspendedNotification extends BaseNotification implements ShouldQ
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: AccountUnsuspendedNotification
+        // بدون متغیر
         return [
-            'message' => "مسدودیت حساب کاربری شما رفع شد. اکنون می‌توانید از تمام امکانات سایت استفاده کنید. زنبورک",
+            'params' => [],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

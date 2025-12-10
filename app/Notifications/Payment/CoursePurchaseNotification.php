@@ -66,10 +66,14 @@ class CoursePurchaseNotification extends BaseNotification implements ShouldQueue
         // استخراج متن پیامک از message (حذف HTML tags)
         $smsMessage = strip_tags($this->message);
         
+        // الگو در پنل ملی پیامک: CoursePurchaseNotification
+        // متغیرها: {0} = متن پیام (داینامیک)
         return [
-            'message' => $smsMessage . ' زنبورک',
+            'params' => [
+                $smsMessage, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

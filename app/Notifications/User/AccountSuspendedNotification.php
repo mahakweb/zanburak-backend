@@ -71,16 +71,26 @@ class AccountSuspendedNotification extends BaseNotification implements ShouldQue
      */
     public function toSms($notifiable)
     {
-        $message = "حساب کاربری شما مسدود شد. دلیل: {$this->reason}";
-        
+        // الگو در پنل ملی پیامک: AccountSuspendedNotification یا AccountSuspendedNotificationWithDate
         if ($this->suspendedUntil) {
-            $message .= " مسدودیت تا: " . jdate($this->suspendedUntil)->format('Y/m/d H:i');
+            // AccountSuspendedNotificationWithDate
+            return [
+                'params' => [
+                    $this->reason, // {0}
+                    jdate($this->suspendedUntil)->format('Y/m/d H:i'), // {1}
+                ],
+                'body_id' => null, // بعداً جایگزین می‌شود
+                'phone' => $notifiable->mobile,
+            ];
         }
-
+        
+        // AccountSuspendedNotification
         return [
-            'message' => $message . ' زنبورک',
+            'params' => [
+                $this->reason, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

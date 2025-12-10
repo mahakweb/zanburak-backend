@@ -65,10 +65,17 @@ class ReplyToDiscussionNotification extends BaseNotification implements ShouldQu
      */
     public function toSms($notifiable)
     {
+        $answererName = $this->answerer->first_name . ' ' . $this->answerer->last_name;
+        
+        // الگو در پنل ملی پیامک: ReplyToDiscussionNotification
+        // متغیرها: {0} = نام پاسخ‌دهنده, {1} = عنوان گفتگو
         return [
-            'message' => "شما یک پاسخ جدید به گفتگوی خود دریافت کرده‌اید. زنبورک",
+            'params' => [
+                $answererName, // {0}
+                $this->question->subject, // {1}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

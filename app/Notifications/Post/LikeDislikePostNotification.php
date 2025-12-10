@@ -70,10 +70,16 @@ class LikeDislikePostNotification extends BaseNotification implements ShouldQueu
     {
         $likerName = $this->liker->first_name . ' ' . $this->liker->last_name;
         
+        // الگو در پنل ملی پیامک: LikeDislikePostNotification
+        // متغیرها: {0} = نام کاربر, {1} = عنوان مطلب, {2} = نوع عمل (لایک/دیس‌لایک)
         return [
-            'message' => "{$likerName} مطلب شما «{$this->postTitle}» را {$this->actionType} کرد. زنبورک",
+            'params' => [
+                $likerName, // {0}
+                $this->postTitle, // {1}
+                $this->actionType, // {2}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

@@ -61,10 +61,14 @@ class MissionAchievedNotification extends BaseNotification implements ShouldQueu
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: MissionAchievedNotification
+        // متغیرها: {0} = عنوان Mission
         return [
-            'message' => "تبریک! شما Mission {$this->mission->title} را کامل کردید. زنبورک",
+            'params' => [
+                $this->mission->title, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

@@ -57,10 +57,12 @@ class ChangeMobileNotification extends BaseNotification implements ShouldQueue
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: ChangeMobileNotification
+        // بدون متغیر
         return [
-            'message' => "شماره موبایل شما با موفقیت تغییر یافت. در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً با پشتیبانی تماس بگیرید. زنبورک",
+            'params' => [],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

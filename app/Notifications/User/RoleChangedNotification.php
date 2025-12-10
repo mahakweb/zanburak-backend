@@ -73,17 +73,28 @@ class RoleChangedNotification extends BaseNotification implements ShouldQueue
     public function toSms($notifiable)
     {
         $rolesText = $this->newRoles->pluck('label')->implode('، ');
-        $message = "نقش‌های شما به «{$rolesText}» تغییر یافت.";
         
+        // الگو در پنل ملی پیامک: RoleChangedNotification یا RoleChangedNotificationWithOldRoles
         if ($this->oldRoles && $this->oldRoles->isNotEmpty()) {
             $oldRolesText = $this->oldRoles->pluck('label')->implode('، ');
-            $message .= " نقش‌های قبلی: {$oldRolesText}";
+            // RoleChangedNotificationWithOldRoles
+            return [
+                'params' => [
+                    $rolesText, // {0}
+                    $oldRolesText, // {1}
+                ],
+                'body_id' => null, // بعداً جایگزین می‌شود
+                'phone' => $notifiable->mobile,
+            ];
         }
-
+        
+        // RoleChangedNotification
         return [
-            'message' => $message . ' زنبورک',
+            'params' => [
+                $rolesText, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

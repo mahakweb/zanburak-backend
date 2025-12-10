@@ -77,12 +77,26 @@ class MessageFromResumeNotification extends BaseNotification implements ShouldQu
      */
     public function toSms($notifiable)
     {
-        $smsMessage = strip_tags($this->message);
+        // الگو در پنل ملی پیامک: MessageFromResumeNotification یا MessageFromResumeNotificationWithTitle
+        if ($this->resumeTitle) {
+            // MessageFromResumeNotificationWithTitle
+            return [
+                'params' => [
+                    $this->senderName, // {0}
+                    $this->resumeTitle, // {1}
+                ],
+                'body_id' => null, // بعداً جایگزین می‌شود
+                'phone' => $notifiable->mobile,
+            ];
+        }
         
+        // MessageFromResumeNotification
         return [
-            'message' => "{$this->senderName} از طریق رزومه شما پیامی ارسال کرده است. زنبورک",
+            'params' => [
+                $this->senderName, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

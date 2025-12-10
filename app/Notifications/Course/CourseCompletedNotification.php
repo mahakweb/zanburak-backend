@@ -61,10 +61,14 @@ class CourseCompletedNotification extends BaseNotification implements ShouldQueu
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: CourseCompletedNotification
+        // متغیرها: {0} = عنوان دوره
         return [
-            'message' => "تبریک! شما دوره {$this->course->title} را با موفقیت تکمیل کردید. زنبورک",
+            'params' => [
+                $this->course->title, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

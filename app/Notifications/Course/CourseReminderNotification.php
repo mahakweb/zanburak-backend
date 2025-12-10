@@ -61,10 +61,14 @@ class CourseReminderNotification extends BaseNotification implements ShouldQueue
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: CourseReminderNotification
+        // متغیرها: {0} = عنوان دوره
         return [
-            'message' => "یادآوری: شما در حال تماشای دوره {$this->course->title} هستید. زنبورک",
+            'params' => [
+                $this->course->title, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

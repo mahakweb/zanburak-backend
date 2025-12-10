@@ -67,16 +67,26 @@ class ScoreMilestoneNotification extends BaseNotification implements ShouldQueue
      */
     public function toSms($notifiable)
     {
-        $message = "تبریک! شما به {$this->score} امتیاز رسیدید.";
-        
+        // الگو در پنل ملی پیامک: ScoreMilestoneNotification یا ScoreMilestoneNotificationWithBonus
+        // متغیرها: {0} = امتیاز
         if ($this->totalScore >= 50000) {
-            $message .= " آفرین! خوب امتیاز جمع کردی، الان می‌تونی تبدیلشون کنی به پول در کیف پول.";
+            // ScoreMilestoneNotificationWithBonus
+            return [
+                'params' => [
+                    $this->score, // {0}
+                ],
+                'body_id' => null, // بعداً جایگزین می‌شود
+                'phone' => $notifiable->mobile,
+            ];
         }
-
+        
+        // ScoreMilestoneNotification
         return [
-            'message' => $message . ' زنبورک',
+            'params' => [
+                $this->score, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

@@ -69,18 +69,26 @@ class PaymentFailedNotification extends BaseNotification implements ShouldQueue
      */
     public function toSms($notifiable)
     {
-        $message = "پرداخت شما به مبلغ " . number_format($this->amount) . " تومان ناموفق بود.";
-        
+        // الگو در پنل ملی پیامک: PaymentFailedNotification یا PaymentFailedNotificationWithReason
         if ($this->reason) {
-            $message .= " دلیل: {$this->reason}";
+            // PaymentFailedNotificationWithReason
+            return [
+                'params' => [
+                    number_format($this->amount), // {0}
+                    $this->reason, // {1}
+                ],
+                'body_id' => null, // بعداً جایگزین می‌شود
+                'phone' => $notifiable->mobile,
+            ];
         }
         
-        $message .= " لطفاً دوباره تلاش کنید.";
-
+        // PaymentFailedNotification
         return [
-            'message' => $message . ' زنبورک',
+            'params' => [
+                number_format($this->amount), // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

@@ -67,10 +67,15 @@ class MentionNotification extends BaseNotification implements ShouldQueue
     {
         $mentionerName = $this->mentioner->first_name . ' ' . $this->mentioner->last_name;
         
+        // الگو در پنل ملی پیامک: MentionNotification
+        // متغیرها: {0} = نام شخصی که اشاره کرده, {1} = عنوان گفتگو
         return [
-            'message' => "{$mentionerName} در گفتگوی «{$this->question->subject}» به شما اشاره کرد. زنبورک",
+            'params' => [
+                $mentionerName, // {0}
+                $this->question->subject, // {1}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

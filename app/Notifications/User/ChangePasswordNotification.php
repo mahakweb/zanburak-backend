@@ -57,10 +57,12 @@ class ChangePasswordNotification extends BaseNotification implements ShouldQueue
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: ChangePasswordNotification
+        // بدون متغیر
         return [
-            'message' => "گذرواژه شما تغییر یافت. در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً به بخش مدیریت نشست‌ها مراجعه کنید. زنبورک",
+            'params' => [],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

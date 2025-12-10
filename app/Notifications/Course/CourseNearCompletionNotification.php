@@ -63,10 +63,15 @@ class CourseNearCompletionNotification extends BaseNotification implements Shoul
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: CourseNearCompletionNotification
+        // متغیرها: {0} = درصد باقی‌مانده, {1} = عنوان دوره
         return [
-            'message' => "فقط {$this->remainingPercent}% باقی مانده! شما نزدیک به تکمیل دوره {$this->course->title} هستید. زنبورک",
+            'params' => [
+                $this->remainingPercent, // {0}
+                $this->course->title, // {1}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

@@ -64,10 +64,15 @@ class EmailChangedNotification extends BaseNotification implements ShouldQueue
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: EmailChangedNotification
+        // متغیرها: {0} = ایمیل قبلی, {1} = ایمیل جدید
         return [
-            'message' => "ایمیل شما با موفقیت تغییر یافت. در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً با پشتیبانی تماس بگیرید. زنبورک",
+            'params' => [
+                $this->oldEmail, // {0}
+                $this->newEmail, // {1}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

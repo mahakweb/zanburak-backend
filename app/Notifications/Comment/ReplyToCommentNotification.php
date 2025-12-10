@@ -69,10 +69,17 @@ class ReplyToCommentNotification extends BaseNotification implements ShouldQueue
      */
     public function toSms($notifiable)
     {
+        $replierName = $this->replier->first_name . ' ' . $this->replier->last_name;
+        
+        // الگو در پنل ملی پیامک: ReplyToCommentNotification
+        // متغیرها: {0} = نام پاسخ‌دهنده, {1} = عنوان محتوا
         return [
-            'message' => "شما یک پاسخ جدید به دیدگاه خود دریافت کرده‌اید. زنبورک",
+            'params' => [
+                $replierName, // {0}
+                $this->commentableTitle, // {1}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

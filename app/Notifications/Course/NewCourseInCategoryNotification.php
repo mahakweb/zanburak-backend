@@ -64,10 +64,15 @@ class NewCourseInCategoryNotification extends BaseNotification implements Should
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: NewCourseInCategoryNotification
+        // متغیرها: {0} = عنوان دسته‌بندی, {1} = عنوان دوره
         return [
-            'message' => "دوره جدیدی در دسته‌بندی {$this->category->title} منتشر شد: {$this->course->title}. زنبورک",
+            'params' => [
+                $this->category->title, // {0}
+                $this->course->title, // {1}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

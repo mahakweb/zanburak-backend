@@ -6,7 +6,7 @@ use App\Models\User;
 use App\Models\Event;
 use App\Models\NotificationPreference;
 use App\Notifications\CustomEventNotification;
-use App\Notifications\Channels\SmsChannel;
+use App\Notifications\Channels\SmsNotificationChannel;
 use App\Notifications\Channels\SyncDatabaseChannel;
 use Illuminate\Support\Facades\Log;
 
@@ -55,7 +55,7 @@ class NotificationService
                     $channels[] = 'mail';
                 }
                 if ($preference->via_sms && $event->is_sms_enabled) {
-                    $channels[] = SmsChannel::class;
+                    $channels[] = SmsNotificationChannel::class;
                 }
                 // Telegram فعلا غیرفعال است
                 // if ($preference->via_telegram && $event->is_telegram_enabled) {
@@ -70,7 +70,7 @@ class NotificationService
                     $channels[] = 'mail';
                 }
                 if ($event->is_sms_enabled) {
-                    $channels[] = SmsChannel::class;
+                    $channels[] = SmsNotificationChannel::class;
                 }
             }
 
@@ -160,7 +160,7 @@ class NotificationService
                     $channels[] = 'mail';
                 }
                 if ($preference->via_sms && $event->is_sms_enabled) {
-                    $channels[] = SmsChannel::class;
+                    $channels[] = SmsNotificationChannel::class;
                 }
                 // Telegram فعلا غیرفعال است
                 // if ($preference->via_telegram && $event->is_telegram_enabled) {
@@ -175,7 +175,7 @@ class NotificationService
                     $channels[] = 'mail';
                 }
                 if ($event->is_sms_enabled) {
-                    $channels[] = SmsChannel::class;
+                    $channels[] = SmsNotificationChannel::class;
                 }
             }
 

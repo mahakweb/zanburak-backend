@@ -66,10 +66,17 @@ class OldQuestionAnsweredNotification extends BaseNotification implements Should
      */
     public function toSms($notifiable)
     {
+        $answererName = $this->answerer->first_name . ' ' . $this->answerer->last_name;
+        
+        // الگو در پنل ملی پیامک: OldQuestionAnsweredNotification
+        // متغیرها: {0} = عنوان سوال, {1} = نام پاسخ‌دهنده
         return [
-            'message' => "به سوال قدیمی شما «{$this->question->subject}» پاسخ داده شد. زنبورک",
+            'params' => [
+                $this->question->subject, // {0}
+                $answererName, // {1}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

@@ -60,10 +60,14 @@ class VipExpiringNotification extends BaseNotification implements ShouldQueue
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: VipExpiringNotification
+        // متغیرها: {0} = تعداد روز باقی‌مانده
         return [
-            'message' => "عضویت VIP شما در {$this->daysRemaining} روز دیگر به پایان می‌رسد. برای تمدید به سایت مراجعه کنید. زنبورک",
+            'params' => [
+                $this->daysRemaining, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

@@ -69,16 +69,26 @@ class ReportApprovedNotification extends BaseNotification implements ShouldQueue
      */
     public function toSms($notifiable)
     {
-        $message = "گزارش شما «{$this->reportTitle}» تایید شد و اقدامات لازم انجام شد.";
-        
+        // الگو در پنل ملی پیامک: ReportApprovedNotification یا ReportApprovedNotificationWithActions
         if ($this->actionTaken) {
-            $message .= " اقدامات: {$this->actionTaken}";
+            // ReportApprovedNotificationWithActions
+            return [
+                'params' => [
+                    $this->reportTitle, // {0}
+                    $this->actionTaken, // {1}
+                ],
+                'body_id' => null, // بعداً جایگزین می‌شود
+                'phone' => $notifiable->mobile,
+            ];
         }
-
+        
+        // ReportApprovedNotification
         return [
-            'message' => $message . ' زنبورک',
+            'params' => [
+                $this->reportTitle, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

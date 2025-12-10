@@ -69,10 +69,17 @@ class CommentOnArticleNotification extends BaseNotification implements ShouldQue
      */
     public function toSms($notifiable)
     {
+        $commenterName = $this->commenter->first_name . ' ' . $this->commenter->last_name;
+        
+        // الگو در پنل ملی پیامک: CommentOnArticleNotification
+        // متغیرها: {0} = نام نظر‌دهنده, {1} = عنوان محتوا
         return [
-            'message' => "دیدگاه جدیدی در محتوای شما ثبت شد. زنبورک",
+            'params' => [
+                $commenterName, // {0}
+                $this->commentableTitle, // {1}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

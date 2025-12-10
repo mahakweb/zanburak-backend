@@ -60,10 +60,14 @@ class CourseUpdatedNotification extends BaseNotification implements ShouldQueue
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: CourseUpdatedNotification
+        // متغیرها: {0} = عنوان دوره
         return [
-            'message' => "دوره {$this->course->title} به‌روزرسانی شد و محتوای جدیدی اضافه شده است. زنبورک",
+            'params' => [
+                $this->course->title, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

@@ -71,10 +71,28 @@ class LoginFromNewDeviceNotification extends BaseNotification implements ShouldQ
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: LoginFromNewDeviceNotification یا LoginFromNewDeviceNotificationWithDevice
+        if ($this->device) {
+            // LoginFromNewDeviceNotificationWithDevice
+            return [
+                'params' => [
+                    $this->ip, // {0}
+                    $this->browser, // {1}
+                    $this->device, // {2}
+                ],
+                'body_id' => null, // بعداً جایگزین می‌شود
+                'phone' => $notifiable->mobile,
+            ];
+        }
+        
+        // LoginFromNewDeviceNotification
         return [
-            'message' => "ورود از دستگاه جدید: IP: {$this->ip} | مرورگر: {$this->browser}. در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً رمز عبور خود را تغییر دهید. زنبورک",
+            'params' => [
+                $this->ip, // {0}
+                $this->browser, // {1}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

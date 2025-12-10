@@ -158,18 +158,19 @@ class CustomEventNotification extends Notification implements ShouldQueue
      */
     public function toSms($notifiable)
     {
-        // این متد برای استفاده در SMS Channel استفاده می‌شود
-        // متن پیامک را برمی‌گرداند
+        // الگو در پنل ملی پیامک: CustomEventNotification
+        // متغیرها: {0} = متن پیام (داینامیک)
         $message = $this->data['sms_message'] ?? $this->data['message'] ?? $this->event->title;
         
-        // در صورت نیاز می‌توانید الگوی پیامک را اینجا تنظیم کنید
-        // برای مثال:
-        // $message = "زنبورک: " . $message;
+        // حذف HTML tags در صورت وجود
+        $message = strip_tags($message);
         
         return [
-            'message' => $message,
+            'params' => [
+                $message, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => $this->data['sms_template_id'] ?? config('services.meliPayamak.notification_template_id', null),
         ];
     }
 }

@@ -64,10 +64,14 @@ class CommentApprovedNotification extends BaseNotification implements ShouldQueu
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: CommentApprovedNotification
+        // متغیرها: {0} = عنوان محتوا
         return [
-            'message' => "دیدگاه شما در سایت زنبورک تایید شد. زنبورک",
+            'params' => [
+                $this->commentableTitle, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

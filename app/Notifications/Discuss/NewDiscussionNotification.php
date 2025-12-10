@@ -65,10 +65,17 @@ class NewDiscussionNotification extends BaseNotification implements ShouldQueue
      */
     public function toSms($notifiable)
     {
+        $authorName = $this->author->first_name . ' ' . $this->author->last_name;
+        
+        // الگو در پنل ملی پیامک: NewDiscussionNotification
+        // متغیرها: {0} = نام نویسنده, {1} = عنوان گفتگو
         return [
-            'message' => "گفتگوی جدیدی از فردی که دنبال می‌کنید ارسال شد. زنبورک",
+            'params' => [
+                $authorName, // {0}
+                $this->question->subject, // {1}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

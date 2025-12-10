@@ -60,10 +60,14 @@ class ReplyToFollowedDiscussionNotification extends BaseNotification implements 
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: ReplyToFollowedDiscussionNotification
+        // متغیرها: {0} = عنوان گفتگو
         return [
-            'message' => "به گفتگویی که ذخیره کرده‌اید پاسخ جدیدی داده شد. زنبورک",
+            'params' => [
+                $this->question->subject, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 

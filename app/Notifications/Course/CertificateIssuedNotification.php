@@ -64,10 +64,14 @@ class CertificateIssuedNotification extends BaseNotification implements ShouldQu
      */
     public function toSms($notifiable)
     {
+        // الگو در پنل ملی پیامک: CertificateIssuedNotification
+        // متغیرها: {0} = عنوان دوره
         return [
-            'message' => "گواهینامه شما برای دوره {$this->course->title} آماده است. زنبورک",
+            'params' => [
+                $this->course->title, // {0}
+            ],
+            'body_id' => null, // بعداً جایگزین می‌شود
             'phone' => $notifiable->mobile,
-            'body_id' => config('services.meliPayamak.notification_template_id', null),
         ];
     }
 
