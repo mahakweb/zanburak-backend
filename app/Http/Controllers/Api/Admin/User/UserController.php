@@ -225,10 +225,46 @@ class UserController extends Controller
     public function updateCommunications(Request $request, $username)
     {
         $loginUser = auth('api')->user();
+        
+        // Normalize mobile number: ensure it's in +98XXXXXXXXXX format
+        $mobile = $request->input('mobile');
+        if ($mobile) {
+            // Remove all non-digit characters except +
+            $mobile = preg_replace('/[^\d+]/', '', $mobile);
+            
+            // Convert various formats to +98XXXXXXXXXX
+            if (strpos($mobile, '+98') === 0) {
+                // Already in correct format, just ensure it has 10 digits after +98
+                $digits = substr($mobile, 3);
+                if (strlen($digits) === 10 && preg_match('/^\d{10}$/', $digits)) {
+                    $mobile = '+98' . $digits;
+                } else {
+                    $mobile = null; // Invalid format
+                }
+            } elseif (strpos($mobile, '09') === 0 && strlen($mobile) === 11) {
+                // Convert 09XXXXXXXXX to +98XXXXXXXXXX
+                $mobile = '+98' . substr($mobile, 2);
+            } elseif (strpos($mobile, '98') === 0 && strlen($mobile) === 12) {
+                // Convert 98XXXXXXXXXX to +98XXXXXXXXXX
+                $mobile = '+' . $mobile;
+            } elseif (strpos($mobile, '0') === 0 && strlen($mobile) === 11) {
+                // Convert 0XXXXXXXXXX to +98XXXXXXXXXX
+                $mobile = '+98' . substr($mobile, 1);
+            } elseif (strlen($mobile) === 10 && preg_match('/^\d{10}$/', $mobile)) {
+                // 10 digits without prefix, add +98
+                $mobile = '+98' . $mobile;
+            } else {
+                $mobile = null; // Invalid format
+            }
+            
+            // Replace the mobile in request
+            $request->merge(['mobile' => $mobile]);
+        }
+        
         $validator = Validator::make($request->all(), [
             'email' => ['required', 'max:255', 'email', 'required_if:verifyEmail,true', Rule::unique('users', 'email')->ignore($username->id)],
             'verifyEmail' => ['boolean'],
-            'mobile' => ['nullable', 'required_if:verifyMobile,true', 'regex:/(09)[0-9]{9}/', 'digits:11', Rule::unique('users', 'mobile')->ignore($username->id)],
+            'mobile' => ['nullable', 'required_if:verifyMobile,true', 'regex:/^\+98\d{10}$/', Rule::unique('users', 'mobile')->ignore($username->id)],
             'verifyMobile' => ['boolean'],
             'username' => ['required', 'max:255', 'string', Rule::unique('users', 'username')->ignore($username->id)],
         ]);
