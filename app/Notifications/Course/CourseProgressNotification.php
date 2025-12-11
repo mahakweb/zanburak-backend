@@ -77,7 +77,7 @@ class CourseProgressNotification extends BaseNotification implements ShouldQueue
                     $this->progress, // {0}
                     $this->course->title, // {1}
                 ],
-                'body_id' => null, // بعداً جایگزین می‌شود
+                'body_id' => 405118, // CourseProgressNotificationWithEncouragement - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
                 'phone' => $notifiable->mobile,
             ];
         }
@@ -88,7 +88,7 @@ class CourseProgressNotification extends BaseNotification implements ShouldQueue
                 $this->progress, // {0}
                 $this->course->title, // {1}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405120, // CourseProgressNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

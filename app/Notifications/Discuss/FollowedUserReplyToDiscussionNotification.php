@@ -74,7 +74,7 @@ class FollowedUserReplyToDiscussionNotification extends BaseNotification impleme
                 $answererName, // {0}
                 $this->question->subject, // {1}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405093, // FollowedUserReplyToDiscussionNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

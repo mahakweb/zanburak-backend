@@ -58,10 +58,17 @@ class VipExpiredNotification extends BaseNotification implements ShouldQueue
     public function toSms($notifiable)
     {
         // الگو در پنل ملی پیامک: VipExpiredNotification
-        // بدون متغیر
+        // متغیرها: {0} = نام اشتراک VIP منقضی شده
+        $expiredPlans = $notifiable->expiredVipPlan();
+        $planName = $expiredPlans->isNotEmpty() 
+            ? $expiredPlans->first()->title 
+            : 'VIP';
+        
         return [
-            'params' => [],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'params' => [
+                $planName, // {0} = نام اشتراک VIP
+            ],
+            'body_id' => 405141, // VipExpiredNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

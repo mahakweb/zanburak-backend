@@ -66,7 +66,7 @@ class VipExpiringNotification extends BaseNotification implements ShouldQueue
             'params' => [
                 $this->daysRemaining, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405138, // VipExpiringNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

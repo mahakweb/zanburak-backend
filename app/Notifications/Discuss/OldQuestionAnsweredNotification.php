@@ -75,7 +75,7 @@ class OldQuestionAnsweredNotification extends BaseNotification implements Should
                 $this->question->subject, // {0}
                 $answererName, // {1}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405089, // OldQuestionAnsweredNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

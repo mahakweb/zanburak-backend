@@ -85,7 +85,7 @@ class MessageFromResumeNotification extends BaseNotification implements ShouldQu
                     $this->senderName, // {0}
                     $this->resumeTitle, // {1}
                 ],
-                'body_id' => null, // بعداً جایگزین می‌شود
+                'body_id' => 405147, // MessageFromResumeNotificationWithTitle - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
                 'phone' => $notifiable->mobile,
             ];
         }
@@ -95,7 +95,7 @@ class MessageFromResumeNotification extends BaseNotification implements ShouldQu
             'params' => [
                 $this->senderName, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405148, // MessageFromResumeNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

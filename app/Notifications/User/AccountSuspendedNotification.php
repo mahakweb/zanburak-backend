@@ -79,7 +79,7 @@ class AccountSuspendedNotification extends BaseNotification implements ShouldQue
                     $this->reason, // {0}
                     jdate($this->suspendedUntil)->format('Y/m/d H:i'), // {1}
                 ],
-                'body_id' => null, // بعداً جایگزین می‌شود
+                'body_id' => 405111, // AccountSuspendedNotificationWithDate - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
                 'phone' => $notifiable->mobile,
             ];
         }
@@ -89,7 +89,7 @@ class AccountSuspendedNotification extends BaseNotification implements ShouldQue
             'params' => [
                 $this->reason, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405110, // AccountSuspendedNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

@@ -71,7 +71,7 @@ class SelectBestAnswerNotification extends BaseNotification implements ShouldQue
             'params' => [
                 $question->subject, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405190, // SelectBestAnswerNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

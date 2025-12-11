@@ -70,7 +70,7 @@ class CourseNearCompletionNotification extends BaseNotification implements Shoul
                 $this->remainingPercent, // {0}
                 $this->course->title, // {1}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405121, // CourseNearCompletionNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

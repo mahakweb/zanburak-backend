@@ -78,7 +78,7 @@ class ReplyToCommentNotification extends BaseNotification implements ShouldQueue
                 $replierName, // {0}
                 $this->commentableTitle, // {1}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405132, // ReplyToCommentNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

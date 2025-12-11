@@ -66,7 +66,7 @@ class ReplyToFollowedDiscussionNotification extends BaseNotification implements 
             'params' => [
                 $this->question->subject, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405090, // ReplyToFollowedDiscussionNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

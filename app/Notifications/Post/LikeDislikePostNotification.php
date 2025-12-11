@@ -74,11 +74,9 @@ class LikeDislikePostNotification extends BaseNotification implements ShouldQueu
         // متغیرها: {0} = نام کاربر, {1} = عنوان مطلب, {2} = نوع عمل (لایک/دیس‌لایک)
         return [
             'params' => [
-                $likerName, // {0}
-                $this->postTitle, // {1}
-                $this->actionType, // {2}
+                $this->postTitle, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405142, // LikeDislikePostNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

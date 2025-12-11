@@ -69,7 +69,7 @@ class FollowNotification extends BaseNotification implements ShouldQueue
             'params' => [
                 $followerName, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405102, // FollowNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

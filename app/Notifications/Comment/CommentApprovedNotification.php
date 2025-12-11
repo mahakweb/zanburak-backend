@@ -70,7 +70,7 @@ class CommentApprovedNotification extends BaseNotification implements ShouldQueu
             'params' => [
                 $this->commentableTitle, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405133, // CommentApprovedNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

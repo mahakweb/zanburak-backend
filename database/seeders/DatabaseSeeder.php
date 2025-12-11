@@ -15,14 +15,24 @@ class DatabaseSeeder extends Seeder
     public function run()
     {
         $this->call([
-            StatusesTableSeeder::class,
+            // مرحله 1: پایه‌ای ترین داده‌ها (بدون وابستگی)
+            PermissionsAndRolesSeeder::class,
             LevelsTableSeeder::class,
-            CategoriesTableSeeder::class,
+            StatusesTableSeeder::class,
+            CategoriesAndQuestionCategoriesSeeder::class,
+            
+            // مرحله 2: داده‌های وابسته به مرحله 1
+            UsersAndInfosSeeder::class, // نیاز به Roles دارد
+            
+            // مرحله 3: داده‌های مستقل
+            PathsSeeder::class,
             PlansTableSeeder::class,
-            QuestionsTableSeeder::class,
-            CoursesTableSeeder::class,
-            EpisodeTableSeeder::class,
             EventGroupsAndEventsSeeder::class,
+            FaqCategoriesAndFaqsSeeder::class,
+            
+            // مرحله 4: داده‌های وابسته به چندین جدول
+            CoursesSectionsEpisodesSeeder::class, // نیاز به Users, Levels, Statuses, Categories دارد
+            QuestionsAndAnswersSeeder::class, // نیاز به Users و QuestionCategories دارد
         ]);
     }
 }

@@ -74,7 +74,7 @@ class MentionNotification extends BaseNotification implements ShouldQueue
                 $mentionerName, // {0}
                 $this->question->subject, // {1}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405088, // MentionNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

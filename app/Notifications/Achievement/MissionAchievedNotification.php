@@ -67,7 +67,7 @@ class MissionAchievedNotification extends BaseNotification implements ShouldQueu
             'params' => [
                 $this->mission->title, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405151, // MissionAchievedNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

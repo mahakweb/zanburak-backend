@@ -70,7 +70,7 @@ class CertificateIssuedNotification extends BaseNotification implements ShouldQu
             'params' => [
                 $this->course->title, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405122, // CertificateIssuedNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

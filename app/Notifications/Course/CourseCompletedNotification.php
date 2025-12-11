@@ -67,7 +67,7 @@ class CourseCompletedNotification extends BaseNotification implements ShouldQueu
             'params' => [
                 $this->course->title, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405115, // CourseCompletedNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

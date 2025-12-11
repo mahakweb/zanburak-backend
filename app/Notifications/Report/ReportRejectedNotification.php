@@ -19,7 +19,7 @@ class ReportRejectedNotification extends BaseNotification implements ShouldQueue
      *
      * @return void
      */
-    public function __construct(string $reportTitle, string $reason = null)
+    public function __construct(string $reportTitle, ?string $reason = null)
     {
         parent::__construct();
         $this->reportTitle = $reportTitle;
@@ -77,7 +77,7 @@ class ReportRejectedNotification extends BaseNotification implements ShouldQueue
                     $this->reportTitle, // {0}
                     $this->reason, // {1}
                 ],
-                'body_id' => null, // بعداً جایگزین می‌شود
+                'body_id' => 405145, // ReportRejectedNotificationWithReason - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
                 'phone' => $notifiable->mobile,
             ];
         }
@@ -87,7 +87,7 @@ class ReportRejectedNotification extends BaseNotification implements ShouldQueue
             'params' => [
                 $this->reportTitle, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405146, // ReportRejectedNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

@@ -74,7 +74,7 @@ class ReplyToDiscussionNotification extends BaseNotification implements ShouldQu
                 $answererName, // {0}
                 $this->question->subject, // {1}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405086, // ReplyToDiscussionNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

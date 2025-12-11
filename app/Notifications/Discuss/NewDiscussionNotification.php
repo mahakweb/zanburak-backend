@@ -74,7 +74,7 @@ class NewDiscussionNotification extends BaseNotification implements ShouldQueue
                 $authorName, // {0}
                 $this->question->subject, // {1}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405087, // NewDiscussionNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

@@ -80,7 +80,7 @@ class LoginFromNewDeviceNotification extends BaseNotification implements ShouldQ
                     $this->browser, // {1}
                     $this->device, // {2}
                 ],
-                'body_id' => null, // بعداً جایگزین می‌شود
+                'body_id' => 405113, // LoginFromNewDeviceNotificationWithDevice - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
                 'phone' => $notifiable->mobile,
             ];
         }
@@ -91,7 +91,7 @@ class LoginFromNewDeviceNotification extends BaseNotification implements ShouldQ
                 $this->ip, // {0}
                 $this->browser, // {1}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405114, // LoginFromNewDeviceNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

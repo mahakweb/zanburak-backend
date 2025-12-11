@@ -68,10 +68,10 @@ class NewCourseInCategoryNotification extends BaseNotification implements Should
         // متغیرها: {0} = عنوان دسته‌بندی, {1} = عنوان دوره
         return [
             'params' => [
-                $this->category->title, // {0}
-                $this->course->title, // {1}
+                $this->course->title, // {0}
+                $this->category->title, // {1}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405175, // NewCourseInCategoryNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

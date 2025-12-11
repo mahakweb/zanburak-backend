@@ -60,8 +60,10 @@ class LoginNotification extends BaseNotification implements ShouldQueue
         // الگو در پنل ملی پیامک: LoginNotification
         // بدون متغیر
         return [
-            'params' => [],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'params' => [
+                $notifiable->first_name . ' ' . $notifiable->last_name, // {0}
+            ],
+            'body_id' => 405101, // LoginNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

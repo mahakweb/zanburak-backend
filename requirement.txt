@@ -1,9 +1,0 @@
------home section-----
-1. complete markdown for all section
-2. complete ffmpeg package for video streaming
-3. create about, contact and term page
-4. create path detail page
-5. complete
-
------student panel-----
-1.

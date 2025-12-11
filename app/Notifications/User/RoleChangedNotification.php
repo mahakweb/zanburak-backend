@@ -20,7 +20,7 @@ class RoleChangedNotification extends BaseNotification implements ShouldQueue
      *
      * @return void
      */
-    public function __construct(Collection $newRoles, Collection $oldRoles = null)
+    public function __construct(Collection $newRoles, ?Collection $oldRoles = null)
     {
         parent::__construct();
         $this->newRoles = $newRoles;
@@ -83,7 +83,7 @@ class RoleChangedNotification extends BaseNotification implements ShouldQueue
                     $rolesText, // {0}
                     $oldRolesText, // {1}
                 ],
-                'body_id' => null, // بعداً جایگزین می‌شود
+                'body_id' => 405106, // RoleChangedNotificationWithOldRoles - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
                 'phone' => $notifiable->mobile,
             ];
         }
@@ -93,7 +93,7 @@ class RoleChangedNotification extends BaseNotification implements ShouldQueue
             'params' => [
                 $rolesText, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405108, // RoleChangedNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

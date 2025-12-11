@@ -456,10 +456,43 @@ class ProfileController extends Controller
         $field = $request->input('field');
         $value = $request->input('value');
 
+        // تبدیل value به boolean
+        $boolValue = filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+        if ($boolValue === null) {
+            $boolValue = (bool)$value;
+        }
+
         $event = Event::findOrFail($eventId);
 
         if (!$event->isChannelEnabled($field)) {
             return response()->json(['message' => 'This channel is disabled by admin.'], 403);
+        }
+
+        // بررسی اعتبارسنجی برای فعال‌سازی ایمیل یا پیامک
+        if ($boolValue === true) {
+            if ($field === 'via_email') {
+                if (!$user->email) {
+                    return response()->json([
+                        'message' => 'برای فعال‌سازی اطلاع‌رسانی از طریق ایمیل، باید ایمیل شما ثبت شده باشد.'
+                    ], 422);
+                }
+                if (!$user->email_verified_at) {
+                    return response()->json([
+                        'message' => 'برای فعال‌سازی اطلاع‌رسانی از طریق ایمیل، باید ایمیل شما تایید شده باشد.'
+                    ], 422);
+                }
+            } elseif ($field === 'via_sms') {
+                if (!$user->mobile) {
+                    return response()->json([
+                        'message' => 'برای فعال‌سازی اطلاع‌رسانی از طریق پیامک، باید شماره موبایل شما ثبت شده باشد.'
+                    ], 422);
+                }
+                if (!$user->mobile_verified_at) {
+                    return response()->json([
+                        'message' => 'برای فعال‌سازی اطلاع‌رسانی از طریق پیامک، باید شماره موبایل شما تایید شده باشد.'
+                    ], 422);
+                }
+            }
         }
 
         $notificationPreference = NotificationPreference::where('user_id', $userId)
@@ -478,12 +511,12 @@ class ProfileController extends Controller
 
             $notificationPreference = NotificationPreference::create($preferencesData);
 
-            $notificationPreference->$field = $value;
+            $notificationPreference->$field = $boolValue;
             $notificationPreference->save();
 
             return response()->json(['message' => 'Record created and updated', 'notification_preference' => $notificationPreference], 201);
         } else {
-            $notificationPreference->$field = $value;
+            $notificationPreference->$field = $boolValue;
             $notificationPreference->save();
 
             return response()->json(['message' => 'Record updated', 'notification_preference' => $notificationPreference], 200);
@@ -531,12 +564,16 @@ class ProfileController extends Controller
         $channel = $request->input('channel');
         $eventIds = $request->input('event_ids', []);
 
+        // بررسی اعتبارسنجی اولیه برای enable_channel (قبل از حلقه)
+        // اما بررسی کامل در داخل حلقه انجام می‌شود
+
         // دریافت همه Event ها
         $events = Event::when(!empty($eventIds), function($query) use ($eventIds) {
             return $query->whereIn('id', $eventIds);
         })->get();
 
         $updatedCount = 0;
+        $validationErrors = [];
 
         foreach ($events as $event) {
             $preference = NotificationPreference::where('user_id', $userId)
@@ -556,6 +593,28 @@ class ProfileController extends Controller
 
             switch ($action) {
                 case 'enable_all':
+                    // بررسی برای ایمیل
+                    if ($event->is_email_enabled) {
+                        if (!$user->email) {
+                            $validationErrors[] = 'برای فعال‌سازی اطلاع‌رسانی از طریق ایمیل، باید ایمیل شما ثبت شده باشد.';
+                            break 2;
+                        }
+                        if (!$user->email_verified_at) {
+                            $validationErrors[] = 'برای فعال‌سازی اطلاع‌رسانی از طریق ایمیل، باید ایمیل شما تایید شده باشد.';
+                            break 2;
+                        }
+                    }
+                    // بررسی برای پیامک
+                    if ($event->is_sms_enabled) {
+                        if (!$user->mobile) {
+                            $validationErrors[] = 'برای فعال‌سازی اطلاع‌رسانی از طریق پیامک، باید شماره موبایل شما ثبت شده باشد.';
+                            break 2;
+                        }
+                        if (!$user->mobile_verified_at) {
+                            $validationErrors[] = 'برای فعال‌سازی اطلاع‌رسانی از طریق پیامک، باید شماره موبایل شما تایید شده باشد.';
+                            break 2;
+                        }
+                    }
                     $preference->via_email = $event->is_email_enabled ? true : $preference->via_email;
                     $preference->via_sms = $event->is_sms_enabled ? true : $preference->via_sms;
                     $preference->via_telegram = $event->is_telegram_enabled ? true : $preference->via_telegram;
@@ -571,6 +630,26 @@ class ProfileController extends Controller
 
                 case 'enable_channel':
                     if ($event->isChannelEnabled($channel)) {
+                        // بررسی اعتبارسنجی برای فعال‌سازی ایمیل یا پیامک
+                        if ($channel === 'via_email') {
+                            if (!$user->email) {
+                                $validationErrors[] = 'برای فعال‌سازی اطلاع‌رسانی از طریق ایمیل، باید ایمیل شما ثبت شده باشد.';
+                                break 2;
+                            }
+                            if (!$user->email_verified_at) {
+                                $validationErrors[] = 'برای فعال‌سازی اطلاع‌رسانی از طریق ایمیل، باید ایمیل شما تایید شده باشد.';
+                                break 2;
+                            }
+                        } elseif ($channel === 'via_sms') {
+                            if (!$user->mobile) {
+                                $validationErrors[] = 'برای فعال‌سازی اطلاع‌رسانی از طریق پیامک، باید شماره موبایل شما ثبت شده باشد.';
+                                break 2;
+                            }
+                            if (!$user->mobile_verified_at) {
+                                $validationErrors[] = 'برای فعال‌سازی اطلاع‌رسانی از طریق پیامک، باید شماره موبایل شما تایید شده باشد.';
+                                break 2;
+                            }
+                        }
                         $preference->$channel = true;
                     }
                     break;
@@ -580,15 +659,36 @@ class ProfileController extends Controller
                     break;
 
                 case 'reset_to_default':
-                    $preference->via_email = $event->is_email_enabled;
-                    $preference->via_sms = $event->is_sms_enabled;
-                    $preference->via_telegram = $event->is_telegram_enabled;
-                    $preference->via_site = $event->is_site_enabled;
+                    // برای ایمیل: اگر event فعال است و کاربر email دارد و verified است، فعال کن
+                    if ($event->is_email_enabled) {
+                        $preference->via_email = ($user->email && $user->email_verified_at) ? true : false;
+                    } else {
+                        $preference->via_email = false;
+                    }
+                    
+                    // برای پیامک: اگر event فعال است و کاربر mobile دارد و verified است، فعال کن
+                    if ($event->is_sms_enabled) {
+                        $preference->via_sms = ($user->mobile && $user->mobile_verified_at) ? true : false;
+                    } else {
+                        $preference->via_sms = false;
+                    }
+                    
+                    // برای تلگرام و سایت: بدون شرط، اگر event فعال است، فعال کن
+                    $preference->via_telegram = $event->is_telegram_enabled ? true : false;
+                    $preference->via_site = $event->is_site_enabled ? true : false;
                     break;
             }
 
-            $preference->save();
-            $updatedCount++;
+            if (empty($validationErrors)) {
+                $preference->save();
+                $updatedCount++;
+            }
+        }
+
+        if (!empty($validationErrors)) {
+            return response()->json([
+                'message' => implode(' ', array_unique($validationErrors))
+            ], 422);
         }
 
         return response()->json([

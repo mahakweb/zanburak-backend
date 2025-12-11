@@ -60,8 +60,10 @@ class AccountUnsuspendedNotification extends BaseNotification implements ShouldQ
         // الگو در پنل ملی پیامک: AccountUnsuspendedNotification
         // بدون متغیر
         return [
-            'params' => [],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'params' => [
+                $notifiable->first_name . ' ' . $notifiable->last_name, // {0}
+            ],
+            'body_id' => 405112, // AccountUnsuspendedNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

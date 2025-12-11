@@ -78,7 +78,7 @@ class CommentOnArticleNotification extends BaseNotification implements ShouldQue
                 $commenterName, // {0}
                 $this->commentableTitle, // {1}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405130, // CommentOnArticleNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

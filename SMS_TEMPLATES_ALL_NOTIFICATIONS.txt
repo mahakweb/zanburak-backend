@@ -14,6 +14,8 @@ SelectBestAnswerNotification
 zanburak.ir
 لغو11
 
+body_id = 405190
+
 # ============================================
 # Discuss - ReplyToDiscussionNotification
 # متغیرها: {0} = نام پاسخ‌دهنده, {1} = عنوان گفتگو
@@ -22,6 +24,8 @@ ReplyToDiscussionNotification
 {0} به گفتگوی شما «{1}» پاسخ داد.
 zanburak.ir
 لغو11
+
+body_id = 405086
 
 # ============================================
 # Discuss - NewDiscussionNotification
@@ -32,6 +36,9 @@ NewDiscussionNotification
 zanburak.ir
 لغو11
 
+body_id = 405087
+
+
 # ============================================
 # Discuss - MentionNotification
 # متغیرها: {0} = نام شخصی که اشاره کرده, {1} = عنوان گفتگو
@@ -40,6 +47,8 @@ MentionNotification
 {0} در گفتگوی «{1}» به شما اشاره کرد.
 zanburak.ir
 لغو11
+
+body_id = 405088
 
 # ============================================
 # Discuss - OldQuestionAnsweredNotification
@@ -50,6 +59,8 @@ OldQuestionAnsweredNotification
 zanburak.ir
 لغو11
 
+body_id = 405089
+
 # ============================================
 # Discuss - ReplyToFollowedDiscussionNotification
 # متغیرها: {0} = عنوان گفتگو
@@ -58,6 +69,8 @@ ReplyToFollowedDiscussionNotification
 به گفتگویی که ذخیره کرده‌اید «{0}» پاسخ جدیدی داده شد.
 zanburak.ir
 لغو11
+
+body_id = 405090
 
 # ============================================
 # Discuss - FollowedUserReplyToDiscussionNotification
@@ -68,15 +81,19 @@ FollowedUserReplyToDiscussionNotification
 zanburak.ir
 لغو11
 
+body_id = 405093
+
 # ============================================
 # User - LoginNotification
 # بدون متغیر
 # ============================================
 LoginNotification
-ورود شما به حساب کاربری انجام شد.
+{0} عزیز، ورود شما به حساب کاربری انجام شد.
 اگر این کار توسط شما انجام نشده است، لطفاً فوراً رمز عبور خود را تغییر دهید.
 zanburak.ir
 لغو11
+
+body_id = 405101
 
 # ============================================
 # User - FollowNotification
@@ -87,37 +104,43 @@ FollowNotification
 zanburak.ir
 لغو11
 
+body_id = 405102
+
 # ============================================
 # User - EmailChangedNotification
 # متغیرها: {0} = ایمیل قبلی, {1} = ایمیل جدید
 # ============================================
 EmailChangedNotification
-ایمیل شما با موفقیت تغییر یافت.
-ایمیل قبلی: {0}
-ایمیل جدید: {1}
+{0} عزیز، ایمیل شما با موفقیت تغییر یافت.
 در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً با پشتیبانی تماس بگیرید.
 zanburak.ir
 لغو11
+
+body_id = 405103
 
 # ============================================
 # User - ChangePasswordNotification
 # بدون متغیر
 # ============================================
 ChangePasswordNotification
-گذرواژه شما تغییر یافت.
+{0} عزیز، گذرواژه شما تغییر یافت.
 در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً به بخش مدیریت نشست‌ها در پنل کاربری مراجعه کنید.
 zanburak.ir
 لغو11
+
+body_id = 405104
 
 # ============================================
 # User - ChangeMobileNotification
 # بدون متغیر
 # ============================================
 ChangeMobileNotification
-شماره موبایل شما با موفقیت تغییر یافت.
+{0} عزیز، شماره موبایل شما با موفقیت تغییر یافت.
 در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً با پشتیبانی تماس بگیرید.
 zanburak.ir
 لغو11
+
+body_id = 405105
 
 # ============================================
 # User - RoleChangedNotification (با نقش‌های قبلی)
@@ -129,6 +152,8 @@ RoleChangedNotificationWithOldRoles
 zanburak.ir
 لغو11
 
+body_id = 405106
+
 # ============================================
 # User - RoleChangedNotification (بدون نقش‌های قبلی)
 # متغیرها: {0} = نقش‌های جدید
@@ -137,6 +162,8 @@ RoleChangedNotification
 نقش‌های شما به «{0}» تغییر یافت.
 zanburak.ir
 لغو11
+
+body_id = 405108
 
 # ============================================
 # User - AccountSuspendedNotification (بدون تاریخ)
@@ -147,6 +174,8 @@ AccountSuspendedNotification
 دلیل: {0}
 zanburak.ir
 لغو11
+
+body_id = 405110
 
 # ============================================
 # User - AccountSuspendedNotification (با تاریخ)
@@ -159,15 +188,19 @@ AccountSuspendedNotificationWithDate
 zanburak.ir
 لغو11
 
+body_id = 405111
+
 # ============================================
 # User - AccountUnsuspendedNotification
 # بدون متغیر
 # ============================================
 AccountUnsuspendedNotification
-مسدودیت حساب کاربری شما رفع شد.
+{0} عزیز، مسدودیت حساب کاربری شما رفع شد.
 اکنون می‌توانید از تمام امکانات سایت استفاده کنید.
 zanburak.ir
 لغو11
+
+body_id = 405112
 
 # ============================================
 # Security - LoginFromNewDeviceNotification (با دستگاه)
@@ -182,6 +215,8 @@ IP: {0}
 zanburak.ir
 لغو11
 
+body_id = 405113
+
 # ============================================
 # Security - LoginFromNewDeviceNotification (بدون دستگاه)
 # متغیرها: {0} = IP, {1} = مرورگر
@@ -194,6 +229,8 @@ IP: {0}
 zanburak.ir
 لغو11
 
+body_id = 405114
+
 # ============================================
 # Course - CourseCompletedNotification
 # متغیرها: {0} = عنوان دوره
@@ -202,6 +239,8 @@ CourseCompletedNotification
 تبریک! شما دوره «{0}» را با موفقیت تکمیل کردید.
 zanburak.ir
 لغو11
+
+body_id = 405115
 
 # ============================================
 # Course - CourseProgressNotification (با پیام تشویقی - پیشرفت >= 70%)
@@ -213,6 +252,8 @@ CourseProgressNotificationWithEncouragement
 zanburak.ir
 لغو11
 
+body_id = 405118
+
 # ============================================
 # Course - CourseProgressNotification (بدون پیام تشویقی - پیشرفت < 70%)
 # متغیرها: {0} = درصد پیشرفت, {1} = عنوان دوره
@@ -221,6 +262,8 @@ CourseProgressNotification
 شما {0}% از دوره «{1}» را تماشا کرده‌اید.
 zanburak.ir
 لغو11
+
+body_id = 405120
 
 # ============================================
 # Course - CourseNearCompletionNotification
@@ -233,6 +276,8 @@ CourseNearCompletionNotification
 zanburak.ir
 لغو11
 
+body_id = 405121
+
 # ============================================
 # Course - CertificateIssuedNotification
 # متغیرها: {0} = عنوان دوره
@@ -243,6 +288,8 @@ CertificateIssuedNotification
 zanburak.ir
 لغو11
 
+body_id = 405122
+
 # ============================================
 # Course - NewCourseNotification
 # متغیرها: {0} = عنوان دوره
@@ -252,6 +299,8 @@ NewCourseNotification
 zanburak.ir
 لغو11
 
+body_id = 405124
+
 # ============================================
 # Course - CourseUpdatedNotification
 # متغیرها: {0} = عنوان دوره
@@ -260,6 +309,8 @@ CourseUpdatedNotification
 دوره «{0}» به‌روزرسانی شد و محتوای جدیدی اضافه شده است.
 zanburak.ir
 لغو11
+
+body_id = 405125
 
 # ============================================
 # Course - CourseReminderNotification
@@ -271,15 +322,19 @@ CourseReminderNotification
 zanburak.ir
 لغو11
 
+body_id = 405127
+
 # ============================================
 # Course - NewCourseInCategoryNotification
 # متغیرها: {0} = عنوان دسته‌بندی, {1} = عنوان دوره
 # ============================================
 NewCourseInCategoryNotification
-دوره جدیدی در دسته‌بندی «{0}» منتشر شد:
-«{1}»
+کاربر عزیز، 
+دوره «{0}» به دسته‌بندی «{1}» اضافه شد.
 zanburak.ir
 لغو11
+
+body_id = 405175
 
 # ============================================
 # Comment - CommentOnArticleNotification
@@ -290,6 +345,8 @@ CommentOnArticleNotification
 zanburak.ir
 لغو11
 
+body_id = 405130
+
 # ============================================
 # Comment - ReplyToCommentNotification
 # متغیرها: {0} = نام پاسخ‌دهنده, {1} = عنوان محتوا
@@ -299,6 +356,8 @@ ReplyToCommentNotification
 zanburak.ir
 لغو11
 
+body_id = 405132
+
 # ============================================
 # Comment - CommentApprovedNotification
 # متغیرها: {0} = عنوان محتوا
@@ -307,6 +366,8 @@ CommentApprovedNotification
 دیدگاه شما در مورد «{0}» تایید شد.
 zanburak.ir
 لغو11
+
+body_id = 405133
 
 # ============================================
 # Payment - CoursePurchaseNotification
@@ -337,6 +398,8 @@ PaymentFailedNotificationWithReason
 zanburak.ir
 لغو11
 
+body_id = 405136
+
 # ============================================
 # Payment - PaymentFailedNotification (بدون دلیل)
 # متغیرها: {0} = مبلغ
@@ -346,6 +409,8 @@ PaymentFailedNotification
 لطفاً دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.
 zanburak.ir
 لغو11
+
+body_id = 405137
 
 # ============================================
 # Payment - VipExpiringNotification
@@ -357,15 +422,19 @@ VipExpiringNotification
 zanburak.ir
 لغو11
 
+body_id = 405138
+
 # ============================================
 # Payment - VipExpiredNotification
-# بدون متغیر
+# متغیرها: {0} = نام اشتراک VIP منقضی شده
 # ============================================
 VipExpiredNotification
-عضویت VIP شما به پایان رسید.
+عضویت VIP شما «{0}» به پایان رسید.
 برای ادامه استفاده از امکانات VIP، لطفاً عضویت خود را تمدید کنید.
 zanburak.ir
 لغو11
+
+body_id = 405141
 
 # ============================================
 # Post - LikeDislikePostNotification
@@ -373,8 +442,11 @@ zanburak.ir
 # ============================================
 LikeDislikePostNotification
 {0} مطلب شما «{1}» را {2} کرد.
+کاربری به مطلب شما «{1}» نظر(لایک/دیس‌لایک) داد.
 zanburak.ir
 لغو11
+
+body_id = 405142
 
 # ============================================
 # Report - ReportApprovedNotification (با اقدامات)
@@ -386,6 +458,8 @@ ReportApprovedNotificationWithActions
 zanburak.ir
 لغو11
 
+body_id = 405143
+
 # ============================================
 # Report - ReportApprovedNotification (بدون اقدامات)
 # متغیرها: {0} = عنوان گزارش
@@ -394,6 +468,8 @@ ReportApprovedNotification
 گزارش شما «{0}» تایید شد و اقدامات لازم انجام شد.
 zanburak.ir
 لغو11
+
+body_id = 405144
 
 # ============================================
 # Report - ReportRejectedNotification (با دلیل)
@@ -406,6 +482,8 @@ ReportRejectedNotificationWithReason
 zanburak.ir
 لغو11
 
+body_id = 405145
+
 # ============================================
 # Report - ReportRejectedNotification (بدون دلیل)
 # متغیرها: {0} = عنوان گزارش
@@ -415,6 +493,8 @@ ReportRejectedNotification
 در صورت نیاز می‌توانید گزارش جدیدی ارسال کنید.
 zanburak.ir
 لغو11
+
+body_id = 405146
 
 # ============================================
 # Resume - MessageFromResumeNotification (با عنوان رزومه)
@@ -426,6 +506,8 @@ MessageFromResumeNotificationWithTitle
 zanburak.ir
 لغو11
 
+body_id = 405147
+
 # ============================================
 # Resume - MessageFromResumeNotification (بدون عنوان رزومه)
 # متغیرها: {0} = نام فرستنده
@@ -434,6 +516,8 @@ MessageFromResumeNotification
 {0} از طریق رزومه شما پیامی ارسال کرده است.
 zanburak.ir
 لغو11
+
+body_id = 405148
 
 # ============================================
 # Achievement - ScoreMilestoneNotification (با پیام اضافی - امتیاز >= 50000)
@@ -445,6 +529,8 @@ ScoreMilestoneNotificationWithBonus
 zanburak.ir
 لغو11
 
+body_id = 405149
+
 # ============================================
 # Achievement - ScoreMilestoneNotification (بدون پیام اضافی - امتیاز < 50000)
 # متغیرها: {0} = امتیاز
@@ -454,6 +540,8 @@ ScoreMilestoneNotification
 zanburak.ir
 لغو11
 
+body_id = 405150
+
 # ============================================
 # Achievement - MissionAchievedNotification
 # متغیرها: {0} = عنوان Mission
@@ -462,6 +550,8 @@ MissionAchievedNotification
 تبریک! شما Mission «{0}» را کامل کردید.
 zanburak.ir
 لغو11
+
+body_id = 405151
 
 # ============================================
 # Discount - DiscountNotification

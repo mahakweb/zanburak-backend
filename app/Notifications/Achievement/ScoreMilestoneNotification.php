@@ -75,7 +75,7 @@ class ScoreMilestoneNotification extends BaseNotification implements ShouldQueue
                 'params' => [
                     $this->score, // {0}
                 ],
-                'body_id' => null, // بعداً جایگزین می‌شود
+                'body_id' => 405149, // ScoreMilestoneNotificationWithBonus - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
                 'phone' => $notifiable->mobile,
             ];
         }
@@ -85,7 +85,7 @@ class ScoreMilestoneNotification extends BaseNotification implements ShouldQueue
             'params' => [
                 $this->score, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405150, // ScoreMilestoneNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

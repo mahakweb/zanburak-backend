@@ -68,10 +68,9 @@ class EmailChangedNotification extends BaseNotification implements ShouldQueue
         // متغیرها: {0} = ایمیل قبلی, {1} = ایمیل جدید
         return [
             'params' => [
-                $this->oldEmail, // {0}
-                $this->newEmail, // {1}
+                $notifiable->first_name . ' ' . $notifiable->last_name, // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405103, // EmailChangedNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }

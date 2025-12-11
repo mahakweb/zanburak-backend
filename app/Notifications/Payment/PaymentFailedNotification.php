@@ -19,7 +19,7 @@ class PaymentFailedNotification extends BaseNotification implements ShouldQueue
      *
      * @return void
      */
-    public function __construct(int $amount, string $reason = null)
+    public function __construct(int $amount, ?string $reason = null)
     {
         parent::__construct();
         $this->amount = $amount;
@@ -77,7 +77,7 @@ class PaymentFailedNotification extends BaseNotification implements ShouldQueue
                     number_format($this->amount), // {0}
                     $this->reason, // {1}
                 ],
-                'body_id' => null, // بعداً جایگزین می‌شود
+                'body_id' => 405136, // PaymentFailedNotificationWithReason - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
                 'phone' => $notifiable->mobile,
             ];
         }
@@ -87,7 +87,7 @@ class PaymentFailedNotification extends BaseNotification implements ShouldQueue
             'params' => [
                 number_format($this->amount), // {0}
             ],
-            'body_id' => null, // بعداً جایگزین می‌شود
+            'body_id' => 405137, // PaymentFailedNotification - از SMS_TEMPLATES_ALL_NOTIFICATIONS.txt
             'phone' => $notifiable->mobile,
         ];
     }
