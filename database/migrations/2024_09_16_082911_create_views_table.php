@@ -18,6 +18,8 @@ return new class extends Migration {
             $table->string('viewable_type');
             $table->string('ip_address')->nullable();
             $table->text('user_agent')->nullable();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->foreign('user_id')->references('id')->on('users')->onUpdate('cascade')->onDelete('set null');
             $table->timestamps();
 
             $table->index(['viewable_id', 'viewable_type']);

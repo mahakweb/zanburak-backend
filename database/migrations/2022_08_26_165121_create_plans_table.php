@@ -38,7 +38,7 @@ return new class extends Migration
             $table->foreign('payment_id')->references('id')->on('payments')->onUpdate('cascade');
             $table->bigInteger('price')->nullable();
             $table->timestamp('expired_at')->useCurrent();
-            $table->enum('purchase_type', ['online', 'wallet'])->default('online');
+            $table->enum('purchase_type', ['online', 'wallet', 'gift', 'manual'])->default('online');
             $table->text('description')->nullable();
             $table->timestamps();
         });

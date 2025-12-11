@@ -42,6 +42,7 @@ return new class extends Migration
             $table->timestamp('last_seen')->nullable();
             $table->boolean('active')->default(true); 
             // $table->unsignedBigInteger('deactivated_by')->nullable(); 
+            $table->boolean('notifications_enabled')->default(true);
             $table->foreignId('deactivated_by')->nullable()->constrained('users')->nullOnDelete();
             $table->string('deactivation_reason')->nullable(); 
             $table->timestamp('deactivated_until')->nullable();

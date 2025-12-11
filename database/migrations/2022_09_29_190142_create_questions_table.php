@@ -34,6 +34,7 @@ return new class extends Migration
             $table->string('subject');
             $table->string('slug');
             $table->text('question');
+            $table->text('meta_keywords')->nullable();
             $table->unsignedBigInteger('best_answer')->nullable();
             $table->boolean('publish')->default(1);
             $table->boolean('is_private')->default(false);

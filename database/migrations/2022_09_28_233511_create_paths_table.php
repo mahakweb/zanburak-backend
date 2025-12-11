@@ -19,6 +19,7 @@ return new class extends Migration
             $table->string('english_title');
             $table->string('slug');
             $table->text('description')->nullable();
+            $table->text('meta_keywords')->nullable();
             $table->json('faqs')->nullable();
             $table->string('icon', 255)->nullable();
             $table->string('trailer', 255)->nullable();

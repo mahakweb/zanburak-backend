@@ -22,6 +22,7 @@ return new class extends Migration
             $table->string('slug');
             $table->string('short_description', 400)->nullable();
             $table->text('description');
+            $table->text('meta_keywords')->nullable();
             $table->string('total_time')->default(0);
             $table->timestamp('start_date')->nullable();
             $table->timestamp('end_date')->nullable();

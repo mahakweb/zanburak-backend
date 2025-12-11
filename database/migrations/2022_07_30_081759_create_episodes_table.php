@@ -21,6 +21,7 @@ return new class extends Migration
             $table->string('english_title', 255);
             $table->string('slug', 255);
             $table->text('description')->nullable();
+            $table->text('meta_keywords')->nullable();
             $table->string('total_time')->default(0);
             $table->boolean('lock')->default(1);
             $table->unsignedInteger('order')->default(1);
