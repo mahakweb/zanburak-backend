@@ -57,6 +57,13 @@ Route::middleware('auth:sanctum')->prefix('panel')->as('api.panel.')->group(func
         Route::post('/terminate', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'terminateSession'])->name('terminate');
         Route::post('/terminateAll', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'terminateAllSession'])->name('terminate-all');
     });
+
+    // Scores
+    Route::prefix('scores')->as('scores.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\Panel\ScoresController::class, 'index'])->name('index');
+        Route::post('/convert-to-money', [\App\Http\Controllers\Api\Panel\ScoresController::class, 'convertToMoney'])->name('convert-to-money');
+        Route::get('/conversion-info', [\App\Http\Controllers\Api\Panel\ScoresController::class, 'conversionInfo'])->name('conversion-info');
+    });
 });
 
 

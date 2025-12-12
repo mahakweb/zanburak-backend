@@ -42,6 +42,9 @@ class EmailVerificationController extends Controller
         $user->markEmailAsVerified();
 
         event(new Verified($user));
+        
+        // Fire custom event for points
+        event(new \App\Events\Score\User\EmailVerified($user));
 
         // return response()->json([
         //     'message' => 'Email verified successfully',

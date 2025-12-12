@@ -55,6 +55,12 @@ class VideoViewsController extends Controller
             $episode = Episode::find($video->videoable_id);
             $course = $episode->section->course;
             
+            // Fire event for episode fully watched (only once)
+            $wasFullyWatchedBefore = $video->watched;
+            if (!$wasFullyWatchedBefore) {
+                event(new \App\Events\Score\Episode\EpisodeFullyWatched($user, $episode));
+            }
+            
             // محاسبه پیشرفت دوره
             $progress = \App\Models\VideoView::getCourseProgressForUser($user->id, $course->id);
             $progressPercentage = (int) round($progress['progress_percentage']);

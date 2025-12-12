@@ -527,6 +527,11 @@ class ReportController extends Controller
             $reportTitle = $this->getReportTitle($report);
             $actionTaken = $this->getActionTaken($report, 'deactivated');
             event(new \App\Events\Report\ReportApproved($report->user, $reportTitle, $actionTaken));
+            
+            // Fire event for points (only if report led to action)
+            if ($actionTaken) {
+                event(new \App\Events\Score\Report\ReportApprovedForScores($report->user, $report));
+            }
 
             return response()->json([
                 'message' => 'Content deactivated successfully',

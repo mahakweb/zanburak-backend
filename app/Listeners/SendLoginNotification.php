@@ -49,5 +49,8 @@ class SendLoginNotification
         
         // ارسال اطلاع‌رسانی ورود - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد
         $user->notify(new LoginNotification());
+        
+        // Fire event for daily login points
+        event(new \App\Events\Score\User\DailyLogin($user));
     }
 }

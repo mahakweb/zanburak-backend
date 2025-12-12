@@ -3,19 +3,22 @@
 namespace App\Listeners\Score\Discuss;
 
 use App\Notifications\Discuss\SubmitAnswerNotification;
+use App\Services\ScoresService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 
 class SubmitNewAnswerListener
 {
+    protected $scoresService;
+
     /**
      * Create the event listener.
      *
      * @return void
      */
-    public function __construct()
+    public function __construct(ScoresService $scoresService)
     {
-        //
+        $this->scoresService = $scoresService;
     }
 
     /**
@@ -30,24 +33,20 @@ class SubmitNewAnswerListener
         $answer = $event->answer;
         $question = $answer->question;
         $firestAnswer = $question->answers->first();
+        
+        $action = 'submit-answer';
         $description = 'ثبت پاسخ برای پرسش ';
-        $score = 50;
-
-
-
 
         if($firestAnswer->id == $answer->id){
+            $action = 'submit-first-answer';
             $description = 'ثبت اولین پاسخ برای پرسش ';
-            $score = 100;
         }
 
-        // if($user->id != $question->user->id && $question->answers->where('user_id', $user->id)->count() == 1) //count == 1 mean there is only this answer for this question
-        // {
-            $user->scores()->create([
-                'description' => $description.$question->subject,
-                'score'       => $score,
-            ]);
-        // }
+        $this->scoresService->awardScores(
+            $user,
+            $description.$question->subject,
+            $action === 'submit-first-answer' ? 100 : 50
+        );
 
 
 

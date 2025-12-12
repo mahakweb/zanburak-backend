@@ -189,6 +189,11 @@ class CommentController extends Controller
                 
                 event(new \App\Events\Comment\CommentOnArticle($comment, $user, $commentableTitle, $commentableUrl));
             }
+            
+            // Fire event for points if commentable is Episode
+            if ($commentable instanceof \App\Models\Episode) {
+                event(new \App\Events\Score\Comment\CommentOnEpisode($user, $comment));
+            }
         }
 
         $comment->load([

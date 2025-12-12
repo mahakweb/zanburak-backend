@@ -256,6 +256,8 @@ class ProfileController extends Controller
                 return response()->json(['message' => 'Error!', 'errors' => ['otp' => ['کد وارد شده صحیح نیست.']]], 422);
             }
 
+            $wasVerifiedBefore = $user->mobile_verified_at;
+            
             $update = $user->update([
                 'mobile' => $fullMobile,
                 'mobile_verified_at' => now()
@@ -264,6 +266,11 @@ class ProfileController extends Controller
             ActiveCode::where('user_phone', $fullMobile)->delete();
 
             event(new ChangeMobile($user));
+            
+            // Fire event for points if this is first time verification
+            if (!$wasVerifiedBefore) {
+                event(new \App\Events\Score\User\MobileVerified($user));
+            }
 
             return response()->json(['message' => 'Mobile number was successfully changed', 'new_mobile' => $fullMobile, 'mobile_verified_at' => now()], 200);
         }

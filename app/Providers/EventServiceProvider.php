@@ -26,6 +26,15 @@ use App\Events\Mission\PurchaseEvent;
 use App\Events\Score\Discuss\SelectBestAnswer;
 use App\Events\Score\Discuss\SubmitNewAnswer;
 use App\Events\Score\Discuss\SubmitNewQuestion;
+use App\Events\Score\Episode\EpisodeFullyWatched;
+use App\Events\Score\Comment\CommentOnEpisode;
+use App\Events\Score\Rating\RatingSubmitted;
+use App\Events\Score\Profile\ProfileCompleted;
+use App\Events\Score\User\EmailVerified;
+use App\Events\Score\User\MobileVerified;
+use App\Events\Score\User\DailyLogin;
+use App\Events\Score\User\UserFollowed;
+use App\Events\Score\Report\ReportApprovedForScores;
 use App\Events\User\ChangeMobile;
 use App\Events\User\ChangePassword;
 use App\Listeners\Comment\SendCommentApprovedNotification;
@@ -51,6 +60,21 @@ use App\Listeners\Mission\Purchases\FirstPurchaseListener;
 use App\Listeners\Score\Discuss\SelectBestAnswerListener;
 use App\Listeners\Score\Discuss\SubmitNewAnswerListener;
 use App\Listeners\Score\Discuss\SubmitNewQuestionListener;
+use App\Listeners\Score\Episode\EpisodeFullyWatchedListener;
+use App\Listeners\Score\Course\CourseCompletedListener;
+use App\Listeners\Score\Course\CertificateIssuedListener;
+use App\Listeners\Score\Comment\CommentOnEpisodeListener;
+use App\Listeners\Score\Comment\ReplyToCommentListener;
+use App\Listeners\Score\Rating\RatingSubmittedListener;
+use App\Listeners\Score\Post\PostLikedListener;
+use App\Listeners\Score\Profile\ProfileCompletedListener;
+use App\Listeners\Score\User\EmailVerifiedListener;
+use App\Listeners\Score\User\MobileVerifiedListener;
+use App\Listeners\Score\User\DailyLoginListener;
+use App\Listeners\Score\User\UserFollowedListener;
+use App\Listeners\Score\Payment\FirstPurchaseListener as ScoreFirstPurchaseListener;
+use App\Listeners\Score\Payment\VipUpgradedListener;
+use App\Listeners\Score\Report\ReportApprovedListener;
 use App\Listeners\SendFollowNotification;
 use App\Listeners\SendLoginNotification;
 use App\Listeners\SendWelcomeNotification;
@@ -94,6 +118,7 @@ class EventServiceProvider extends ServiceProvider
 
         FollowUser::class => [
             SendFollowNotification::class,
+            \App\Listeners\Score\User\FollowUserListener::class,
         ],
 
         GetCourse::class => [
@@ -117,6 +142,7 @@ class EventServiceProvider extends ServiceProvider
 
         ReplyToComment::class => [
             SendReplyToCommentNotification::class,
+            ReplyToCommentListener::class,
         ],
 
         CommentOnArticle::class => [
@@ -129,10 +155,12 @@ class EventServiceProvider extends ServiceProvider
 
         CoursePurchased::class => [
             SendCoursePurchasedNotification::class,
+            ScoreFirstPurchaseListener::class,
         ],
 
         VipUpgraded::class => [
             SendVipUpgradedNotification::class,
+            VipUpgradedListener::class,
         ],
 
         CourseUpdated::class => [
@@ -161,6 +189,7 @@ class EventServiceProvider extends ServiceProvider
 
         PostLiked::class => [
             SendPostLikedNotification::class,
+            PostLikedListener::class,
         ],
 
         Mentioned::class => [
@@ -177,10 +206,12 @@ class EventServiceProvider extends ServiceProvider
 
         CourseCompleted::class => [
             SendCourseCompletedNotification::class,
+            CourseCompletedListener::class,
         ],
 
         CertificateIssued::class => [
             SendCertificateIssuedNotification::class,
+            CertificateIssuedListener::class,
         ],
 
         // start mission
@@ -188,6 +219,42 @@ class EventServiceProvider extends ServiceProvider
             FirstPurchaseListener::class
         ],
 
+        // Score events
+        EpisodeFullyWatched::class => [
+            EpisodeFullyWatchedListener::class,
+        ],
+
+        CommentOnEpisode::class => [
+            CommentOnEpisodeListener::class,
+        ],
+
+        RatingSubmitted::class => [
+            RatingSubmittedListener::class,
+        ],
+
+        ProfileCompleted::class => [
+            ProfileCompletedListener::class,
+        ],
+
+        EmailVerified::class => [
+            EmailVerifiedListener::class,
+        ],
+
+        MobileVerified::class => [
+            MobileVerifiedListener::class,
+        ],
+
+        DailyLogin::class => [
+            DailyLoginListener::class,
+        ],
+
+        UserFollowed::class => [
+            UserFollowedListener::class,
+        ],
+
+        ReportApprovedForScores::class => [
+            ReportApprovedListener::class,
+        ],
 
         // end mission 
     ];

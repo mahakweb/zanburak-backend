@@ -440,11 +440,19 @@ class UnifiedAuthController extends Controller
             return response()->json(['message' => 'کاربر یافت نشد.'], 404);
         }
 
+        // Check if this is first time verification
+        $wasVerifiedBefore = $user->mobile_verified_at;
+        
         // Update mobile verification
         $user->update(['mobile_verified_at' => now()]);
 
         // Purge all OTP codes for this mobile
         $activeCode->deleteByContact($mobile);
+        
+        // Fire event for points if this is first time verification
+        if (!$wasVerifiedBefore) {
+            event(new \App\Events\Score\User\MobileVerified($user));
+        }
 
         return response()->json([
             'verified' => true,

@@ -3,19 +3,22 @@
 namespace App\Listeners\Score\Discuss;
 
 use App\Notifications\Discuss\SelectBestAnswerNotification;
+use App\Services\ScoresService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 
 class SelectBestAnswerListener
 {
+    protected $scoresService;
+
     /**
      * Create the event listener.
      *
      * @return void
      */
-    public function __construct()
+    public function __construct(ScoresService $scoresService)
     {
-        //
+        $this->scoresService = $scoresService;
     }
 
     /**
@@ -31,10 +34,11 @@ class SelectBestAnswerListener
         $user = $answer->user;
 
         if($user->id != $question->user->id){
-            $user->scores()->create([
-                'description' => 'انتخاب پاسخ شما به عنوان بهترین پاسخ برای پرسش: <span class="font-bold">'.$question->subject.'</span>',
-                'score'       => 1000,
-            ]);
+            $this->scoresService->awardScores(
+                $user,
+                'انتخاب پاسخ شما به عنوان بهترین پاسخ برای پرسش: <span class="font-bold">'.$question->subject.'</span>',
+                1000
+            );
         }
 
         // ارسال اطلاع‌رسانی - Notification فیزیکی خودش کانال‌ها را از NotificationService می‌گیرد

@@ -29,6 +29,8 @@ class RatingController extends Controller
                 ]);
 
                 if ($insertData) {
+                    // Fire event for rating submitted
+                    event(new \App\Events\Score\Rating\RatingSubmitted(auth()->user(), $insertData));
                     return response()->json(['status' => 1, 'msg' => 'data has been successfully saved !']);
                 }
             }else{
