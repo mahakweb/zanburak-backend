@@ -194,6 +194,9 @@ class CommentController extends Controller
             if ($commentable instanceof \App\Models\Episode) {
                 event(new \App\Events\Score\Comment\CommentOnEpisode($user, $comment));
             }
+            
+            // Fire Mission Community Activity Event
+            event(new \App\Events\Mission\CommunityActivityEvent($user, 'comment', $comment));
         }
 
         $comment->load([

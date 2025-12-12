@@ -23,6 +23,10 @@ use App\Events\Report\ReportApproved;
 use App\Events\Report\ReportRejected;
 use App\Events\FollowUser;
 use App\Events\Mission\PurchaseEvent;
+use App\Events\Mission\InvitationEvent;
+use App\Events\Mission\CourseCompletionEvent;
+use App\Events\Mission\CommunityActivityEvent;
+use App\Events\Mission\CoursePublishingEvent;
 use App\Events\Score\Discuss\SelectBestAnswer;
 use App\Events\Score\Discuss\SubmitNewAnswer;
 use App\Events\Score\Discuss\SubmitNewQuestion;
@@ -57,6 +61,50 @@ use App\Listeners\Post\SendPostLikedNotification;
 use App\Listeners\Report\SendReportApprovedNotification;
 use App\Listeners\Report\SendReportRejectedNotification;
 use App\Listeners\Mission\Purchases\FirstPurchaseListener;
+use App\Listeners\Mission\Purchases\LoyalBuyerListener;
+use App\Listeners\Mission\Purchases\TopSpenderListener;
+use App\Listeners\Mission\Purchases\FastPurchaseListener;
+use App\Listeners\Mission\Purchases\DiscountPurchaseListener;
+use App\Listeners\Mission\Purchases\CategoryCompleterListener;
+use App\Listeners\Mission\Purchases\DiversePurchaserListener;
+use App\Listeners\Mission\Purchases\SkillUpgradeListener;
+use App\Listeners\Mission\Purchases\TopPurchaserListener;
+use App\Listeners\Mission\Purchases\LoyalCustomerListener;
+use App\Listeners\Mission\Invitations\ActiveInviterListener;
+use App\Listeners\Mission\Invitations\SuccessfulInviterListener;
+use App\Listeners\Mission\Invitations\NetworkBuilderListener;
+use App\Listeners\Mission\Invitations\SiteAmbassadorListener;
+use App\Listeners\Mission\Invitations\SocialNetworkerListener;
+use App\Listeners\Mission\Invitations\InfluentialInviterListener;
+use App\Listeners\Mission\Invitations\CommunityGrowerListener;
+use App\Listeners\Mission\Invitations\ContinuousInviterListener;
+use App\Listeners\Mission\CourseCompletions\CourseCompletionListener;
+use App\Listeners\Mission\CourseCompletions\DiverseCompletionListener;
+use App\Listeners\Mission\CourseCompletions\FastestCompletionListener;
+use App\Listeners\Mission\CourseCompletions\InteractiveCourseListener;
+use App\Listeners\Mission\CourseCompletions\OngoingLearningListener;
+use App\Listeners\Mission\CourseCompletions\PersistenceListener;
+use App\Listeners\Mission\CourseCompletions\SpecialCourseListener;
+use App\Listeners\Mission\CourseCompletions\SpecialistCompletionListener;
+use App\Listeners\Mission\CommunityActivities\ActiveContributorListener;
+use App\Listeners\Mission\CommunityActivities\TopResponderListener;
+use App\Listeners\Mission\CommunityActivities\PopularCommenterListener;
+use App\Listeners\Mission\CommunityActivities\ValuableCommentListener;
+use App\Listeners\Mission\CommunityActivities\InquirerListener;
+use App\Listeners\Mission\CommunityActivities\PersistentInquirerListener;
+use App\Listeners\Mission\CommunityActivities\ProblemSolverListener;
+use App\Listeners\Mission\CommunityActivities\IssueReporterListener;
+use App\Listeners\Mission\CommunityActivities\ConstructiveFeedbackListener;
+use App\Listeners\Mission\CommunityActivities\AnalyticalResponderListener;
+use App\Listeners\Mission\CoursePublishing\FirstPublicationListener;
+use App\Listeners\Mission\CoursePublishing\FastPublisherListener;
+use App\Listeners\Mission\CoursePublishing\TopTeacherListener;
+use App\Listeners\Mission\CoursePublishing\ActiveCollaboratorListener;
+use App\Listeners\Mission\CoursePublishing\InnovativePublisherListener;
+use App\Listeners\Mission\CoursePublishing\InteractivePublisherListener;
+use App\Listeners\Mission\CoursePublishing\SkillImprovementListener;
+use App\Listeners\Mission\CoursePublishing\GoldenFeedbackListener;
+use App\Listeners\Mission\CoursePublishing\PositiveFeedbackListener;
 use App\Listeners\Score\Discuss\SelectBestAnswerListener;
 use App\Listeners\Score\Discuss\SubmitNewAnswerListener;
 use App\Listeners\Score\Discuss\SubmitNewQuestionListener;
@@ -214,9 +262,69 @@ class EventServiceProvider extends ServiceProvider
             CertificateIssuedListener::class,
         ],
 
-        // start mission
+        // Mission Events - Purchases
         PurchaseEvent::class => [
-            FirstPurchaseListener::class
+            FirstPurchaseListener::class,
+            LoyalBuyerListener::class,
+            TopSpenderListener::class,
+            FastPurchaseListener::class,
+            DiscountPurchaseListener::class,
+            CategoryCompleterListener::class,
+            DiversePurchaserListener::class,
+            SkillUpgradeListener::class,
+            TopPurchaserListener::class,
+            LoyalCustomerListener::class,
+        ],
+
+        // Mission Events - Invitations
+        InvitationEvent::class => [
+            ActiveInviterListener::class,
+            SuccessfulInviterListener::class,
+            NetworkBuilderListener::class,
+            SiteAmbassadorListener::class,
+            SocialNetworkerListener::class,
+            InfluentialInviterListener::class,
+            CommunityGrowerListener::class,
+            ContinuousInviterListener::class,
+        ],
+
+        // Mission Events - Course Completions
+        CourseCompletionEvent::class => [
+            CourseCompletionListener::class,
+            DiverseCompletionListener::class,
+            FastestCompletionListener::class,
+            InteractiveCourseListener::class,
+            OngoingLearningListener::class,
+            PersistenceListener::class,
+            SpecialCourseListener::class,
+            SpecialistCompletionListener::class,
+        ],
+
+        // Mission Events - Community Activities
+        CommunityActivityEvent::class => [
+            ActiveContributorListener::class,
+            TopResponderListener::class,
+            PopularCommenterListener::class,
+            ValuableCommentListener::class,
+            InquirerListener::class,
+            PersistentInquirerListener::class,
+            ProblemSolverListener::class,
+            IssueReporterListener::class,
+            ConstructiveFeedbackListener::class,
+            AnalyticalResponderListener::class,
+        ],
+
+        // Mission Events - Course Publishing
+        CoursePublishingEvent::class => [
+            FirstPublicationListener::class,
+            FastPublisherListener::class,
+            TopTeacherListener::class,
+            ActiveCollaboratorListener::class,
+            InnovativePublisherListener::class,
+            InteractivePublisherListener::class,
+            SkillImprovementListener::class,
+            GoldenFeedbackListener::class,
+            PositiveFeedbackListener::class,
         ],
 
         // Score events

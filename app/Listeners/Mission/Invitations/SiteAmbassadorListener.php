@@ -2,29 +2,29 @@
 
 namespace App\Listeners\Mission\Invitations;
 
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Queue\InteractsWithQueue;
+use App\Events\Mission\InvitationEvent;
+use Illuminate\Support\Facades\DB;
 
 class SiteAmbassadorListener
 {
-    /**
-     * Create the event listener.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        //
-    }
+    protected $missionId = 'site-ambassador';
 
     /**
      * Handle the event.
+     * ماموریت سفیر سایت: کاربری که باعث دعوت حداقل 10 هزار کاربر به سایت شده است.
      *
-     * @param  object  $event
+     * @param  InvitationEvent  $event
      * @return void
      */
-    public function handle($event)
+    public function handle(InvitationEvent $event)
     {
-        //
+        $invitedCount = DB::table('invites')
+            ->where('inviter_id', $event->inviter->id)
+            ->where('invite_status', 'active')
+            ->count();
+
+        if ($invitedCount >= 10000) {
+            upgrade_mission_for_user($event->inviter->id, $this->missionId);
+        }
     }
 }

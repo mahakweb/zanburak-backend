@@ -7,6 +7,8 @@ use App\Models\ActiveCode;
 use App\Models\User;
 use App\Models\UserLogin;
 use App\Models\Info;
+use App\Models\Invite;
+use App\Events\Mission\InvitationEvent;
 use App\Notifications\ActiveCodeNotification;
 use App\Notifications\Auth\ActiveCodeEmail;
 use Illuminate\Auth\Events\Login;
@@ -355,6 +357,20 @@ class UnifiedAuthController extends Controller
 
         $user = $this->create($data, $isEmailIdentifier, $isMobileIdentifier);
 
+        // Handle referral code if provided
+        $inviter = null;
+        if (!empty($data['referral_code'])) {
+            $inviter = User::where('referral_code', $data['referral_code'])->first();
+            if ($inviter && $inviter->id !== $user->id) {
+                // Create invite record
+                Invite::create([
+                    'inviter_id' => $inviter->id,
+                    'invitee_id' => $user->id,
+                    'invite_status' => 'active',
+                ]);
+            }
+        }
+
         // Create user info
         Info::create([
             'user_id' => $user->id,
@@ -390,6 +406,11 @@ class UnifiedAuthController extends Controller
 
         event(new Registered($user));
         event(new Login(false, $user, false));
+
+        // Dispatch InvitationEvent if user was invited
+        if ($inviter) {
+            event(new InvitationEvent($inviter, $user));
+        }
 
         return response()->json([
             'token' => $token->plainTextToken,
@@ -670,6 +691,7 @@ class UnifiedAuthController extends Controller
             'last_name'  => ['required', 'string', 'max:255'],
             'password'   => ['required', 'string', 'min:8', 'regex:/^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[#?!@$%^&*-]).{8,}$/', 'confirmed'],
             'identifier' => ['required', 'string'],
+            'referral_code' => ['nullable', 'string', 'max:20', 'exists:users,referral_code'],
         ];
 
         if ($isEmailIdentifier) {
@@ -719,12 +741,25 @@ class UnifiedAuthController extends Controller
             'profile_pic' => 'https://static.zanburak.ir/images/avatar/default.png',
             'cover_pic'   => 'https://static.zanburak.ir/images/cover/default.png',
             'last_seen'   => Carbon::now(),
+            'referral_code' => $this->generateReferralCode(),
             // Set verification flags based on identifier type
             'email_verified_at'  => $isEmailIdentifier ? now() : null,
             'mobile_verified_at' => $isMobileIdentifier ? now() : null,
         ];
 
         return User::create($userData);
+    }
+
+    /**
+     * Generate a unique referral code for user
+     */
+    protected function generateReferralCode()
+    {
+        do {
+            $code = strtoupper(Str::random(8));
+        } while (User::where('referral_code', $code)->exists());
+
+        return $code;
     }
 
     /**

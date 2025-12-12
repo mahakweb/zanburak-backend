@@ -2,29 +2,41 @@
 
 namespace App\Listeners\Mission\CourseCompletions;
 
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Queue\InteractsWithQueue;
+use App\Events\Mission\CourseCompletionEvent;
+use Carbon\Carbon;
 
 class OngoingLearningListener
 {
-    /**
-     * Create the event listener.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        //
-    }
+    protected $missionId = 'ongoing-learning';
 
     /**
      * Handle the event.
+     * ماموریت یادگیری مداوم: کاربری که به طور مداوم و در طول یک سال چندین دوره را به اتمام رسانده است.
      *
-     * @param  object  $event
+     * @param  CourseCompletionEvent  $event
      * @return void
      */
-    public function handle($event)
+    public function handle(CourseCompletionEvent $event)
     {
-        //
+        $oneYearAgo = Carbon::now()->subYear();
+        
+        // تعداد دوره‌های تکمیل شده در یک سال گذشته
+        $completedLastYear = $event->user->courses()
+            ->wherePivot('completed_at', '>=', $oneYearAgo)
+            ->wherePivotNotNull('completed_at')
+            ->count();
+
+        // بررسی اینکه آیا تکمیل‌ها در ماه‌های مختلف توزیع شده‌اند (حداقل 6 ماه)
+        $monthsWithCompletions = $event->user->courses()
+            ->wherePivot('completed_at', '>=', $oneYearAgo)
+            ->wherePivotNotNull('completed_at')
+            ->selectRaw('YEAR(completed_at) as year, MONTH(completed_at) as month')
+            ->groupBy('year', 'month')
+            ->get()
+            ->count();
+
+        if ($completedLastYear >= 6 && $monthsWithCompletions >= 6) {
+            upgrade_mission_for_user($event->user->id, $this->missionId);
+        }
     }
 }

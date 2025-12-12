@@ -4,6 +4,7 @@ use App\Models\Mission;
 use App\Models\User;
 use App\Models\UserMission;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
 
 
 if (!function_exists("get_mission_current_level")) {
@@ -116,14 +117,13 @@ if (!function_exists("check_requirements")) {
             $requirements = json_decode($requirements, true);
         }
 
-        if (!is_array($requirements)) {
-            dd('Invalid requirements format:', $requirements);
-            return false;
+        if (!is_array($requirements) || empty($requirements)) {
+            return true; // اگر requirements خالی باشد، نیازی به بررسی نیست
         }
 
         foreach ($requirements as $key => $requirement) {
             if (!is_array($requirement) || !isset($requirement['id']) || !isset($requirement['level'])) {
-                dd('Invalid requirement structure:', $requirement);
+                \Log::warning('Invalid requirement structure:', ['requirement' => $requirement]);
                 return false;
             }
 
@@ -155,10 +155,8 @@ if (!function_exists("upgrade_mission_for_user")) {
 
         if (!$userMission) {
             $firstLevel = reset($levels);
-            if (isset($firstLevel['requirements']) && is_array($firstLevel['requirements'])) {
-                // dd($firstLevel['requirements']);
+            if (isset($firstLevel['requirements']) && is_array($firstLevel['requirements']) && !empty($firstLevel['requirements'])) {
                 if (!check_requirements($firstLevel['requirements'], $userId)) {
-                    echo 'requirements for creating mission not met <br>';
                     return;
                 }
             }
@@ -167,19 +165,16 @@ if (!function_exists("upgrade_mission_for_user")) {
                 "mission_id" => $missionId,
                 "progress" => $defaultProgressValue,
             ]);
-            echo 'created <br>';
         } else if (!$userMission->completed_at) {
             if ($userMission->progress < $currentLevel->goal || $nextLevel->level > 0) {
                 if ($userMission->progress + $defaultIncrementValue >= $currentLevel->goal) {
-                    if (isset($nextLevel->requirements) && is_array($nextLevel->requirements)) {
+                    if (isset($nextLevel->requirements) && is_array($nextLevel->requirements) && !empty($nextLevel->requirements)) {
                         if (!check_requirements($nextLevel->requirements, $userId)) {
-                            echo 'requirements for creating mission not met <br>';
                             return;
                         }
                     }
                 }
                 $userMission->increment('progress', $defaultIncrementValue);
-                echo 'upgraded <br>';
             }
         }
         $newCurrentLevel = get_mission_current_level($mission, $userMission);
@@ -187,7 +182,6 @@ if (!function_exists("upgrade_mission_for_user")) {
         if (!$userMission->completed_at && $newNextLevel->level == 0) {
             $userMission->completed_at = Carbon::now();
             $userMission->save();
-            echo 'completed <br>';
             
             // ارسال notification دستیابی به Mission
             $user = User::find($userId);
@@ -200,9 +194,7 @@ if (!function_exists("upgrade_mission_for_user")) {
                 "description" => "بابت اتمام ماموریت $mission->title ، سطح $newCurrentLevel->level",
                 "score" => $newCurrentLevel->exp,
             ]);
-            echo 'scored <br>';
         }
-        // dd($currentLevel, $nextLevel, $newCurrentLevel, $newNextLevel, $userMission->progress);
     }
 }
 
@@ -214,8 +206,8 @@ if (!function_exists("calculate_progress_percent")) {
         }
 
         if (!is_array($levels)) {
-            dd('Invalid requirements format:', $levels);
-            return false;
+            \Log::error('Invalid levels format in calculate_progress_percent', ['levels' => $levels]);
+            return 0;
         }
 
         ksort($levels);

@@ -55,6 +55,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'deactivation_reason',
         'deactivated_until',
         'failed_login_attempts',
+        'referral_code',
     ];
 
     /**
@@ -701,6 +702,22 @@ class User extends Authenticatable implements MustVerifyEmail
     public function logins()
     {
         return $this->hasMany(UserLogin::class);
+    }
+
+    /**
+     * Get invites where this user is the inviter
+     */
+    public function invites()
+    {
+        return $this->hasMany(Invite::class, 'inviter_id');
+    }
+
+    /**
+     * Get invite where this user is the invitee
+     */
+    public function invite()
+    {
+        return $this->hasOne(Invite::class, 'invitee_id');
     }
 
     public function providers()

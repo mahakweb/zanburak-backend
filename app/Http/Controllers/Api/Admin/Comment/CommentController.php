@@ -310,6 +310,11 @@ class CommentController extends Controller
             $commentableUrl = $this->getCommentableUrl($comment);
             
             event(new \App\Events\Comment\CommentApproved($comment, $commentableTitle, $commentableUrl));
+            
+            // Fire Mission Community Activity Event (when comment is approved)
+            if ($comment->user) {
+                event(new \App\Events\Mission\CommunityActivityEvent($comment->user, 'comment', $comment));
+            }
         }
 
         $response = [

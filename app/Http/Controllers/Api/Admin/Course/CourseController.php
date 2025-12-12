@@ -714,6 +714,8 @@ class CourseController extends Controller
 
             // ارسال اطلاع‌رسانی دوره جدید (اگر publish شده باشد)
             if ($validData['publish']) {
+                // Fire Mission Course Publishing Event
+                event(new \App\Events\Mission\CoursePublishingEvent($user, $course, now()));
                 // جمع‌آوری کاربران برای اطلاع‌رسانی
                 $userIds = collect();
                 

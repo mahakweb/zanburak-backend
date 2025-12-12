@@ -2,29 +2,32 @@
 
 namespace App\Listeners\Mission\Purchases;
 
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Queue\InteractsWithQueue;
+use App\Events\Mission\PurchaseEvent;
+use Carbon\Carbon;
 
 class FastPurchaseListener
 {
-    /**
-     * Create the event listener.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        //
-    }
+    protected $missionId = 'fast-purchase';
 
     /**
      * Handle the event.
+     * ماموریت خریدار سریع: کاربری که در 24 ساعت اول پس از انتشار دوره، آن را خریداری کرده است.
      *
-     * @param  object  $event
+     * @param  PurchaseEvent  $event
      * @return void
      */
-    public function handle($event)
+    public function handle(PurchaseEvent $event)
     {
-        //
+        if (!$event->course) {
+            return;
+        }
+
+        $coursePublishedAt = $event->course->created_at;
+        $purchaseTime = now();
+        
+        // بررسی اینکه آیا خرید در 24 ساعت اول پس از انتشار بوده است
+        if ($purchaseTime->diffInHours($coursePublishedAt) <= 24) {
+            upgrade_mission_for_user($event->user->id, $this->missionId);
+        }
     }
 }

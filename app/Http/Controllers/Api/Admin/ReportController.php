@@ -531,6 +531,8 @@ class ReportController extends Controller
             // Fire event for points (only if report led to action)
             if ($actionTaken) {
                 event(new \App\Events\Score\Report\ReportApprovedForScores($report->user, $report));
+                // Fire Mission Community Activity Event
+                event(new \App\Events\Mission\CommunityActivityEvent($report->user, 'report', $report));
             }
 
             return response()->json([

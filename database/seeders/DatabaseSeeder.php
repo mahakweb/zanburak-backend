@@ -29,6 +29,7 @@ class DatabaseSeeder extends Seeder
             PlansTableSeeder::class,
             EventGroupsAndEventsSeeder::class,
             FaqCategoriesAndFaqsSeeder::class,
+            MissionsSeeder::class,
             
             // مرحله 4: داده‌های وابسته به چندین جدول
             CoursesSectionsEpisodesSeeder::class, // نیاز به Users, Levels, Statuses, Categories دارد

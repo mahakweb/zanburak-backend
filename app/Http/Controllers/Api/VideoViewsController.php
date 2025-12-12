@@ -101,6 +101,7 @@ class VideoViewsController extends Controller
                 // ارسال notification تکمیل دوره (فقط اگر قبلاً کامل نشده بود)
                 if (!$wasCompleted) {
                     event(new \App\Events\Course\CourseCompleted($user, $course));
+                    event(new \App\Events\Mission\CourseCompletionEvent($user, $course, now()));
                 }
                 
                 // ارسال notification صدور گواهینامه

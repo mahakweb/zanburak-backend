@@ -2,29 +2,34 @@
 
 namespace App\Listeners\Mission\CoursePublishing;
 
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Queue\InteractsWithQueue;
+use App\Events\Mission\CoursePublishingEvent;
 
 class GoldenFeedbackListener
 {
-    /**
-     * Create the event listener.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        //
-    }
+    protected $missionId = 'golden-feedback';
 
     /**
      * Handle the event.
+     * ماموریت بازخورد طلایی: مدرسی که برای 5 دوره، ماموریت بازخورد مثبت دریافت کرده است.
      *
-     * @param  object  $event
+     * @param  CoursePublishingEvent  $event
      * @return void
      */
-    public function handle($event)
+    public function handle(CoursePublishingEvent $event)
     {
-        //
+        // تعداد دوره‌هایی که بازخورد مثبت دارند (بیش از 1000 لایک یا ریتینگ بالا)
+        $coursesWithPositiveFeedback = $event->user->addCourse()
+            ->where('publish', true)
+            ->get()
+            ->filter(function($course) {
+                $likesCount = $course->likes()->where('type', 'like')->count();
+                $avgRating = $course->ratings()->avg('rating') ?? 0;
+                return $likesCount >= 1000 || $avgRating >= 4.5;
+            })
+            ->count();
+
+        if ($coursesWithPositiveFeedback >= 5) {
+            upgrade_mission_for_user($event->user->id, $this->missionId);
+        }
     }
 }

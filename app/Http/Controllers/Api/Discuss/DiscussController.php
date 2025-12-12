@@ -261,6 +261,9 @@ class DiscussController extends Controller
             // Fire event for new answer
             event(new \App\Events\Score\Discuss\SubmitNewAnswer($user, $answer));
             
+            // Fire Mission Community Activity Event
+            event(new \App\Events\Mission\CommunityActivityEvent($user, 'answer', $answer));
+            
             $answer->likes_count = 0;
             $answer->is_editable = true;
             $answer->user = $user->only('id', 'first_name', 'last_name', 'username', 'profile_pic');
@@ -486,6 +489,9 @@ class DiscussController extends Controller
 
             // Fire event for new question
             event(new \App\Events\Score\Discuss\SubmitNewQuestion($question));
+            
+            // Fire Mission Community Activity Event
+            event(new \App\Events\Mission\CommunityActivityEvent($user, 'question', $question));
 
             return response()->json(['message' => 'Success', 'question' => $question], 200);
         }

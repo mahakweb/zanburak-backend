@@ -2,29 +2,30 @@
 
 namespace App\Listeners\Mission\CourseCompletions;
 
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Queue\InteractsWithQueue;
+use App\Events\Mission\CourseCompletionEvent;
 
 class SpecialCourseListener
 {
-    /**
-     * Create the event listener.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        //
-    }
+    protected $missionId = 'special-course';
 
     /**
      * Handle the event.
+     * ماموریت تکمیل دوره‌های ویژه: کاربری که دوره‌هایی با موضوعات خاص یا پیشرفته را به پایان رسانده است.
+     * (دوره‌های با level_id بالا یا status خاص)
      *
-     * @param  object  $event
+     * @param  CourseCompletionEvent  $event
      * @return void
      */
-    public function handle($event)
+    public function handle(CourseCompletionEvent $event)
     {
-        //
+        $course = $event->course;
+        
+        // بررسی اینکه آیا دوره ویژه است (مثلاً level پیشرفته)
+        // می‌توانید منطق خود را بر اساس level_id یا status_id تنظیم کنید
+        $isSpecialCourse = $course->level_id && $course->level_id >= 3; // فرض: level_id >= 3 یعنی پیشرفته
+
+        if ($isSpecialCourse) {
+            upgrade_mission_for_user($event->user->id, $this->missionId);
+        }
     }
 }

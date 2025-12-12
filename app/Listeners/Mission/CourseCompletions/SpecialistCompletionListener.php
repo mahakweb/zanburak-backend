@@ -2,29 +2,34 @@
 
 namespace App\Listeners\Mission\CourseCompletions;
 
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Queue\InteractsWithQueue;
+use App\Events\Mission\CourseCompletionEvent;
+use Illuminate\Support\Facades\DB;
 
 class SpecialistCompletionListener
 {
-    /**
-     * Create the event listener.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        //
-    }
+    protected $missionId = 'specialist-completion';
 
     /**
      * Handle the event.
+     * ماموریت تخصص‌یافته: کاربری که حداقل 10 دوره از یک دسته‌بندی خاص را به پایان رسانده است.
      *
-     * @param  object  $event
+     * @param  CourseCompletionEvent  $event
      * @return void
      */
-    public function handle($event)
+    public function handle(CourseCompletionEvent $event)
     {
-        //
+        $courseCategories = $event->course->category;
+
+        foreach ($courseCategories as $category) {
+            // تعداد دوره‌های تکمیل شده توسط کاربر در این دسته‌بندی
+            $completedInCategory = $event->user->courses()
+                ->whereHas('category', function($query) use ($category) {
+                    $query->where('categories.id', $category->id);
+                })
+                ->wherePivotNotNull('completed_at')
+                ->count();
+
+            upgrade_mission_for_user($event->user->id, $this->missionId, $completedInCategory, 1);
+        }
     }
 }

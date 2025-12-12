@@ -2,29 +2,43 @@
 
 namespace App\Listeners\Mission\CommunityActivities;
 
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Queue\InteractsWithQueue;
+use App\Events\Mission\CommunityActivityEvent;
+use Illuminate\Support\Facades\DB;
 
 class ValuableCommentListener
 {
-    /**
-     * Create the event listener.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        //
-    }
+    protected $missionId = 'valuable-comment';
 
     /**
      * Handle the event.
+     * ماموریت کامنت با ارزش: کاربری که اولین کامنت مفید در یک دوره جدید را ارسال کرده است.
+     * کامنتی که پس از تایید، اولین امتیاز نظر مثبت گرفته باشه (خود کاربر نمیتونه به پاسخ خودش نظر بده)
      *
-     * @param  object  $event
+     * @param  CommunityActivityEvent  $event
      * @return void
      */
-    public function handle($event)
+    public function handle(CommunityActivityEvent $event)
     {
-        //
+        if ($event->type !== 'comment' || !$event->comment) {
+            return;
+        }
+
+        $comment = $event->comment;
+        
+        // بررسی اینکه آیا این اولین کامنت تایید شده در این دوره است که لایک گرفته
+        $isFirstValuable = DB::table('comments')
+            ->where('commentable_type', get_class($comment->commentable))
+            ->where('commentable_id', $comment->commentable_id)
+            ->where('approved', true)
+            ->where('id', '!=', $comment->id)
+            ->whereHas('likes', function($q) {
+                $q->where('type', 'like');
+            })
+            ->where('created_at', '<', $comment->created_at)
+            ->doesntExist();
+
+        if ($comment->approved && $isFirstValuable) {
+            upgrade_mission_for_user($event->user->id, $this->missionId);
+        }
     }
 }

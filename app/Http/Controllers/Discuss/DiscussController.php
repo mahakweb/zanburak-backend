@@ -87,6 +87,9 @@ class DiscussController extends Controller
             if ($question) {
 
                 event(new SubmitNewQuestion($question));
+                
+                // Fire Mission Community Activity Event
+                event(new \App\Events\Mission\CommunityActivityEvent(auth()->user(), 'question', $question));
 
                 return response()->json(['status' => 1, 'redirect_url' => route('discuss-question', $question->slug), 'msg' => 'data has been successfully saved !']);
             }

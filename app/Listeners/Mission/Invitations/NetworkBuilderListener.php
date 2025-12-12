@@ -2,29 +2,27 @@
 
 namespace App\Listeners\Mission\Invitations;
 
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Queue\InteractsWithQueue;
+use App\Events\Mission\InvitationEvent;
+use Illuminate\Support\Facades\DB;
 
 class NetworkBuilderListener
 {
-    /**
-     * Create the event listener.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        //
-    }
+    protected $missionId = 'network-builder';
 
     /**
      * Handle the event.
+     * ماموریت شبکه‌ساز: کاربری که حداقل 200 کاربر را با استفاده از لینک دعوت به سایت جذب کرده است. (سطح دارد)
      *
-     * @param  object  $event
+     * @param  InvitationEvent  $event
      * @return void
      */
-    public function handle($event)
+    public function handle(InvitationEvent $event)
     {
-        //
+        $invitedCount = DB::table('invites')
+            ->where('inviter_id', $event->inviter->id)
+            ->where('invite_status', 'active')
+            ->count();
+
+        upgrade_mission_for_user($event->inviter->id, $this->missionId, $invitedCount, 1);
     }
 }

@@ -2,29 +2,22 @@
 
 namespace App\Listeners\Mission\Purchases;
 
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Queue\InteractsWithQueue;
+use App\Events\Mission\PurchaseEvent;
 
 class LoyalBuyerListener
 {
-    /**
-     * Create the event listener.
-     *
-     * @return void
-     */
-    public function __construct()
-    {
-        //
-    }
+    protected $missionId = 'loyal-buyer';
 
     /**
      * Handle the event.
+     * ماموریت خریدار متعهد: کاربری که حداقل 5 دوره آموزشی را خریداری کرده است. (5 سطح دارد)
      *
-     * @param  object  $event
+     * @param  PurchaseEvent  $event
      * @return void
      */
-    public function handle($event)
+    public function handle(PurchaseEvent $event)
     {
-        //
+        $userCourseCount = $event->user->courses()->count();
+        upgrade_mission_for_user($event->user->id, $this->missionId, $userCourseCount, 1);
     }
 }

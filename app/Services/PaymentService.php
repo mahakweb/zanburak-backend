@@ -253,6 +253,13 @@ class PaymentService
         
         // ارسال نوتیف‌های مناسب بر اساس محتویات خرید
         $this->sendPurchaseNotifications($user, $courses, $plans, $paths, $payment);
+        
+        // Dispatch Mission Purchase Events
+        if (count($courses) > 0) {
+            foreach ($courses as $course) {
+                event(new \App\Events\Mission\PurchaseEvent($user, $course, $payment, $courses));
+            }
+        }
     }
     
     /**
