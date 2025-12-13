@@ -24,6 +24,7 @@ use Illuminate\Validation\Rule;
 use Ip2location\IP2LocationLaravel\Facade\IP2LocationLaravel;
 use Morilog\Jalali\Jalalian;
 use App\Rules\JalalianBirthDateParts;
+use App\Models\Invite;
 
 class ProfileController extends Controller
 {
@@ -791,6 +792,62 @@ class ProfileController extends Controller
                 'error' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * دریافت اطلاعات دعوت کاربر (کد دعوت و لیست دعوت‌شدگان)
+     */
+    public function getInviteInfo(Request $request)
+    {
+        $user = auth('api')->user();
+        
+        $perPage = (int) $request->input('per_page', 15);
+        $page = (int) $request->input('page', 1);
+        
+        // دریافت کد دعوت کاربر
+        $referralCode = $user->referral_code;
+        
+        // ساخت لینک دعوت
+        $inviteLink = config('app.frontend_url', 'https://zanburak.ir') . '/auth/register?ref=' . $referralCode;
+        
+        // دریافت لیست دعوت‌شدگان
+        $invites = $user->invites()
+            ->with(['invitee' => function($query) {
+                $query->select('id', 'first_name', 'last_name', 'username', 'profile_pic', 'created_at');
+            }])
+            ->where('invite_status', 'active')
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage, ['*'], 'page', $page);
+        
+        // فرمت کردن داده‌های دعوت‌شدگان
+        $invitedUsers = $invites->map(function($invite) {
+            return [
+                'id' => $invite->invitee->id,
+                'first_name' => $invite->invitee->first_name,
+                'last_name' => $invite->invitee->last_name,
+                'username' => $invite->invitee->username,
+                'profile_pic' => $invite->invitee->profile_pic,
+                'joined_at' => $invite->created_at->format('Y-m-d H:i:s'),
+                'joined_at_jalali' => Jalalian::fromCarbon($invite->created_at)->format('Y/m/d'),
+            ];
+        });
+        
+        // تعداد کل دعوت‌شدگان
+        $totalInvited = $user->invites()->where('invite_status', 'active')->count();
+        
+        return response()->json([
+            'message' => 'Success',
+            'referral_code' => $referralCode,
+            'invite_link' => $inviteLink,
+            'total_invited' => $totalInvited,
+            'invited_users' => $invitedUsers,
+            'pagination' => [
+                'current_page' => $invites->currentPage(),
+                'last_page' => $invites->lastPage(),
+                'per_page' => $invites->perPage(),
+                'total' => $invites->total(),
+            ]
+        ], 200);
     }
 
 }
