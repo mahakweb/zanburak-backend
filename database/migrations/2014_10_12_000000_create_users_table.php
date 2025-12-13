@@ -32,6 +32,7 @@ return new class extends Migration
             $table->string('mobile')->nullable()->unique();
             $table->timestamp('mobile_verified_at')->nullable();
             $table->string('username')->unique();
+            $table->string('referral_code', 6)->unique()->nullable();
             $table->bigInteger('wallet_balance')->default(0);
             $table->boolean('is_superuser')->default(0);
             $table->boolean('is_staff')->default(0);

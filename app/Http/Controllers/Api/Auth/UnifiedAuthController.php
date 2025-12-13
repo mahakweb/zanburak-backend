@@ -751,12 +751,16 @@ class UnifiedAuthController extends Controller
     }
 
     /**
-     * Generate a unique referral code for user
+     * Generate a unique referral code for user (6 characters, English letters only)
      */
     protected function generateReferralCode()
     {
         do {
-            $code = strtoupper(Str::random(8));
+            // Generate 6-character code with only English letters (A-Z)
+            $code = '';
+            for ($i = 0; $i < 6; $i++) {
+                $code .= chr(65 + rand(0, 25)); // A-Z
+            }
         } while (User::where('referral_code', $code)->exists());
 
         return $code;

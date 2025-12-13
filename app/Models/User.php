@@ -82,6 +82,27 @@ class User extends Authenticatable implements MustVerifyEmail
         'notifications_enabled' => 'boolean',
     ];
 
+    /**
+     * Boot the model.
+     */
+    protected static function booted()
+    {
+        static::creating(function ($user) {
+            // Auto-generate referral code if not provided
+            if (empty($user->referral_code)) {
+                do {
+                    // Generate 6-character code with only English letters (A-Z)
+                    $code = '';
+                    for ($i = 0; $i < 6; $i++) {
+                        $code .= chr(65 + rand(0, 25)); // A-Z
+                    }
+                } while (static::where('referral_code', $code)->exists());
+                
+                $user->referral_code = $code;
+            }
+        });
+    }
+
 
     // public function scopeStatus($query, $status)
     // {
