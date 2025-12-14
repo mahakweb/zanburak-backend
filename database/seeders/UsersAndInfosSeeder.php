@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -18,7 +19,7 @@ class UsersAndInfosSeeder extends Seeder
         $now = now();
 
         // Create Admin User
-        $adminId = DB::table('users')->insertGetId([
+        $admin = User::create([
             'first_name' => 'مدیر',
             'last_name' => 'سیستم',
             'email' => 'admin@zanburak.ir',
@@ -34,9 +35,8 @@ class UsersAndInfosSeeder extends Seeder
             'notifications_enabled' => true,
             'profile_pic' => 'https://static.zanburak.ir/images/avatar/default.png',
             'cover_pic' => 'https://static.zanburak.ir/images/cover/default.png',
-            'created_at' => $now,
-            'updated_at' => $now,
         ]);
+        $adminId = $admin->id;
 
         // Create Admin Info
         DB::table('infos')->insert([
@@ -64,7 +64,7 @@ class UsersAndInfosSeeder extends Seeder
         }
 
         // Create Teacher User
-        $teacherId = DB::table('users')->insertGetId([
+        $teacher = User::create([
             'first_name' => 'علی',
             'last_name' => 'احمدی',
             'email' => 'teacher@zanburak.ir',
@@ -80,9 +80,8 @@ class UsersAndInfosSeeder extends Seeder
             'notifications_enabled' => true,
             'profile_pic' => 'https://static.zanburak.ir/images/avatar/default.png',
             'cover_pic' => 'https://static.zanburak.ir/images/cover/default.png',
-            'created_at' => $now,
-            'updated_at' => $now,
         ]);
+        $teacherId = $teacher->id;
 
         // Create Teacher Info
         DB::table('infos')->insert([
@@ -109,7 +108,7 @@ class UsersAndInfosSeeder extends Seeder
         }
 
         // Create Student User
-        $studentId = DB::table('users')->insertGetId([
+        $student = User::create([
             'first_name' => 'محمد',
             'last_name' => 'رضایی',
             'email' => 'student@zanburak.ir',
@@ -125,9 +124,8 @@ class UsersAndInfosSeeder extends Seeder
             'notifications_enabled' => true,
             'profile_pic' => 'https://static.zanburak.ir/images/avatar/default.png',
             'cover_pic' => 'https://static.zanburak.ir/images/cover/default.png',
-            'created_at' => $now,
-            'updated_at' => $now,
         ]);
+        $studentId = $student->id;
 
         // Create Student Info
         DB::table('infos')->insert([
@@ -152,7 +150,7 @@ class UsersAndInfosSeeder extends Seeder
         }
 
         // Create Content Admin User
-        $contentAdminId = DB::table('users')->insertGetId([
+        $contentAdmin = User::create([
             'first_name' => 'فاطمه',
             'last_name' => 'کریمی',
             'email' => 'content@zanburak.ir',
@@ -168,9 +166,8 @@ class UsersAndInfosSeeder extends Seeder
             'notifications_enabled' => true,
             'profile_pic' => 'https://static.zanburak.ir/images/avatar/default.png',
             'cover_pic' => 'https://static.zanburak.ir/images/cover/default.png',
-            'created_at' => $now,
-            'updated_at' => $now,
         ]);
+        $contentAdminId = $contentAdmin->id;
 
         // Create Content Admin Info
         DB::table('infos')->insert([
