@@ -38,6 +38,7 @@ use App\Events\Score\User\EmailVerified;
 use App\Events\Score\User\MobileVerified;
 use App\Events\Score\User\DailyLogin;
 use App\Events\Score\User\UserFollowed;
+use App\Events\Score\User\UserRegistered;
 use App\Events\Score\Report\ReportApprovedForScores;
 use App\Events\User\ChangeMobile;
 use App\Events\User\ChangePassword;
@@ -120,6 +121,9 @@ use App\Listeners\Score\User\EmailVerifiedListener;
 use App\Listeners\Score\User\MobileVerifiedListener;
 use App\Listeners\Score\User\DailyLoginListener;
 use App\Listeners\Score\User\UserFollowedListener;
+use App\Listeners\Score\User\NewUserRegistrationListener;
+use App\Listeners\Score\User\InviterRewardListener;
+use App\Listeners\Score\User\InviteeRewardListener;
 use App\Listeners\Score\Payment\FirstPurchaseListener as ScoreFirstPurchaseListener;
 use App\Listeners\Score\Payment\VipUpgradedListener;
 use App\Listeners\Score\Report\ReportApprovedListener;
@@ -362,6 +366,12 @@ class EventServiceProvider extends ServiceProvider
 
         ReportApprovedForScores::class => [
             ReportApprovedListener::class,
+        ],
+
+        UserRegistered::class => [
+            NewUserRegistrationListener::class,
+            InviterRewardListener::class,
+            InviteeRewardListener::class,
         ],
 
         // end mission 

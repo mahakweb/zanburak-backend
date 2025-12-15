@@ -9,6 +9,7 @@ use App\Models\UserLogin;
 use App\Models\Info;
 use App\Models\Invite;
 use App\Events\Mission\InvitationEvent;
+use App\Events\Score\User\UserRegistered;
 use App\Notifications\ActiveCodeNotification;
 use App\Notifications\Auth\ActiveCodeEmail;
 use Illuminate\Auth\Events\Login;
@@ -407,7 +408,10 @@ class UnifiedAuthController extends Controller
         event(new Registered($user));
         event(new Login(false, $user, false));
 
-        // Dispatch InvitationEvent if user was invited
+        // Dispatch UserRegistered event for score system
+        event(new UserRegistered($user, $inviter));
+
+        // Dispatch InvitationEvent if user was invited (for mission system)
         if ($inviter) {
             event(new InvitationEvent($inviter, $user));
         }
