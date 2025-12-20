@@ -297,7 +297,7 @@ class DiscussController extends Controller
         }
 
         $minScore = 4000;
-        if ($user->currentScore() < $minScore) {
+        if ($user->scores->where('score', '>', 0)->sum('score') < $minScore) {
             return response()->json([
                 'errorType' => 'lowScore',
                 'minScore' => $minScore,

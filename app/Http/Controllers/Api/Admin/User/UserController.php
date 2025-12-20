@@ -520,7 +520,7 @@ class UserController extends Controller
             'last_name' => ['required', 'string', 'min:2', 'max:255'],
             'username' => ['required', 'string', 'min:3', 'max:255', 'regex:/^[a-zA-Z0-9_]+$/', 'unique:users,username'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
-            'phone' => ['nullable', 'string', 'regex:/(09)[0-9]{9}/', 'digits:11', 'unique:users,mobile'],
+            'phone' => ['nullable', 'string', 'regex:/^\+98\d{10}$/', 'unique:users,mobile'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
             'status' => ['required', 'in:active,inactive'],
             'profile_pic' => ['nullable', 'string', 'url', 'max:500'],
