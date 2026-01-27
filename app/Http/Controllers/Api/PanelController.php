@@ -20,9 +20,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use App\Rules\ValidGateway;
-use Shetabit\Multipay\Invoice;
-use Shetabit\Payment\Facade\Payment as ShetabitPayment;
-use Shetabit\Multipay\Exceptions\InvalidPaymentException;
 
 class PanelController extends Controller
 {

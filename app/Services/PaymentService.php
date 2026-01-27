@@ -14,9 +14,7 @@ use App\Models\Wallet;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Shetabit\Multipay\Invoice;
-use Shetabit\Payment\Facade\Payment as ShetabitPayment;
-use Shetabit\Multipay\Exceptions\InvalidPaymentException;
+use Exception;
 
 class PaymentService
 {
@@ -123,30 +121,71 @@ class PaymentService
 
         $driver = $options['driver'] ?? $payment->driver ?? config('payment.default', 'zarinpal');
 
-        $invoice = (new Invoice)->amount((int) $payment->amount);
+        $gateway = new PaymentGateway($driver);
+        $result = $gateway->purchase((int) $payment->amount, $callbackUrl, $options);
 
-        return ShetabitPayment::via($driver)
-            ->callbackUrl($callbackUrl)
-            ->purchase($invoice, function ($driver, $transactionId) use ($payment, $attempt) {
-                $attempt->update(['transaction_id' => $transactionId]);
-                $payment->update(['tracking_number' => $transactionId, 'resnumber' => $transactionId]);
-            });
+        // Update attempt and payment with transaction ID
+        $transactionId = $result['transaction_id'] ?? $result['authority'] ?? null;
+        if ($transactionId) {
+            $attempt->update(['transaction_id' => $transactionId]);
+            $payment->update(['tracking_number' => $transactionId, 'resnumber' => $transactionId]);
+        }
+
+        // Return object with pay() method that returns JSON response
+        return new class($result['action'] ?? '') {
+            protected string $paymentUrl;
+
+            public function __construct(string $paymentUrl)
+            {
+                $this->paymentUrl = $paymentUrl;
+            }
+
+            public function pay()
+            {
+                return new class($this->paymentUrl) {
+                    protected string $paymentUrl;
+
+                    public function __construct(string $paymentUrl)
+                    {
+                        $this->paymentUrl = $paymentUrl;
+                    }
+
+                    public function toJson()
+                    {
+                        return json_encode(['action' => $this->paymentUrl]);
+                    }
+                };
+            }
+        };
     }
 
 
     public function verify(Payment $payment): array
     {
         try {
-            $receipt = ShetabitPayment::via($payment->driver)
-                ->amount((int) $payment->amount)
-                ->transactionId($payment->tracking_number)
-                ->verify();
+            $gateway = new PaymentGateway($payment->driver);
+            $result = $gateway->verify((int) $payment->amount, $payment->tracking_number);
 
             $payment->update([
                 'status'       => true,
                 'paid_at'      => now(),
                 'expired_at'   => null,
             ]);
+
+            // Create receipt-like object for compatibility
+            $receipt = new class($result) {
+                protected array $data;
+
+                public function __construct(array $data)
+                {
+                    $this->data = $data;
+                }
+
+                public function getReferenceId()
+                {
+                    return $this->data['reference_id'] ?? null;
+                }
+            };
 
             // تشخیص نوع پرداخت و پردازش مناسب
             if ($this->isWalletPayment($payment)) {
@@ -156,7 +195,7 @@ class PaymentService
             }
 
             return ['status' => 'paid'];
-        } catch (InvalidPaymentException $e) {
+        } catch (Exception $e) {
             $payment->update(['status' => 'failed']);
             
             // ارسال notification پرداخت ناموفق
@@ -396,14 +435,42 @@ class PaymentService
 		$callbackUrl = $callbackUrl ?? route('api.wallet-callback');
 		$driver = $options['driver'] ?? $payment->driver ?? config('payment.default', 'zarinpal');
 
-		$invoice = (new Invoice)->amount((int) $payment->amount);
+		$gateway = new PaymentGateway($driver);
+		$result = $gateway->purchase((int) $payment->amount, $callbackUrl, $options);
 
-		return ShetabitPayment::via($driver)
-			->callbackUrl($callbackUrl)
-			->purchase($invoice, function ($driver, $transactionId) use ($payment, $attempt) {
-				$attempt->update(['transaction_id' => $transactionId]);
-				$payment->update(['tracking_number' => $transactionId, 'resnumber' => $transactionId]);
-			});
+		// Update attempt and payment with transaction ID
+		$transactionId = $result['transaction_id'] ?? $result['authority'] ?? null;
+		if ($transactionId) {
+			$attempt->update(['transaction_id' => $transactionId]);
+			$payment->update(['tracking_number' => $transactionId, 'resnumber' => $transactionId]);
+		}
+
+		// Return object with pay() method that returns JSON response
+		return new class($result['action'] ?? '') {
+			protected string $paymentUrl;
+
+			public function __construct(string $paymentUrl)
+			{
+				$this->paymentUrl = $paymentUrl;
+			}
+
+			public function pay()
+			{
+				return new class($this->paymentUrl) {
+					protected string $paymentUrl;
+
+					public function __construct(string $paymentUrl)
+					{
+						$this->paymentUrl = $paymentUrl;
+					}
+
+					public function toJson()
+					{
+						return json_encode(['action' => $this->paymentUrl]);
+					}
+				};
+			}
+		};
 	}
 
 	/**
@@ -412,10 +479,8 @@ class PaymentService
 	public function verifyWalletPayment(Payment $payment): array
 	{
 		try {
-			$receipt = ShetabitPayment::via($payment->driver)
-				->amount((int) $payment->amount)
-				->transactionId($payment->tracking_number)
-				->verify();
+			$gateway = new PaymentGateway($payment->driver);
+			$result = $gateway->verify((int) $payment->amount, $payment->tracking_number);
 
 			$payment->update([
 				'status'       => true,
@@ -423,10 +488,25 @@ class PaymentService
 				'expired_at'   => null,
 			]);
 
+			// Create receipt-like object for compatibility
+			$receipt = new class($result) {
+				protected array $data;
+
+				public function __construct(array $data)
+				{
+					$this->data = $data;
+				}
+
+				public function getReferenceId()
+				{
+					return $this->data['reference_id'] ?? null;
+				}
+			};
+
 			$this->handleSuccessfulWalletPayment($payment, $receipt);
 
 			return ['status' => 'paid'];
-		} catch (InvalidPaymentException $e) {
+		} catch (Exception $e) {
 			$payment->update(['status' => 'failed']);
 			return ['status' => 'failed', 'error' => $e->getMessage()];
 		}

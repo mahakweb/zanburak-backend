@@ -10,9 +10,8 @@ use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Rules\ValidGateway;
-use Shetabit\Multipay\Exceptions\InvalidPaymentException;
-use Shetabit\Multipay\Invoice;
-use Shetabit\Payment\Facade\Payment as ShetabitPayment;
+use App\Services\PaymentGateway;
+use Exception;
 
 class VipController extends Controller
 {
@@ -107,25 +106,28 @@ class VipController extends Controller
 
     protected function handleOnlinePayment($user, $plan, $gateway)
     {
-        $invoice = new Invoice();
-        $invoice->via($gateway)->amount($plan->price);
-
         $referenceId = $this->generateUniqueReferenceId(Payment::class);
 
-        $payment = ShetabitPayment::via($gateway)
-            ->callbackUrl(route('api.vip-callback'))
-            ->purchase($invoice, function ($driver, $transactionId) use ($user, $plan, $referenceId, $invoice) {
-                $user->payments()->create([
-                    'type' => 'vip',
-                    'payment_info' => json_encode(['vip' => ['plan_id' => $plan->id, 'price' => $plan->price]]),
-                    'driver' => $invoice->getDriver(),
-                    'resnumber' => $transactionId,
-                    'amount' => $invoice->getAmount(),
-                    'reference_id' => $referenceId,
-                ]);
-            })->pay()->toJson();
+        try {
+            $paymentGateway = new PaymentGateway($gateway);
+            $result = $paymentGateway->purchase($plan->price, route('api.vip-callback'));
 
-        return response()->json(['message' => 'Successfully', 'bank_gateway_url' => json_decode($payment)->action], 200);
+            $transactionId = $result['transaction_id'] ?? $result['authority'] ?? null;
+
+            $payment = $user->payments()->create([
+                'type' => 'vip',
+                'payment_info' => json_encode(['vip' => ['plan_id' => $plan->id, 'price' => $plan->price]]),
+                'driver' => $gateway,
+                'resnumber' => $transactionId,
+                'tracking_number' => $transactionId,
+                'amount' => $plan->price,
+                'reference_id' => $referenceId,
+            ]);
+
+            return response()->json(['message' => 'Successfully', 'bank_gateway_url' => $result['action']], 200);
+        } catch (Exception $e) {
+            return response()->json(['message' => 'Error', 'error' => $e->getMessage()], 422);
+        }
     }
 
     protected function handleWalletPayment($user, $plan)
@@ -166,11 +168,24 @@ class VipController extends Controller
     public function vipCallback(Request $request)
     {
         try {
-            $authorityParameter = $request->Authority ?? $request->trackId;
-            $payment = Payment::where('resnumber', $authorityParameter)->firstOrFail();
-            $receipt = ShetabitPayment::via($payment->driver)->amount($payment->amount)->transactionId($authorityParameter)->verify();
+            $authorityParameter = $request->Authority ?? $request->trackId ?? $request->token ?? null;
+            
+            if (!$authorityParameter) {
+                return redirect(env("FRONT_APP_URL") . "/payment/receipt?status=failure");
+            }
 
-            $payment->update(['status' => 1, 'tracking_number' => $receipt->getReferenceId()]);
+            $payment = Payment::where('resnumber', $authorityParameter)
+                ->orWhere('tracking_number', $authorityParameter)
+                ->firstOrFail();
+
+            $paymentGateway = new PaymentGateway($payment->driver);
+            $result = $paymentGateway->verify($payment->amount, $authorityParameter);
+
+            $payment->update([
+                'status' => 1,
+                'paid_at' => now(),
+                'tracking_number' => $result['reference_id'] ?? $authorityParameter
+            ]);
 
             $planId = json_decode($payment->payment_info, true)['vip']['plan_id'];
             $plan = Plan::find($planId);
@@ -183,8 +198,10 @@ class VipController extends Controller
             ]);
 
             return redirect(env("FRONT_APP_URL") . "/payment/receipt?referenceId={$payment->reference_id}&status=success");
-        } catch (InvalidPaymentException $exception) {
-            return redirect(env("FRONT_APP_URL") . "/payment/receipt?referenceId={$payment->reference_id}&status=failure");
+        } catch (Exception $exception) {
+            $payment = $payment ?? null;
+            $referenceId = $payment ? $payment->reference_id : null;
+            return redirect(env("FRONT_APP_URL") . "/payment/receipt?referenceId={$referenceId}&status=failure");
         }
     }
 

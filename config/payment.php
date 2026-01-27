@@ -332,48 +332,4 @@ return [
         ],
     ],
 
-    /*
-    |--------------------------------------------------------------------------
-    | Class Maps
-    |--------------------------------------------------------------------------
-    |
-    | This is the array of Classes that maps to Drivers above.
-    | You can create your own driver if you like and add the
-    | config in the drivers array and the class to use for
-    | here with the same name. You will have to extend
-    | Shetabit\Multipay\Abstracts\Driver in your driver.
-    |
-    */
-    'map' => [
-        'local' => \Shetabit\Multipay\Drivers\Local\Local::class,
-        'fanavacard' => \Shetabit\Multipay\Drivers\Fanavacard\Fanavacard::class,
-        'asanpardakht' => \Shetabit\Multipay\Drivers\Asanpardakht\Asanpardakht::class,
-        'atipay' => \Shetabit\Multipay\Drivers\Atipay\Atipay::class,
-        'behpardakht' => \Shetabit\Multipay\Drivers\Behpardakht\Behpardakht::class,
-        'digipay' => \Shetabit\Multipay\Drivers\Digipay\Digipay::class,
-        'etebarino' => \Shetabit\Multipay\Drivers\Etebarino\Etebarino::class,
-        'idpay' => \Shetabit\Multipay\Drivers\Idpay\Idpay::class,
-        'irankish' => \Shetabit\Multipay\Drivers\Irankish\Irankish::class,
-        'nextpay' => \Shetabit\Multipay\Drivers\Nextpay\Nextpay::class,
-        'parsian' => \Shetabit\Multipay\Drivers\Parsian\Parsian::class,
-        'pasargad' => \Shetabit\Multipay\Drivers\Pasargad\Pasargad::class,
-        'payir' => \Shetabit\Multipay\Drivers\Payir\Payir::class,
-        'paypal' => \Shetabit\Multipay\Drivers\Paypal\Paypal::class,
-        'payping' => \Shetabit\Multipay\Drivers\Payping\Payping::class,
-        'paystar' => \Shetabit\Multipay\Drivers\Paystar\Paystar::class,
-        'poolam' => \Shetabit\Multipay\Drivers\Poolam\Poolam::class,
-        'sadad' => \Shetabit\Multipay\Drivers\Sadad\Sadad::class,
-        'saman' => \Shetabit\Multipay\Drivers\Saman\Saman::class,
-        'sepehr' => \Shetabit\Multipay\Drivers\Sepehr\Sepehr::class,
-        'walleta' => \Shetabit\Multipay\Drivers\Walleta\Walleta::class,
-        'yekpay' => \Shetabit\Multipay\Drivers\Yekpay\Yekpay::class,
-        'zarinpal' => \Shetabit\Multipay\Drivers\Zarinpal\Zarinpal::class,
-        'zibal' => \Shetabit\Multipay\Drivers\Zibal\Zibal::class,
-        'sepordeh' => \Shetabit\Multipay\Drivers\Sepordeh\Sepordeh::class,
-        'rayanpay' => \Shetabit\Multipay\Drivers\Rayanpay\Rayanpay::class,
-        'sizpay' => \Shetabit\Multipay\Drivers\Sizpay\Sizpay::class,
-        'vandar' => \Shetabit\Multipay\Drivers\Vandar\Vandar::class,
-        'aqayepardakht' => \Shetabit\Multipay\Drivers\Aqayepardakht\Aqayepardakht::class,
-        'azki' => \Shetabit\Multipay\Drivers\Azki\Azki::class,
-    ]
 ];

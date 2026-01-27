@@ -7,6 +7,7 @@ use App\Models\Payment;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentItem;
 use App\Services\PaymentService;
+use App\Services\PaymentGateway;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -873,14 +874,13 @@ class PaymentController extends Controller
                     $callbackUrl = route('api.payment.callback', $payment->uuid);
                     $driver = $request->driver ?? config('payment.default', 'zarinpal');
                     
-                    $invoice = (new \Shetabit\Multipay\Invoice)->amount((int) $payment->amount);
+                    $gateway = new PaymentGateway($driver);
+                    $result = $gateway->purchase((int) $payment->amount, $callbackUrl);
                     
-                    $bankResponse = \Shetabit\Payment\Facade\Payment::via($driver)
-                        ->callbackUrl($callbackUrl)
-                        ->purchase($invoice, function ($driver, $transactionId) use ($payment) {
-                            // $attempt->update(['transaction_id' => $transactionId]);
-                            $payment->update(['tracking_number' => $transactionId, 'resnumber' => $transactionId]);
-                        });
+                    $transactionId = $result['transaction_id'] ?? $result['authority'] ?? null;
+                    if ($transactionId) {
+                        $payment->update(['tracking_number' => $transactionId, 'resnumber' => $transactionId]);
+                    }
 
                     // If auto approve, process the payment after successful bank transaction
                     if ($request->auto_approve) {
