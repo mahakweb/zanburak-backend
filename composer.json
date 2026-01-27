@@ -6,38 +6,32 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
-
-
         "cviebrock/eloquent-sluggable": "^11.0",
         "cviebrock/eloquent-taggable": "^11.0",
-
         "ghasedak/php": "dev-master",
         "guzzlehttp/guzzle": "^7.2",
         "http-interop/http-factory-guzzle": "^1.2",
         "ip2location/ip2location-laravel": "^1.3",
         "jenssegers/agent": "^2.6",
-
+        "laravel-interaction/bookmark": "^3.4",
         "laravel/fortify": "^1.24",
         "laravel/framework": "^11.0",
+        "laravel/reverb": "^1.7",
         "laravel/sanctum": "^4.0",
         "laravel/scout": "^10.0",
         "laravel/socialite": "^5.8",
         "laravel/tinker": "^2.9",
-
         "league/flysystem-ftp": "^3.0",
         "league/flysystem-sftp-v3": "^3.0",
-
         "mehradsadeghi/laravel-filter-querystring": "^1.1",
         "meilisearch/meilisearch-php": "^1.16",
         "melipayamak/php": "1.0.0",
         "morilog/jalali": "^3.5",
-
-        "overtrue/laravel-follow": "5.x-dev",
+        "overtrue/laravel-follow": "^5.3",
         "overtrue/laravel-subscribe": "^4.1",
-
         "pbmedia/laravel-ffmpeg": "^8.2",
         "pusher/pusher-php-server": "^7.2",
-        "spatie/image": "^2.2",
+        "spatie/image": "^3.9",
         "ybazli/faker": "^1.0"
     },
     "require-dev": {
