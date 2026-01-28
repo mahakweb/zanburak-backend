@@ -73,14 +73,18 @@ class User extends Authenticatable implements MustVerifyEmail
      *
      * @var array<string, string>
      */
-    protected $casts = [
-        'email_verified_at' => 'datetime',
-        'mobile_verified_at' => 'datetime',
-        'active' => 'boolean',
-        'is_superuser' => 'boolean',
-        'is_staff' => 'boolean',
-        'notifications_enabled' => 'boolean',
-    ];
+
+    protected function casts(): array
+    {
+        return [
+            'email_verified_at' => 'datetime',
+            'mobile_verified_at' => 'datetime',
+            'active' => 'boolean',
+            'is_superuser' => 'boolean',
+            'is_staff' => 'boolean',
+            'notifications_enabled' => 'boolean',
+        ];
+    }
 
     /**
      * Boot the model.
@@ -97,7 +101,7 @@ class User extends Authenticatable implements MustVerifyEmail
                         $code .= chr(65 + rand(0, 25)); // A-Z
                     }
                 } while (static::where('referral_code', $code)->exists());
-                
+
                 $user->referral_code = $code;
             }
         });
@@ -507,14 +511,14 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         // Get direct permissions
         $directPermissions = $this->permissions;
-        
+
         // Get permissions from roles
         $rolePermissions = $this->roles()
             ->with('permissions')
             ->get()
             ->pluck('permissions')
             ->flatten();
-        
+
         // Merge and get unique permissions by id
         return $directPermissions->merge($rolePermissions)->unique('id');
     }
@@ -534,7 +538,7 @@ class User extends Authenticatable implements MustVerifyEmail
         if (!$permission) {
             return false;
         }
-        
+
         return $this->permissions->contains('name', $permission->name) || $this->hasRole($permission->roles);
     }
 
