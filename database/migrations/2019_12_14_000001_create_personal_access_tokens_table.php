@@ -22,6 +22,7 @@ return new class extends Migration
             $table->string('ip')->nullable();
             $table->string('login_type')->nullable();
             $table->timestamp('last_used_at')->nullable();
+            $table->timestamp('expires_at')->nullable();
             $table->timestamps();
         });
     }
