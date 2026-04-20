@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Category;
+use App\Models\Cooperation;
 use App\Models\Course;
 use App\Models\Episode;
 use App\Models\Path;
@@ -22,10 +24,22 @@ class IndexController extends Controller
         return response()->json(['message' => 'success', 'plans' => $plans], 200);
     }
 
+    public function categoriesList()
+    {
+        $categories = Category::withCount('course')->select('id', 'title', 'english_title', 'icon', 'slug', 'status')->where('status', true)->get();
+        return response()->json(['message' => 'success', 'categories' => $categories], 200);
+    }
+
     public function latestCourses(Request $request)
     {
         $user = auth('api')->user();
-        $rawCourses = Course::latest()->limit(7)->where('publish', '1')->get();
+        $limit = $request->input('limit', 10);
+        $rawCourses = Course::where('publish', '1');
+        if ($limit) {
+            $rawCourses = $rawCourses->limit($limit);
+        }
+        $rawCourses = $rawCourses->orderBy('id', 'desc')->get();
+
         $courses = $rawCourses->map(function ($course) use ($user) {
             $teacher = $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic');
             $totalTime = $course->totalTime();
@@ -51,14 +65,68 @@ class IndexController extends Controller
         return response()->json(['message' => 'success', 'courses' => $courses], 200);
     }
 
+    public function freeCourses(Request $request)
+    {
+        $user = auth('api')->user();
+        $limit = $request->input('limit', 10);
+        $rawCourses = Course::where('publish', '1')->where('type', 'free');
+        if ($limit) {
+            $rawCourses = $rawCourses->limit($limit);
+        }
+        $rawCourses = $rawCourses->orderBy('id', 'desc')->get();
+
+        $courses = $rawCourses->map(function ($course) use ($user) {
+            $teacher = $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic');
+            $totalTime = $course->totalTime();
+            $likesCount = $course->likes()->count();
+            $userHasLiked = $user ? $user->hasLiked($course) : false;
+
+            return [
+                'id' => $course->id,
+                'title' => $course->title,
+                'english_title' => $course->english_title,
+                'slug' => $course->slug,
+                'price' => $course->price,
+                'poster' => $course->poster,
+                'description' => $course->description,
+                'short_description' => $course->short_description,
+                'avgRating' => $course->averageRating(),
+                'total_time' => $totalTime,
+                'likes_count' => $likesCount,
+                'user_has_liked' => $userHasLiked,
+                'teacher' => $teacher
+            ];
+        });
+        return response()->json(['message' => 'success', 'courses' => $courses], 200);
+    }
+
+    // public function paths(Request $request)
+    // {
+    //     $paths = Path::where('status', '1')
+    //         ->orderBy('id', 'desc')
+    //         ->select('id', 'title', 'english_title', 'slug', 'short_description', 'poster', 'icon')
+    //         ->get();
+    //     return response()->json(['message' => 'Success', 'paths' => $paths], 200);
+    // }
+
     public function paths(Request $request)
     {
+        $limit = $request->input('limit', 6);
+        $showCourses = $request->input('show_courses', false);
         $paths = Path::where('status', '1')
             ->orderBy('id', 'desc')
-            ->select('id', 'title', 'english_title', 'slug', 'short_description', 'poster', 'icon')
-            ->get();
+            ->select('id', 'title', 'english_title', 'slug', 'short_description', 'poster', 'icon');
+        if ($limit) {
+            $paths = $paths->take($limit);
+        }
+        if ($showCourses) {
+            $paths = $paths->with('publishedCourses:id,title,english_title,slug,short_description,poster,type,price');
+        }
+
+        $paths = $paths->get();
         return response()->json(['message' => 'Success', 'paths' => $paths], 200);
     }
+
 
     public function getPath(Request $request, $path)
     {
@@ -69,7 +137,7 @@ class IndexController extends Controller
             'nextSteps.courses',
             'videos' // ensure relation exists on Path model
         ]);
-        
+
         $courseIdsInCart = $user ? $user->carts->where('cartable_type', 'App\Models\Course')->pluck('cartable_id')->toArray() : [];
 
 
@@ -477,41 +545,53 @@ class IndexController extends Controller
 
     public function cooperation(Request $request)
     {
-        $user = auth('api')->user();
+        // $user = auth('api')->user();
 
         // Optional: enforce verification like project request
-        if (!$user->email_verified_at || !$user->mobile_verified_at) {
-            return response()->json([
-                'email_verified' => (bool) $user->email_verified_at,
-                'mobile_verified' => (bool) $user->mobile_verified_at,
-            ], 401);
-        }
+
+        // if (!$user->email_verified_at || !$user->mobile_verified_at) {
+        //     return response()->json([
+        //         'email_verified' => (bool) $user->email_verified_at,
+        //         'mobile_verified' => (bool) $user->mobile_verified_at,
+        //     ], 401);
+        // }
 
         $validator = Validator::make($request->all(), [
             'role' => 'required|in:support,teacher,content_creator,dev,marketing,design',
-            'full_name' => 'nullable|string|max:255',
-            'mobile' => 'nullable|string|max:30',
+            'name' => 'required|string|min:3|max:25',
+            'mobile' => ['required', 'regex:/^(\+98|0)?9\d{9}$/'],
             'email' => 'nullable|email|max:255',
-            'iban' => ['required','string','max:34'],
-            'description' => 'required|min:20',
+            'melli_code' => 'required|digits:10',
+            // 'iban' => ['required', 'string', 'max:34'],
+            'description' => 'required|min:20|max:2000',
             'links' => 'nullable|string|max:1000',
-            'national_card' => 'nullable|array|max:2',
-            'national_card.*' => 'nullable|string|max:1024',
-            'resume' => 'nullable|string|max:1024',
-            'samples' => 'nullable|array|max:5',
-            'samples.*' => 'nullable|string|max:1024',
+            'melli_card_image' => 'required|string|max:255',
+            'resume' => 'nullable|string|max:255',
+            'samples' => 'nullable|string|max:255',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['message' => 'Error', 'errors' => $validator->errors()], 422);
         }
 
+        $validData = $validator->validated();
+
+        $existing = Cooperation::where('melli_code', $validData['melli_code'])
+            ->where('role', $validData['role'])
+            ->first();
+
+        if ($existing) {
+            return response()->json(['message' => 'برای این کد ملی و این عنوان شغلی قبلا درخواست ثبت شده است.'], 422);
+        }
+
+        Cooperation::create($validator->validated());
+
         // Persist as a JSON file to storage (no DB migration needed)
-        $payload = $validator->validated();
-        $payload['user_id'] = $user->id;
-        $payload['created_at'] = now()->toDateTimeString();
-        $fileName = 'cooperation/' . now()->format('Y/m/d') . '/' . $user->id . '_' . now()->timestamp . '.json';
-        Storage::disk('local')->put($fileName, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+        // $payload = $validator->validated();
+        // $payload['user_id'] = $user->id;
+        // $payload['created_at'] = now()->toDateTimeString();
+        // $fileName = 'cooperation/' . now()->format('Y/m/d') . '/' . $user->id . '_' . now()->timestamp . '.json';
+        // Storage::disk('local')->put($fileName, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
 
         return response()->json(['message' => 'Success, cooperation request has been received!'], 200);
     }
@@ -529,7 +609,7 @@ class IndexController extends Controller
 
         // Basic format check: IR + 24 digits
         if (!preg_match('/^IR[0-9]{24}$/', $iban)) {
-            return response()->json([ 'valid' => false, 'message' => 'Invalid IBAN format' ], 200);
+            return response()->json(['valid' => false, 'message' => 'Invalid IBAN format'], 200);
         }
 
         // Checksum (mod 97) validation
@@ -546,7 +626,7 @@ class IndexController extends Controller
             $remainder = ($remainder * 10 + $digit) % 97;
         }
         if ($remainder !== 1) {
-            return response()->json([ 'valid' => false, 'message' => 'Invalid IBAN checksum' ], 200);
+            return response()->json(['valid' => false, 'message' => 'Invalid IBAN checksum'], 200);
         }
 
         // Lightweight bank detection (best-effort)
@@ -595,5 +675,41 @@ class IndexController extends Controller
             'bank_name' => $bankName,
             'bank_code' => $bankCode2,
         ], 200);
+    }
+
+
+
+    public function uploadFileCooperation(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'file' => 'required|file|mimes:jpeg,jpg,png,gif,pdf,txt,rar,zip|max:10240', // max 10 MB
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid file format or size',
+                'errors' => $validator->errors(),
+            ], 400);
+        }
+
+        if ($request->hasFile('file')) {
+            $file = $request->file('file');
+            $filePath = Storage::disk('static')->url(
+                Storage::disk('static')->put(
+                    '/cooperation/' . now()->format('Y/m/d'),
+                    $file
+                )
+            );
+            return response()->json([
+                'success' => true,
+                'fileUrl' => $filePath,
+            ], 200);
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'No file was uploaded.',
+        ], 400);
     }
 }

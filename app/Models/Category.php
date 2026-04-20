@@ -21,6 +21,9 @@ class Category extends Model
         'assignment_type',
         'match_type',
     ];
+    protected $casts = [
+        'status' => 'boolean',
+    ];
 
     // protected static function boot()
     // {

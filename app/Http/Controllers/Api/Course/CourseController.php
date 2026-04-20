@@ -71,11 +71,11 @@ class CourseController extends Controller
 
         $paginatedCourses = $courses->slice(($currentPage - 1) * $coursesPerPage, $coursesPerPage)->values();
 
-        $paths = Path::withCount('courses')->get();
+        // $paths = Path::withCount('courses')->get();
 
         return response()->json([
             'message' => 'Success',
-            'paths' => $paths,
+            // 'paths' => $paths,
             'courses' => $paginatedCourses,
             'pagination' => [
                 'total' => $total,

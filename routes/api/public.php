@@ -4,6 +4,8 @@ use Illuminate\Support\Facades\Route;
 
 // Index and paths
 Route::get('/index/latestCourses', [\App\Http\Controllers\Api\IndexController::class, 'latestCourses'])->name('api.index.latest-courses');
+Route::get('/index/freeCourses', [\App\Http\Controllers\Api\IndexController::class, 'freeCourses'])->name('api.index.free-courses');
+Route::get('/categories', [\App\Http\Controllers\Api\IndexController::class, 'categoriesList'])->name('api.categories.index');
 Route::get('/paths', [\App\Http\Controllers\Api\IndexController::class, 'paths'])->name('api.paths.index');
 Route::get('/path/{pathSlug}', [\App\Http\Controllers\Api\IndexController::class, 'getPath'])->name('api.paths.show');
 

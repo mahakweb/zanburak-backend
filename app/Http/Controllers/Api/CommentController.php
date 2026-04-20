@@ -136,7 +136,7 @@ class CommentController extends Controller
 
         foreach ($descendants as $child) {
             $allChilds->push($this->mapComment($child, $user));
-            $allChilds = $allChilds->merge($this->getAllDescendants($child, $user));
+            $allChilds = $allChilds->merge(items: $this->getAllDescendants($child, $user));
         }
 
         return $allChilds;
@@ -170,34 +170,34 @@ class CommentController extends Controller
         $comment = $model->comments()->create($validData + ['user_id' => $user->id]);
 
         // ارسال اطلاع‌رسانی در صورت پاسخ به کامنت
-        if ($validData['parent_id'] > 0) {
-            $parentComment = Comment::find($validData['parent_id']);
-            if ($parentComment && $parentComment->user && $parentComment->user_id != $user->id) {
-                $commentableTitle = $this->getCommentableTitle($parentComment);
-                $commentableUrl = $this->getCommentableUrl($parentComment);
+        // if ($validData['parent_id'] > 0) {
+        //     $parentComment = Comment::find($validData['parent_id']);
+        //     if ($parentComment && $parentComment->user && $parentComment->user_id != $user->id) {
+        //         $commentableTitle = $this->getCommentableTitle($parentComment);
+        //         $commentableUrl = $this->getCommentableUrl($parentComment);
                 
-                event(new \App\Events\Comment\ReplyToComment($parentComment, $user, $commentableTitle, $commentableUrl));
-            }
-        }
+        //         event(new \App\Events\Comment\ReplyToComment($parentComment, $user, $commentableTitle, $commentableUrl));
+        //     }
+        // }
         
         // ارسال اطلاع‌رسانی ثبت دیدگاه در مقالات/محتوا (اگر صاحب محتوا با کامنت‌کننده متفاوت باشد)
-        if ($validData['parent_id'] == 0) {
-            $commentable = $comment->commentable;
-            if ($commentable && isset($commentable->user_id) && $commentable->user_id != $user->id) {
-                $commentableTitle = $this->getCommentableTitle($comment);
-                $commentableUrl = $this->getCommentableUrl($comment);
+        // if ($validData['parent_id'] == 0) {
+        //     $commentable = $comment->commentable;
+        //     if ($commentable && isset($commentable->user_id) && $commentable->user_id != $user->id) {
+        //         $commentableTitle = $this->getCommentableTitle($comment);
+        //         $commentableUrl = $this->getCommentableUrl($comment);
                 
-                event(new \App\Events\Comment\CommentOnArticle($comment, $user, $commentableTitle, $commentableUrl));
-            }
+        //         event(new \App\Events\Comment\CommentOnArticle($comment, $user, $commentableTitle, $commentableUrl));
+        //     }
             
-            // Fire event for points if commentable is Episode
-            if ($commentable instanceof \App\Models\Episode) {
-                event(new \App\Events\Score\Comment\CommentOnEpisode($user, $comment));
-            }
+        //     // Fire event for points if commentable is Episode
+        //     if ($commentable instanceof \App\Models\Episode) {
+        //         event(new \App\Events\Score\Comment\CommentOnEpisode($user, $comment));
+        //     }
             
-            // Fire Mission Community Activity Event
-            event(new \App\Events\Mission\CommunityActivityEvent($user, 'comment', $comment));
-        }
+        //     // Fire Mission Community Activity Event
+        //     event(new \App\Events\Mission\CommunityActivityEvent($user, 'comment', $comment));
+        // }
 
         $comment->load([
             'user' => function ($query) {

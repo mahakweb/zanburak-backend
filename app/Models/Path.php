@@ -56,6 +56,11 @@ class Path extends Model
         return $this->belongsToMany(Course::class)->withTimestamps();
     }
 
+    public function publishedCourses()
+    {
+        return $this->courses()->where('publish', true);
+    }
+
     public function prerequisites()
     {
         return $this->belongsToMany(
