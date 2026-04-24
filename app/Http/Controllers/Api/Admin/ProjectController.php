@@ -16,7 +16,7 @@ class ProjectController extends Controller
     public function index(Request $request)
     {
         $query = Project::query()
-            ->with(['user:id,first_name,last_name,username,email'])
+            ->with(['user:id,first_name,last_name,username,email,profile_pic'])
             ->select(['id', 'user_id', 'title', 'type', 'sample', 'description', 'deadline', 'min_price', 'max_price', 'attach_file', 'created_at']);
 
         // search by title or description
@@ -70,6 +70,7 @@ class ProjectController extends Controller
                     'last_name' => $project->user->last_name,
                     'username' => $project->user->username,
                     'email' => $project->user->email,
+                    'profile_pic' => $project->user->profile_pic,
                 ] : null,
             ];
         });

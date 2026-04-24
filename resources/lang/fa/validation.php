@@ -220,6 +220,11 @@ return array(
         'is_superuser' => 'superuser',
         'deactivation_reason' => 'علت غیرفعال‌سازی',
         'deactivated_until' => 'مدت غیرفعال‌سازی',
+        'expired_at' => 'تاریخ انقضا',
+        'driver' => 'درگاه',
+        'bank' => 'درگاه بانکی',
+        'wallet' => 'کیف پول',
+        'payment_method' => 'روش پرداحت',
         // Discount fields
         'value' => 'مقدار ',
         'usage_limit' => 'حداکثر تعداد استفاده کل',
