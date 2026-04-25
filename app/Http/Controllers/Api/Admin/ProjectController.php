@@ -94,7 +94,7 @@ class ProjectController extends Controller
      */
     public function show(Project $project)
     {
-        $project->load(['user:id,first_name,last_name,username,email']);
+        $project->load(['user:id,first_name,last_name,username,email,profile_pic']);
 
         return response()->json([
             'message' => 'Success',
@@ -115,6 +115,7 @@ class ProjectController extends Controller
                     'last_name' => $project->user->last_name,
                     'username' => $project->user->username,
                     'email' => $project->user->email,
+                    'profile_pic' => $project->user->profile_pic,
                 ] : null,
             ],
         ], 200);

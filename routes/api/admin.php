@@ -57,6 +57,13 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/projects/{project}/update', [\App\Http\Controllers\Api\Admin\ProjectController::class, 'update'])->name('projects.update');
     Route::delete('/projects/{project}', [\App\Http\Controllers\Api\Admin\ProjectController::class, 'destroy'])->name('projects.delete');
 
+    // Cooperations
+    Route::post('/cooperations', [\App\Http\Controllers\Api\Admin\CooperationController::class, 'index'])->name('cooperations.index');
+    Route::get('/cooperation/{cooperation}', [\App\Http\Controllers\Api\Admin\CooperationController::class, 'show'])->name('cooperations.show');
+    Route::post('/cooperation/{cooperation}/update', [\App\Http\Controllers\Api\Admin\CooperationController::class, 'update'])->name('cooperations.update');
+    Route::delete('/cooperation/{cooperation}', [\App\Http\Controllers\Api\Admin\CooperationController::class, 'destroy'])->name('cooperations.delete');
+
+
     // Paths
     Route::post('/paths', [\App\Http\Controllers\Api\Admin\PathController::class, 'paths'])->name('paths.index');
     Route::post('/path/create', [\App\Http\Controllers\Api\Admin\PathController::class, 'store'])->name('path.create');
