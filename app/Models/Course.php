@@ -129,6 +129,14 @@ class Course extends Model implements Likeable
         ];
     }
 
+    public function scopeSearch($query, $searchKey)
+    {
+        if ($searchKey) {
+            return $query->whereIn('id', Course::search($searchKey)->keys());
+        }
+        return $query;
+    }
+
     public function scopeOrder($query, $value)
     {
         return match ($value) {

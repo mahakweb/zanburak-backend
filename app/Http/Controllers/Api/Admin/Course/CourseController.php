@@ -34,6 +34,7 @@ class CourseController extends Controller
             ->type($request->input('type'))
             ->level($request->input('level'))
             ->status($request->input('status'))
+            ->search($request->input('search'))
             ->order($request->input('sort', 'newest'));
 
         $perPage = $request->input('perPage', 10);

@@ -30,6 +30,7 @@ class CategoryController extends Controller
     {
         $status = $request->input('status');
         $perPage = $request->input('perPage', 10);
+        $search = $request->input('search');
 
         $query = Category::with([
             'course:id,title,english_title,slug,short_description,description,poster',
@@ -38,6 +39,14 @@ class CategoryController extends Controller
         ])
             ->whereNull('parent_id')
             ->status($status);
+
+        if (!empty($search)) {
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                    ->orWhere('english_title', 'like', "%{$search}%")
+                    ->orWhere('slug', 'like', "%{$search}%");
+            });
+        }
 
         $categories = $query->paginate($perPage);
 
@@ -89,15 +98,23 @@ class CategoryController extends Controller
         $status = $request->input('status');
         $order = $request->input('sort');
         $perPage = $request->input('perPage', 10);
+        $search = $request->input('search');
 
-        $categories = Category::with([
+        $query = Category::with([
             'course:id,title,english_title,slug,short_description,description,poster',
             'parent',
             // 'children',
         ])
             ->status($status)
-            ->order($order)
-            ->paginate($perPage);
+            ->order($order);
+        if (!empty($search)) {
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                    ->orWhere('english_title', 'like', "%{$search}%")
+                    ->orWhere('slug', 'like', "%{$search}%");
+            });
+        }
+        $categories = $query->paginate($perPage);
 
         $data = $categories->map(function ($category) {
             return [
@@ -187,7 +204,6 @@ class CategoryController extends Controller
             $this->syncCategoryAssignments($category);
 
             return response()->json(['message' => "Success, category created successfully.", 'category' => $category], 200);
-
         }
     }
 
@@ -288,10 +304,9 @@ class CategoryController extends Controller
             $category->course()->detach();
 
             $this->syncCategoryAssignments($category);
-            
+
 
             return response()->json(['message' => "Category updated successfully", 'category' => $category], 200);
-
         }
     }
 
@@ -455,7 +470,6 @@ class CategoryController extends Controller
             $category->icon = Storage::disk($disk)->url($filePath);
             $category->save();
             return response()->json(['message' => "Icon uploaded successfully", 'icon' => $category->icon], 200);
-
         }
     }
 
@@ -544,5 +558,4 @@ class CategoryController extends Controller
         $this->removeIcon($category);
         $category->delete();
     }
-
 }
