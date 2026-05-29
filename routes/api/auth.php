@@ -19,6 +19,7 @@ Route::middleware('auth:sanctum')->group(function () {
             'profile_pic' => $user->profile_pic,
             'cover_pic' => $user->cover_pic,
             'wallet_balance' => $user->wallet_balance,
+            'score' => $user->currentScore(),
             'last_seen' => $user->last_seen,
             'active' => $user->active,
             'is_superuser' => $user->is_superuser,
