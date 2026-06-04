@@ -148,4 +148,14 @@ class Path extends Model
     {
         return $this->morphMany(Report::class, 'reportable');
     }
+
+    public function views()
+    {
+        return $this->morphMany(View::class, 'viewable');
+    }
+
+    public function viewsCount()
+    {
+        return $this->views()->count();
+    }
 }

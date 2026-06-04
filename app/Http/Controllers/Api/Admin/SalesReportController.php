@@ -12,6 +12,9 @@ use App\Models\User;
 use App\Models\Category;
 use App\Models\Level;
 use App\Models\Discount;
+use Carbon\Carbon;
+use Carbon\CarbonPeriod;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -191,182 +194,126 @@ class SalesReportController extends Controller
      */
     public function stats(Request $request)
     {
+        [$dateFrom, $dateTo, $periodDays, $previousFrom, $previousTo] = $this->resolveDateRange($request);
+
         $query = Payment::where('status', 1)->whereNotNull('paid_at');
-
-        // Apply date filters if provided
-        if ($request->filled('date_from')) {
-            $query->whereDate('paid_at', '>=', $request->date_from);
-        }
-
-        if ($request->filled('date_to')) {
-            $query->whereDate('paid_at', '<=', $request->date_to);
-        }
-
-        // Apply payment method filter
-        if ($request->filled('payment_method')) {
-            $query->where('payment_method', $request->payment_method);
-        }
-
-        // Apply driver filter
-        if ($request->filled('driver')) {
-            $query->where('driver', $request->driver);
-        }
+        $this->applyPaymentFilters($query, $request);
+        $this->applyDateRangeOnPaidAt($query, $dateFrom, $dateTo);
 
         $baseQuery = clone $query;
 
-        // Total original sales (amount + discount)
-        $totalOriginalSales = $baseQuery->sum(DB::raw('amount + COALESCE(discount_amount, 0)'));
-        
-        // Total discount
-        $totalDiscount = $baseQuery->sum('discount_amount');
-        
-        // Net sales (final amount after discount) = sum of amount field
-        $netSales = $baseQuery->sum('amount');
-        
-        // Total transactions
-        $totalTransactions = $baseQuery->count();
-        
-        // Average transaction value
+        $totalOriginalSales = (int) (clone $baseQuery)->sum(DB::raw('amount + COALESCE(discount_amount, 0)'));
+        $totalDiscount = (int) (clone $baseQuery)->sum('discount_amount');
+        $netSales = (int) (clone $baseQuery)->sum('amount');
+        $totalTransactions = (clone $baseQuery)->count();
+        $uniqueBuyers = (clone $baseQuery)->distinct('user_id')->count('user_id');
         $averageTransaction = $totalTransactions > 0 ? $netSales / $totalTransactions : 0;
 
-        // Sales by payment method (net sales = amount)
+        $previousQuery = Payment::where('status', 1)->whereNotNull('paid_at');
+        $this->applyPaymentFilters($previousQuery, $request);
+        $this->applyDateRangeOnPaidAt($previousQuery, $previousFrom, $previousTo);
+
+        $prevNetSales = (int) (clone $previousQuery)->sum('amount');
+        $prevTransactions = (clone $previousQuery)->count();
+        $prevAverage = $prevTransactions > 0 ? $prevNetSales / $prevTransactions : 0;
+        $prevDiscount = (int) (clone $previousQuery)->sum('discount_amount');
+        $prevUniqueBuyers = (clone $previousQuery)->distinct('user_id')->count('user_id');
+
         $salesByMethod = (clone $query)
             ->select('payment_method', DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
             ->groupBy('payment_method')
             ->get()
-            ->map(function($item) {
-                return [
-                    'method' => $item->payment_method,
-                    'total' => $item->total,
-                    'count' => $item->count,
-                ];
-            });
+            ->map(fn ($item) => [
+                'method' => $item->payment_method,
+                'total' => (int) $item->total,
+                'count' => (int) $item->count,
+            ]);
 
-        // Sales by driver (net sales = amount)
         $salesByDriver = (clone $query)
             ->select('driver', DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
             ->whereNotNull('driver')
             ->groupBy('driver')
             ->get()
-            ->map(function($item) {
-                return [
-                    'driver' => $item->driver,
-                    'total' => $item->total,
-                    'count' => $item->count,
-                ];
-            });
+            ->map(fn ($item) => [
+                'driver' => $item->driver,
+                'total' => (int) $item->total,
+                'count' => (int) $item->count,
+            ]);
 
-        // Sales by payable type
-        $salesByType = PaymentItem::whereHas('payment', function($q) use ($request) {
+        $salesByType = PaymentItem::whereHas('payment', function ($q) use ($request, $dateFrom, $dateTo) {
                 $q->where('status', 1)->whereNotNull('paid_at');
-                if ($request->filled('date_from')) {
-                    $q->whereDate('paid_at', '>=', $request->date_from);
-                }
-                if ($request->filled('date_to')) {
-                    $q->whereDate('paid_at', '<=', $request->date_to);
-                }
+                $this->applyPaymentFilters($q, $request);
+                $this->applyDateRangeOnPaidAt($q, $dateFrom, $dateTo);
             })
             ->select('payable_type', DB::raw('SUM(final_price) as total'), DB::raw('COUNT(*) as count'))
             ->groupBy('payable_type')
             ->get()
-            ->map(function($item) {
-                return [
-                    'type' => class_basename($item->payable_type),
-                    'total' => $item->total,
-                    'count' => $item->count,
-                ];
-            });
+            ->map(fn ($item) => [
+                'type' => class_basename($item->payable_type),
+                'total' => (int) $item->total,
+                'count' => (int) $item->count,
+            ]);
 
-        // Daily sales - use date range if provided, otherwise last 30 days
-        $startDate = $request->filled('date_from') 
-            ? \Carbon\Carbon::parse($request->date_from) 
-            : now()->subDays(30);
-        $endDate = $request->filled('date_to') 
-            ? \Carbon\Carbon::parse($request->date_to) 
-            : now();
-
-        $dailySales = (clone $query)
+        $dailyRaw = (clone $query)
             ->select(DB::raw('DATE(paid_at) as date'), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
-            ->whereBetween('paid_at', [$startDate, $endDate])
             ->groupBy(DB::raw('DATE(paid_at)'))
-            ->orderBy('date', 'asc')
-            ->get()
-            ->map(function($item) {
-                return [
-                    'date' => $item->date,
-                    'total' => $item->total,
-                    'count' => $item->count,
-                ];
-            });
+            ->pluck('count', 'date')
+            ->toArray();
+        $dailyAmountRaw = (clone $query)
+            ->select(DB::raw('DATE(paid_at) as date'), DB::raw('SUM(amount) as total'))
+            ->groupBy(DB::raw('DATE(paid_at)'))
+            ->pluck('total', 'date')
+            ->toArray();
 
-        // Comparison stats (previous period)
-        $comparisonStats = null;
-        if ($request->filled('date_from') && $request->filled('date_to')) {
-            $currentStart = \Carbon\Carbon::parse($request->date_from);
-            $currentEnd = \Carbon\Carbon::parse($request->date_to);
-            $periodDays = $currentStart->diffInDays($currentEnd);
-            
-            $previousStart = $currentStart->copy()->subDays($periodDays + 1);
-            $previousEnd = $currentStart->copy()->subDay();
-            
-            $previousQuery = Payment::where('status', 1)->whereNotNull('paid_at');
-            
-            if ($request->filled('payment_method')) {
-                $previousQuery->where('payment_method', $request->payment_method);
-            }
-            if ($request->filled('driver')) {
-                $previousQuery->where('driver', $request->driver);
-            }
-            
-            $previousQuery->whereBetween('paid_at', [$previousStart, $previousEnd]);
-            
-            $previousNetSales = $previousQuery->sum('amount');
-            $previousTransactions = $previousQuery->count();
-            $previousAverage = $previousTransactions > 0 ? $previousNetSales / $previousTransactions : 0;
-            $previousDiscount = $previousQuery->sum('discount_amount');
-            
-            $comparisonStats = [
-                'net_sales' => [
-                    'current' => $netSales,
-                    'previous' => $previousNetSales,
-                    'change' => $netSales - $previousNetSales,
-                    'change_percent' => $previousNetSales > 0 ? round((($netSales - $previousNetSales) / $previousNetSales) * 100, 2) : 0,
-                ],
-                'transactions' => [
-                    'current' => $totalTransactions,
-                    'previous' => $previousTransactions,
-                    'change' => $totalTransactions - $previousTransactions,
-                    'change_percent' => $previousTransactions > 0 ? round((($totalTransactions - $previousTransactions) / $previousTransactions) * 100, 2) : 0,
-                ],
-                'average_transaction' => [
-                    'current' => round($averageTransaction),
-                    'previous' => round($previousAverage),
-                    'change' => round($averageTransaction) - round($previousAverage),
-                    'change_percent' => $previousAverage > 0 ? round(((round($averageTransaction) - round($previousAverage)) / round($previousAverage)) * 100, 2) : 0,
-                ],
-                'discount' => [
-                    'current' => $totalDiscount,
-                    'previous' => $previousDiscount,
-                    'change' => $totalDiscount - $previousDiscount,
-                    'change_percent' => $previousDiscount > 0 ? round((($totalDiscount - $previousDiscount) / $previousDiscount) * 100, 2) : 0,
-                ],
-            ];
-        }
+        $dailySales = $this->buildDailySalesSeries($dateFrom, $dateTo, $dailyAmountRaw, $dailyRaw);
+
+        $prevDailyAmountRaw = (clone $previousQuery)
+            ->select(DB::raw('DATE(paid_at) as date'), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
+            ->groupBy(DB::raw('DATE(paid_at)'))
+            ->get()
+            ->keyBy('date');
+
+        $dailyComparison = $this->buildDailyComparison($dateFrom, $dateTo, $previousFrom, $previousTo, $dailyAmountRaw, $dailyRaw, $prevDailyAmountRaw);
+
+        $hourly = $this->buildHourlySales($query);
+        $monthly = $this->buildMonthlySales($query, $dateFrom, $dateTo, $periodDays);
+        $heatmap = $this->buildSalesHeatmap($query);
+        $insights = $this->buildSalesInsights($query, $netSales, $uniqueBuyers, $totalTransactions, $totalOriginalSales, $totalDiscount);
+
+        $comparisonStats = [
+            'net_sales' => $this->compareMetric($netSales, $prevNetSales),
+            'transactions' => $this->compareMetric($totalTransactions, $prevTransactions),
+            'average_transaction' => $this->compareMetric((int) round($averageTransaction), (int) round($prevAverage)),
+            'discount' => $this->compareMetric($totalDiscount, $prevDiscount),
+            'unique_buyers' => $this->compareMetric($uniqueBuyers, $prevUniqueBuyers),
+        ];
 
         return response()->json([
             'message' => 'Success',
+            'period' => ['date_from' => $dateFrom, 'date_to' => $dateTo],
             'stats' => [
                 'total_sales' => $totalOriginalSales,
                 'total_discount' => $totalDiscount,
                 'net_sales' => $netSales,
                 'total_transactions' => $totalTransactions,
-                'average_transaction' => round($averageTransaction),
+                'unique_buyers' => $uniqueBuyers,
+                'average_transaction' => (int) round($averageTransaction),
+                'discount_rate' => $totalOriginalSales > 0 ? round(($totalDiscount / $totalOriginalSales) * 100, 1) : 0,
                 'sales_by_method' => $salesByMethod,
                 'sales_by_driver' => $salesByDriver,
                 'sales_by_type' => $salesByType,
                 'daily_sales' => $dailySales,
+                'daily_comparison' => $dailyComparison,
+                'hourly' => $hourly,
+                'monthly' => $monthly,
+                'heatmap' => $heatmap,
+                'insights' => $insights,
                 'comparison' => $comparisonStats,
-            ]
+                'today' => [
+                    'net_sales' => (int) Payment::where('status', 1)->whereNotNull('paid_at')->whereDate('paid_at', today())->sum('amount'),
+                    'transactions' => Payment::where('status', 1)->whereNotNull('paid_at')->whereDate('paid_at', today())->count(),
+                ],
+            ],
         ], 200);
     }
 
@@ -734,6 +681,210 @@ class SalesReportController extends Controller
                 'sales_by_level' => $salesByLevel,
             ]
         ], 200);
+    }
+
+    private function resolveDateRange(Request $request): array
+    {
+        $dateFrom = $request->input('date_from', now()->subDays(30)->toDateString());
+        $dateTo = $request->input('date_to', now()->toDateString());
+
+        if ($dateFrom > $dateTo) {
+            [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
+        }
+
+        $periodDays = max(1, (int) Carbon::parse($dateFrom)->diffInDays(Carbon::parse($dateTo)) + 1);
+        $previousFrom = Carbon::parse($dateFrom)->subDays($periodDays)->toDateString();
+        $previousTo = Carbon::parse($dateFrom)->subDay()->toDateString();
+
+        return [$dateFrom, $dateTo, $periodDays, $previousFrom, $previousTo];
+    }
+
+    private function applyDateRangeOnPaidAt(Builder $query, string $dateFrom, string $dateTo): void
+    {
+        $query->whereDate('paid_at', '>=', $dateFrom)
+            ->whereDate('paid_at', '<=', $dateTo);
+    }
+
+    private function applyPaymentFilters(Builder $query, Request $request): void
+    {
+        if ($request->filled('payment_method')) {
+            $query->where('payment_method', $request->payment_method);
+        }
+
+        if ($request->filled('driver')) {
+            $query->where('driver', $request->driver);
+        }
+    }
+
+    private function compareMetric(int $current, int $previous): array
+    {
+        return [
+            'current' => $current,
+            'previous' => $previous,
+            'change' => $current - $previous,
+            'change_percent' => $previous > 0 ? round((($current - $previous) / $previous) * 100, 1) : ($current > 0 ? 100.0 : 0.0),
+        ];
+    }
+
+    private function buildDailySalesSeries(string $dateFrom, string $dateTo, array $amountByDate, array $countByDate): array
+    {
+        return collect(CarbonPeriod::create($dateFrom, $dateTo))->map(function ($date) use ($amountByDate, $countByDate) {
+            $key = $date->toDateString();
+
+            return [
+                'date' => $key,
+                'total' => (int) ($amountByDate[$key] ?? 0),
+                'count' => (int) ($countByDate[$key] ?? 0),
+            ];
+        })->values()->all();
+    }
+
+    private function buildDailyComparison(
+        string $dateFrom,
+        string $dateTo,
+        string $previousFrom,
+        string $previousTo,
+        array $currentAmounts,
+        array $currentCounts,
+        $previousRows
+    ): array {
+        $labels = [];
+        $currentAmount = [];
+        $previousAmount = [];
+        $currentCount = [];
+        $previousCount = [];
+
+        $prevPeriod = collect(CarbonPeriod::create($previousFrom, $previousTo))->values();
+        $idx = 0;
+
+        foreach (CarbonPeriod::create($dateFrom, $dateTo) as $date) {
+            $key = $date->toDateString();
+            $labels[] = $key;
+            $currentAmount[] = (int) ($currentAmounts[$key] ?? 0);
+            $currentCount[] = (int) ($currentCounts[$key] ?? 0);
+
+            $prevDate = $prevPeriod[$idx] ?? null;
+            if ($prevDate) {
+                $prevKey = $prevDate->toDateString();
+                $row = $previousRows[$prevKey] ?? null;
+                $previousAmount[] = (int) ($row->total ?? 0);
+                $previousCount[] = (int) ($row->count ?? 0);
+            } else {
+                $previousAmount[] = 0;
+                $previousCount[] = 0;
+            }
+
+            $idx++;
+        }
+
+        return [
+            'labels' => $labels,
+            'current_amount' => $currentAmount,
+            'previous_amount' => $previousAmount,
+            'current_count' => $currentCount,
+            'previous_count' => $previousCount,
+        ];
+    }
+
+    private function buildHourlySales(Builder $query): array
+    {
+        $raw = (clone $query)
+            ->select(DB::raw('HOUR(paid_at) as hour'), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
+            ->groupBy('hour')
+            ->get()
+            ->keyBy('hour');
+
+        return collect(range(0, 23))->map(function ($hour) use ($raw) {
+            $row = $raw[$hour] ?? null;
+
+            return [
+                'hour' => $hour,
+                'label' => sprintf('%02d:00', $hour),
+                'total' => (int) ($row->total ?? 0),
+                'count' => (int) ($row->count ?? 0),
+            ];
+        })->values()->all();
+    }
+
+    private function buildMonthlySales(Builder $query, string $dateFrom, string $dateTo, int $periodDays): array
+    {
+        if ($periodDays < 32) {
+            return [];
+        }
+
+        $raw = (clone $query)
+            ->select(DB::raw("DATE_FORMAT(paid_at, '%Y-%m') as month"), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
+            ->groupBy('month')
+            ->orderBy('month')
+            ->get();
+
+        return $raw->map(fn ($row) => [
+            'month' => $row->month,
+            'label' => Carbon::createFromFormat('Y-m', $row->month)->locale('fa')->translatedFormat('M Y'),
+            'total' => (int) $row->total,
+            'count' => (int) $row->count,
+        ])->values()->all();
+    }
+
+    private function buildSalesHeatmap(Builder $query): array
+    {
+        $weekdayLabels = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'];
+        $raw = (clone $query)
+            ->select(
+                DB::raw('DAYOFWEEK(paid_at) as weekday'),
+                DB::raw('HOUR(paid_at) as hour'),
+                DB::raw('COUNT(*) as count'),
+                DB::raw('SUM(amount) as total')
+            )
+            ->groupBy('weekday', 'hour')
+            ->get();
+
+        $cells = [];
+        $max = 0;
+
+        foreach (range(1, 7) as $day) {
+            foreach (range(0, 23) as $hour) {
+                $row = $raw->first(fn ($r) => (int) $r->weekday === $day && (int) $r->hour === $hour);
+                $count = (int) ($row->count ?? 0);
+                $max = max($max, $count);
+                $cells[] = [
+                    'weekday' => $day,
+                    'weekday_label' => $weekdayLabels[$day - 1],
+                    'hour' => $hour,
+                    'count' => $count,
+                    'total' => (int) ($row->total ?? 0),
+                ];
+            }
+        }
+
+        return ['cells' => $cells, 'max' => $max, 'weekday_labels' => $weekdayLabels];
+    }
+
+    private function buildSalesInsights(Builder $query, int $netSales, int $uniqueBuyers, int $totalTransactions, int $totalOriginalSales, int $totalDiscount): array
+    {
+        $byDay = (clone $query)
+            ->select(DB::raw('DATE(paid_at) as date'), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')
+            ->orderByDesc('total')
+            ->get();
+
+        $peakDay = $byDay->first();
+        $byHour = (clone $query)
+            ->select(DB::raw('HOUR(paid_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->groupBy('hour')
+            ->orderByDesc('count')
+            ->first();
+
+        return [
+            'avg_per_buyer' => $uniqueBuyers > 0 ? (int) round($netSales / $uniqueBuyers) : 0,
+            'avg_transactions_per_buyer' => $uniqueBuyers > 0 ? round($totalTransactions / $uniqueBuyers, 2) : 0,
+            'discount_rate' => $totalOriginalSales > 0 ? round(($totalDiscount / $totalOriginalSales) * 100, 1) : 0,
+            'peak_day' => $peakDay ? Carbon::parse($peakDay->date)->locale('fa')->translatedFormat('j F') : '—',
+            'peak_day_total' => (int) ($peakDay->total ?? 0),
+            'peak_day_count' => (int) ($peakDay->count ?? 0),
+            'peak_hour' => $byHour ? sprintf('%02d:00', $byHour->hour) : '—',
+            'peak_hour_count' => (int) ($byHour->count ?? 0),
+        ];
     }
 }
 

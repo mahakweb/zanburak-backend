@@ -713,6 +713,16 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(VideoView::class);
     }
 
+    public function views()
+    {
+        return $this->morphMany(View::class, 'viewable');
+    }
+
+    public function viewsCount()
+    {
+        return $this->views()->count();
+    }
+
     public function certificates()
     {
         return $this->hasMany(Certificate::class);

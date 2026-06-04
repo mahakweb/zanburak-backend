@@ -15,6 +15,9 @@ use App\Models\Rating;
 use App\Models\Certificate;
 use App\Models\Report;
 use App\Models\Course;
+use Carbon\Carbon;
+use Carbon\CarbonPeriod;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -366,244 +369,112 @@ class UserActivityReportController extends Controller
      */
     public function stats(Request $request)
     {
-        $baseQuery = User::query();
-        
-        if ($request->filled('date_from')) {
-            $baseQuery->whereDate('created_at', '>=', $request->date_from);
-        }
-        if ($request->filled('date_to')) {
-            $baseQuery->whereDate('created_at', '<=', $request->date_to);
-        }
+        [$dateFrom, $dateTo, $periodDays, $previousFrom, $previousTo] = $this->resolveDateRange($request);
 
-        $userIds = $baseQuery->pluck('id');
+        $totalUsers = User::count();
+        $activeUsersCount = UserLogin::whereDate('logged_in_at', '>=', $dateFrom)
+            ->whereDate('logged_in_at', '<=', $dateTo)
+            ->distinct('user_id')
+            ->count('user_id');
 
-        // Total users
-        $totalUsers = $baseQuery->count();
+        $counts = $this->aggregateActivityCounts($dateFrom, $dateTo);
+        $prevCounts = $this->aggregateActivityCounts($previousFrom, $previousTo);
 
-        // Active users (logged in within date range)
-        $activeUsers = UserLogin::whereIn('user_id', $userIds);
-        if ($request->filled('date_from')) {
-            $activeUsers->whereDate('logged_in_at', '>=', $request->date_from);
-        }
-        if ($request->filled('date_to')) {
-            $activeUsers->whereDate('logged_in_at', '<=', $request->date_to);
-        }
-        $activeUsersCount = $activeUsers->distinct('user_id')->count('user_id');
+        $totalWatchTimeSeconds = $this->calculateWatchTimeSeconds($dateFrom, $dateTo);
+        $totalRevenue = $counts['payments_amount'];
 
-        // Total activities
-        $totalLogins = UserLogin::whereIn('user_id', $userIds);
-        $totalViews = VideoView::whereIn('user_id', $userIds);
-        $totalComments = Comment::whereIn('user_id', $userIds);
-        $totalQuestions = Question::whereIn('user_id', $userIds);
-        $totalAnswers = Answer::whereIn('user_id', $userIds);
-        $totalLikes = Like::whereIn('user_id', $userIds);
-        $totalPayments = Payment::whereIn('user_id', $userIds)->where('status', 1)->whereNotNull('paid_at');
-        $totalRatings = Rating::whereIn('user_id', $userIds);
-        $totalCertificates = Certificate::whereIn('user_id', $userIds);
-
-        if ($request->filled('date_from')) {
-            $totalLogins->whereDate('logged_in_at', '>=', $request->date_from);
-            $totalViews->whereDate('updated_at', '>=', $request->date_from);
-            $totalComments->whereDate('created_at', '>=', $request->date_from);
-            $totalQuestions->whereDate('created_at', '>=', $request->date_from);
-            $totalAnswers->whereDate('created_at', '>=', $request->date_from);
-            $totalLikes->whereDate('created_at', '>=', $request->date_from);
-            $totalPayments->whereDate('paid_at', '>=', $request->date_from);
-            $totalRatings->whereDate('created_at', '>=', $request->date_from);
-            $totalCertificates->whereDate('created_at', '>=', $request->date_from);
-        }
-
-        if ($request->filled('date_to')) {
-            $totalLogins->whereDate('logged_in_at', '<=', $request->date_to);
-            $totalViews->whereDate('updated_at', '<=', $request->date_to);
-            $totalComments->whereDate('created_at', '<=', $request->date_to);
-            $totalQuestions->whereDate('created_at', '<=', $request->date_to);
-            $totalAnswers->whereDate('created_at', '<=', $request->date_to);
-            $totalLikes->whereDate('created_at', '<=', $request->date_to);
-            $totalPayments->whereDate('paid_at', '<=', $request->date_to);
-            $totalRatings->whereDate('created_at', '<=', $request->date_to);
-            $totalCertificates->whereDate('created_at', '<=', $request->date_to);
-        }
-
-        // Calculate total watch time
-        $videoViews = $totalViews->get();
-        $totalWatchTimeSeconds = 0;
-        foreach ($videoViews as $view) {
-            $watchedTimes = json_decode($view->watched_times, true) ?? [];
-            $totalWatchTimeSeconds += count($watchedTimes);
-        }
-
-        // Total revenue from active users
-        $totalRevenue = $totalPayments->sum('amount');
-
-        // Average activities per user
-        $avgActivitiesPerUser = $totalUsers > 0 
-            ? ($totalLogins->count() + $totalViews->count() + $totalComments->count() + $totalQuestions->count() + $totalAnswers->count() + $totalLikes->count()) / $totalUsers 
+        $totalInteractions = $counts['comments'] + $counts['questions'] + $counts['answers'] + $counts['likes'];
+        $avgActivitiesPerUser = $activeUsersCount > 0
+            ? round(($counts['logins'] + $counts['video_views'] + $totalInteractions) / $activeUsersCount, 2)
             : 0;
 
-        // Daily activity (last 30 days)
-        $dailyActivity = [];
-        $startDate = $request->filled('date_from') 
-            ? \Carbon\Carbon::parse($request->date_from) 
-            : now()->subDays(30);
-        $endDate = $request->filled('date_to') 
-            ? \Carbon\Carbon::parse($request->date_to) 
-            : now();
+        $dailyActivity = $this->buildDailyActivitySeries($dateFrom, $dateTo);
+        $dailyComparison = $this->buildActivityDailyComparison($dateFrom, $dateTo, $previousFrom, $previousTo);
+        $dailyUniqueUsers = $this->buildDailyUniqueUsers($dateFrom, $dateTo);
+        $hourly = $this->buildActivityHourly($dateFrom, $dateTo);
+        $monthly = $this->buildActivityMonthly($dateFrom, $dateTo, $periodDays);
+        $heatmap = $this->buildActivityHeatmap($dateFrom, $dateTo);
+        $ratios = $this->buildActivityRatios($counts, $activeUsersCount, $totalUsers);
+        $insights = $this->buildActivityInsights($dateFrom, $dateTo, $counts, $activeUsersCount, $totalWatchTimeSeconds);
 
-        $period = \Carbon\CarbonPeriod::create($startDate, $endDate);
-        foreach ($period as $date) {
-            $day = $date->format('Y-m-d');
-            
-            $dayLogins = UserLogin::whereIn('user_id', $userIds)
-                ->whereDate('logged_in_at', $day)
-                ->count();
-            
-            $dayViews = VideoView::whereIn('user_id', $userIds)
-                ->whereDate('updated_at', $day)
-                ->count();
-            
-            $dayComments = Comment::whereIn('user_id', $userIds)
-                ->whereDate('created_at', $day)
-                ->count();
+        $comparisonStats = [
+            'active_users' => $this->compareMetric($activeUsersCount, $prevCounts['active_users']),
+            'video_views' => $this->compareMetric($counts['video_views'], $prevCounts['video_views']),
+            'comments' => $this->compareMetric($counts['comments'], $prevCounts['comments']),
+            'revenue' => $this->compareMetric($totalRevenue, $prevCounts['payments_amount']),
+            'logins' => $this->compareMetric($counts['logins'], $prevCounts['logins']),
+            'interactions' => $this->compareMetric($totalInteractions, $prevCounts['interactions']),
+        ];
 
-            $dailyActivity[] = [
-                'date' => $day,
-                'logins' => $dayLogins,
-                'views' => $dayViews,
-                'comments' => $dayComments,
-                'total' => $dayLogins + $dayViews + $dayComments,
-            ];
-        }
-
-        // Comparison stats (previous period)
-        $comparisonStats = null;
-        if ($request->filled('date_from') && $request->filled('date_to')) {
-            $currentStart = \Carbon\Carbon::parse($request->date_from);
-            $currentEnd = \Carbon\Carbon::parse($request->date_to);
-            $periodDays = $currentStart->diffInDays($currentEnd);
-            
-            $previousStart = $currentStart->copy()->subDays($periodDays + 1);
-            $previousEnd = $currentStart->copy()->subDay();
-            
-            $previousUserIds = User::whereDate('created_at', '>=', $previousStart)
-                ->whereDate('created_at', '<=', $previousEnd)
-                ->pluck('id');
-            
-            $previousLogins = UserLogin::whereIn('user_id', $previousUserIds)
-                ->whereDate('logged_in_at', '>=', $previousStart)
-                ->whereDate('logged_in_at', '<=', $previousEnd)
-                ->distinct('user_id')
-                ->count('user_id');
-            
-            $previousViews = VideoView::whereIn('user_id', $previousUserIds)
-                ->whereDate('updated_at', '>=', $previousStart)
-                ->whereDate('updated_at', '<=', $previousEnd)
-                ->count();
-            
-            $previousComments = Comment::whereIn('user_id', $previousUserIds)
-                ->whereDate('created_at', '>=', $previousStart)
-                ->whereDate('created_at', '<=', $previousEnd)
-                ->count();
-            
-            $previousRevenue = Payment::whereIn('user_id', $previousUserIds)
-                ->where('status', 1)
-                ->whereNotNull('paid_at')
-                ->whereDate('paid_at', '>=', $previousStart)
-                ->whereDate('paid_at', '<=', $previousEnd)
-                ->sum('amount');
-            
-            $comparisonStats = [
-                'active_users' => [
-                    'current' => $activeUsersCount,
-                    'previous' => $previousLogins,
-                    'change' => $activeUsersCount - $previousLogins,
-                    'change_percent' => $previousLogins > 0 ? round((($activeUsersCount - $previousLogins) / $previousLogins) * 100, 2) : 0,
-                ],
-                'video_views' => [
-                    'current' => $totalViews->count(),
-                    'previous' => $previousViews,
-                    'change' => $totalViews->count() - $previousViews,
-                    'change_percent' => $previousViews > 0 ? round((($totalViews->count() - $previousViews) / $previousViews) * 100, 2) : 0,
-                ],
-                'comments' => [
-                    'current' => $totalComments->count(),
-                    'previous' => $previousComments,
-                    'change' => $totalComments->count() - $previousComments,
-                    'change_percent' => $previousComments > 0 ? round((($totalComments->count() - $previousComments) / $previousComments) * 100, 2) : 0,
-                ],
-                'revenue' => [
-                    'current' => $totalRevenue,
-                    'previous' => $previousRevenue,
-                    'change' => $totalRevenue - $previousRevenue,
-                    'change_percent' => $previousRevenue > 0 ? round((($totalRevenue - $previousRevenue) / $previousRevenue) * 100, 2) : 0,
-                ],
-            ];
-        }
-
-        // Activity distribution for charts
         $activityDistribution = [
             'labels' => ['لاگین', 'تماشا', 'کامنت', 'سوال', 'جواب', 'لایک', 'پرداخت', 'امتیاز', 'گواهینامه'],
             'data' => [
-                $totalLogins->count(),
-                $totalViews->count(),
-                $totalComments->count(),
-                $totalQuestions->count(),
-                $totalAnswers->count(),
-                $totalLikes->count(),
-                $totalPayments->count(),
-                $totalRatings->count(),
-                $totalCertificates->count(),
+                $counts['logins'],
+                $counts['video_views'],
+                $counts['comments'],
+                $counts['questions'],
+                $counts['answers'],
+                $counts['likes'],
+                $counts['payments'],
+                $counts['ratings'],
+                $counts['certificates'],
             ],
             'colors' => ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#06b6d4', '#34d399', '#fbbf24', '#c084fc'],
         ];
 
-        // User status distribution
-        $activeUsersCount = User::whereIn('id', $userIds)->where('active', true)->count();
-        $inactiveUsersCount = User::whereIn('id', $userIds)->where('active', false)->count();
+        $accountActiveCount = User::where('active', true)->count();
+        $accountInactiveCount = User::where('active', false)->count();
         $statusDistribution = [
             'labels' => ['فعال', 'غیرفعال'],
-            'data' => [$activeUsersCount, $inactiveUsersCount],
+            'data' => [$accountActiveCount, $accountInactiveCount],
             'colors' => ['#10b981', '#ef4444'],
         ];
 
-        // VIP vs Non-VIP
-        $vipUsersCount = User::whereIn('id', $userIds)
-            ->whereHas('plans', function($q) {
-                $q->where('plan_user.expired_at', '>', now());
-            })
-            ->count();
-        $nonVipUsersCount = $totalUsers - $vipUsersCount;
+        $vipUsersCount = User::whereHas('plans', fn ($q) => $q->where('plan_user.expired_at', '>', now()))->count();
         $vipDistribution = [
             'labels' => ['VIP', 'عادی'],
-            'data' => [$vipUsersCount, $nonVipUsersCount],
+            'data' => [$vipUsersCount, max(0, $totalUsers - $vipUsersCount)],
             'colors' => ['#f59e0b', '#6b7280'],
         ];
 
         return response()->json([
             'message' => 'Success',
+            'period' => ['date_from' => $dateFrom, 'date_to' => $dateTo],
             'stats' => [
                 'total_users' => $totalUsers,
                 'active_users' => $activeUsersCount,
                 'total_activities' => [
-                    'logins' => $totalLogins->count(),
-                    'video_views' => $totalViews->count(),
-                    'comments' => $totalComments->count(),
-                    'questions' => $totalQuestions->count(),
-                    'answers' => $totalAnswers->count(),
-                    'likes' => $totalLikes->count(),
-                    'payments' => $totalPayments->count(),
-                    'ratings' => $totalRatings->count(),
-                    'certificates' => $totalCertificates->count(),
+                    'logins' => $counts['logins'],
+                    'video_views' => $counts['video_views'],
+                    'comments' => $counts['comments'],
+                    'questions' => $counts['questions'],
+                    'answers' => $counts['answers'],
+                    'likes' => $counts['likes'],
+                    'payments' => $counts['payments'],
+                    'ratings' => $counts['ratings'],
+                    'certificates' => $counts['certificates'],
                 ],
                 'total_watch_time_seconds' => $totalWatchTimeSeconds,
                 'total_revenue' => $totalRevenue,
-                'average_activities_per_user' => round($avgActivitiesPerUser, 2),
+                'average_activities_per_user' => $avgActivitiesPerUser,
+                'ratios' => $ratios,
                 'daily_activity' => $dailyActivity,
+                'daily_comparison' => $dailyComparison,
+                'daily_unique_users' => $dailyUniqueUsers,
+                'hourly' => $hourly,
+                'monthly' => $monthly,
+                'heatmap' => $heatmap,
+                'insights' => $insights,
                 'comparison' => $comparisonStats,
                 'activity_distribution' => $activityDistribution,
                 'status_distribution' => $statusDistribution,
                 'vip_distribution' => $vipDistribution,
-            ]
+                'today' => [
+                    'logins' => UserLogin::whereDate('logged_in_at', today())->count(),
+                    'video_views' => VideoView::whereDate('updated_at', today())->count(),
+                    'new_users' => User::whereDate('created_at', today())->count(),
+                ],
+            ],
         ], 200);
     }
 
@@ -1086,6 +957,237 @@ class UserActivityReportController extends Controller
             'message' => 'Success',
             'data' => $data
         ], 200);
+    }
+
+    private function resolveDateRange(Request $request): array
+    {
+        $dateFrom = $request->input('date_from', now()->subDays(30)->toDateString());
+        $dateTo = $request->input('date_to', now()->toDateString());
+
+        if ($dateFrom > $dateTo) {
+            [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
+        }
+
+        $periodDays = max(1, (int) Carbon::parse($dateFrom)->diffInDays(Carbon::parse($dateTo)) + 1);
+        $previousFrom = Carbon::parse($dateFrom)->subDays($periodDays)->toDateString();
+        $previousTo = Carbon::parse($dateFrom)->subDay()->toDateString();
+
+        return [$dateFrom, $dateTo, $periodDays, $previousFrom, $previousTo];
+    }
+
+    private function compareMetric(int $current, int $previous): array
+    {
+        return [
+            'current' => $current,
+            'previous' => $previous,
+            'change' => $current - $previous,
+            'change_percent' => $previous > 0 ? round((($current - $previous) / $previous) * 100, 1) : ($current > 0 ? 100.0 : 0.0),
+        ];
+    }
+
+    private function aggregateActivityCounts(string $dateFrom, string $dateTo): array
+    {
+        $logins = UserLogin::whereDate('logged_in_at', '>=', $dateFrom)->whereDate('logged_in_at', '<=', $dateTo)->count();
+        $videoViews = VideoView::whereDate('updated_at', '>=', $dateFrom)->whereDate('updated_at', '<=', $dateTo)->count();
+        $comments = Comment::whereDate('created_at', '>=', $dateFrom)->whereDate('created_at', '<=', $dateTo)->count();
+        $questions = Question::whereDate('created_at', '>=', $dateFrom)->whereDate('created_at', '<=', $dateTo)->count();
+        $answers = Answer::whereDate('created_at', '>=', $dateFrom)->whereDate('created_at', '<=', $dateTo)->count();
+        $likes = Like::whereDate('created_at', '>=', $dateFrom)->whereDate('created_at', '<=', $dateTo)->count();
+        $payments = Payment::where('status', 1)->whereNotNull('paid_at')
+            ->whereDate('paid_at', '>=', $dateFrom)->whereDate('paid_at', '<=', $dateTo)->count();
+        $paymentsAmount = (int) Payment::where('status', 1)->whereNotNull('paid_at')
+            ->whereDate('paid_at', '>=', $dateFrom)->whereDate('paid_at', '<=', $dateTo)->sum('amount');
+        $ratings = Rating::whereDate('created_at', '>=', $dateFrom)->whereDate('created_at', '<=', $dateTo)->count();
+        $certificates = Certificate::whereDate('created_at', '>=', $dateFrom)->whereDate('created_at', '<=', $dateTo)->count();
+        $activeUsers = UserLogin::whereDate('logged_in_at', '>=', $dateFrom)->whereDate('logged_in_at', '<=', $dateTo)
+            ->distinct('user_id')->count('user_id');
+
+        return [
+            'logins' => $logins,
+            'video_views' => $videoViews,
+            'comments' => $comments,
+            'questions' => $questions,
+            'answers' => $answers,
+            'likes' => $likes,
+            'payments' => $payments,
+            'payments_amount' => $paymentsAmount,
+            'ratings' => $ratings,
+            'certificates' => $certificates,
+            'active_users' => $activeUsers,
+            'interactions' => $comments + $questions + $answers + $likes,
+        ];
+    }
+
+    private function calculateWatchTimeSeconds(string $dateFrom, string $dateTo): int
+    {
+        $seconds = 0;
+        $views = VideoView::whereDate('updated_at', '>=', $dateFrom)->whereDate('updated_at', '<=', $dateTo)->get(['watched_times']);
+        foreach ($views as $view) {
+            $seconds += count(json_decode($view->watched_times, true) ?? []);
+        }
+
+        return $seconds;
+    }
+
+    private function buildDailyActivitySeries(string $dateFrom, string $dateTo): array
+    {
+        $loginRaw = UserLogin::whereDate('logged_in_at', '>=', $dateFrom)->whereDate('logged_in_at', '<=', $dateTo)
+            ->select(DB::raw('DATE(logged_in_at) as date'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')->pluck('count', 'date');
+        $viewRaw = VideoView::whereDate('updated_at', '>=', $dateFrom)->whereDate('updated_at', '<=', $dateTo)
+            ->select(DB::raw('DATE(updated_at) as date'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')->pluck('count', 'date');
+        $commentRaw = Comment::whereDate('created_at', '>=', $dateFrom)->whereDate('created_at', '<=', $dateTo)
+            ->select(DB::raw('DATE(created_at) as date'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')->pluck('count', 'date');
+
+        return collect(CarbonPeriod::create($dateFrom, $dateTo))->map(function ($date) use ($loginRaw, $viewRaw, $commentRaw) {
+            $key = $date->toDateString();
+            $logins = (int) ($loginRaw[$key] ?? 0);
+            $views = (int) ($viewRaw[$key] ?? 0);
+            $comments = (int) ($commentRaw[$key] ?? 0);
+
+            return [
+                'date' => $key,
+                'logins' => $logins,
+                'views' => $views,
+                'comments' => $comments,
+                'total' => $logins + $views + $comments,
+            ];
+        })->values()->all();
+    }
+
+    private function buildActivityDailyComparison(string $dateFrom, string $dateTo, string $previousFrom, string $previousTo): array
+    {
+        $current = $this->buildDailyActivitySeries($dateFrom, $dateTo);
+        $previous = $this->buildDailyActivitySeries($previousFrom, $previousTo);
+
+        return [
+            'labels' => collect($current)->pluck('date')->all(),
+            'current_logins' => collect($current)->pluck('logins')->all(),
+            'previous_logins' => collect($previous)->pluck('logins')->all(),
+            'current_views' => collect($current)->pluck('views')->all(),
+            'previous_views' => collect($previous)->pluck('views')->all(),
+            'current_comments' => collect($current)->pluck('comments')->all(),
+            'previous_comments' => collect($previous)->pluck('comments')->all(),
+            'current_total' => collect($current)->pluck('total')->all(),
+            'previous_total' => collect($previous)->pluck('total')->all(),
+        ];
+    }
+
+    private function buildDailyUniqueUsers(string $dateFrom, string $dateTo): array
+    {
+        return collect(CarbonPeriod::create($dateFrom, $dateTo))->map(function ($date) {
+            $key = $date->toDateString();
+            $count = UserLogin::whereDate('logged_in_at', $key)->distinct('user_id')->count('user_id');
+
+            return ['date' => $key, 'count' => $count];
+        })->values()->all();
+    }
+
+    private function buildActivityHourly(string $dateFrom, string $dateTo): array
+    {
+        $loginRaw = UserLogin::whereDate('logged_in_at', '>=', $dateFrom)->whereDate('logged_in_at', '<=', $dateTo)
+            ->select(DB::raw('HOUR(logged_in_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->groupBy('hour')->pluck('count', 'hour');
+        $commentRaw = Comment::whereDate('created_at', '>=', $dateFrom)->whereDate('created_at', '<=', $dateTo)
+            ->select(DB::raw('HOUR(created_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->groupBy('hour')->pluck('count', 'hour');
+
+        return collect(range(0, 23))->map(function ($hour) use ($loginRaw, $commentRaw) {
+            $logins = (int) ($loginRaw[$hour] ?? 0);
+            $comments = (int) ($commentRaw[$hour] ?? 0);
+
+            return [
+                'hour' => $hour,
+                'label' => sprintf('%02d:00', $hour),
+                'logins' => $logins,
+                'comments' => $comments,
+                'total' => $logins + $comments,
+            ];
+        })->values()->all();
+    }
+
+    private function buildActivityMonthly(string $dateFrom, string $dateTo, int $periodDays): array
+    {
+        if ($periodDays < 32) {
+            return [];
+        }
+
+        $raw = UserLogin::whereDate('logged_in_at', '>=', $dateFrom)->whereDate('logged_in_at', '<=', $dateTo)
+            ->select(DB::raw("DATE_FORMAT(logged_in_at, '%Y-%m') as month"), DB::raw('COUNT(*) as count'))
+            ->groupBy('month')->orderBy('month')->get();
+
+        return $raw->map(fn ($row) => [
+            'month' => $row->month,
+            'label' => Carbon::createFromFormat('Y-m', $row->month)->locale('fa')->translatedFormat('M Y'),
+            'count' => (int) $row->count,
+        ])->values()->all();
+    }
+
+    private function buildActivityHeatmap(string $dateFrom, string $dateTo): array
+    {
+        $weekdayLabels = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'];
+        $loginRaw = UserLogin::whereDate('logged_in_at', '>=', $dateFrom)->whereDate('logged_in_at', '<=', $dateTo)
+            ->select(DB::raw('DAYOFWEEK(logged_in_at) as weekday'), DB::raw('HOUR(logged_in_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->groupBy('weekday', 'hour')->get();
+        $commentRaw = Comment::whereDate('created_at', '>=', $dateFrom)->whereDate('created_at', '<=', $dateTo)
+            ->select(DB::raw('DAYOFWEEK(created_at) as weekday'), DB::raw('HOUR(created_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->groupBy('weekday', 'hour')->get();
+
+        $cells = [];
+        $max = 0;
+
+        foreach (range(1, 7) as $day) {
+            foreach (range(0, 23) as $hour) {
+                $loginCount = (int) ($loginRaw->first(fn ($r) => (int) $r->weekday === $day && (int) $r->hour === $hour)?->count ?? 0);
+                $commentCount = (int) ($commentRaw->first(fn ($r) => (int) $r->weekday === $day && (int) $r->hour === $hour)?->count ?? 0);
+                $count = $loginCount + $commentCount;
+                $max = max($max, $count);
+                $cells[] = [
+                    'weekday' => $day,
+                    'weekday_label' => $weekdayLabels[$day - 1],
+                    'hour' => $hour,
+                    'count' => $count,
+                    'logins' => $loginCount,
+                    'comments' => $commentCount,
+                ];
+            }
+        }
+
+        return ['cells' => $cells, 'max' => $max, 'weekday_labels' => $weekdayLabels];
+    }
+
+    private function buildActivityRatios(array $counts, int $activeUsers, int $totalUsers): array
+    {
+        return [
+            'comments_per_view' => $counts['video_views'] > 0 ? round($counts['comments'] / $counts['video_views'], 3) : 0,
+            'views_per_active_user' => $activeUsers > 0 ? round($counts['video_views'] / $activeUsers, 2) : 0,
+            'logins_per_active_user' => $activeUsers > 0 ? round($counts['logins'] / $activeUsers, 2) : 0,
+            'interactions_per_view' => $counts['video_views'] > 0 ? round($counts['interactions'] / $counts['video_views'], 3) : 0,
+            'active_user_rate' => $totalUsers > 0 ? round(($activeUsers / $totalUsers) * 100, 1) : 0,
+            'payment_rate' => $activeUsers > 0 ? round(($counts['payments'] / $activeUsers) * 100, 1) : 0,
+        ];
+    }
+
+    private function buildActivityInsights(string $dateFrom, string $dateTo, array $counts, int $activeUsers, int $watchSeconds): array
+    {
+        $peakDayRow = UserLogin::whereDate('logged_in_at', '>=', $dateFrom)->whereDate('logged_in_at', '<=', $dateTo)
+            ->select(DB::raw('DATE(logged_in_at) as date'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')->orderByDesc('count')->first();
+
+        $peakHourRow = UserLogin::whereDate('logged_in_at', '>=', $dateFrom)->whereDate('logged_in_at', '<=', $dateTo)
+            ->select(DB::raw('HOUR(logged_in_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->groupBy('hour')->orderByDesc('count')->first();
+
+        return [
+            'peak_day' => $peakDayRow ? Carbon::parse($peakDayRow->date)->locale('fa')->translatedFormat('j F') : '—',
+            'peak_day_count' => (int) ($peakDayRow->count ?? 0),
+            'peak_hour' => $peakHourRow ? sprintf('%02d:00', $peakHourRow->hour) : '—',
+            'peak_hour_count' => (int) ($peakHourRow->count ?? 0),
+            'avg_watch_per_active_user' => $activeUsers > 0 ? (int) round($watchSeconds / $activeUsers) : 0,
+            'avg_logins_per_active_user' => $activeUsers > 0 ? round($counts['logins'] / $activeUsers, 2) : 0,
+        ];
     }
 }
 

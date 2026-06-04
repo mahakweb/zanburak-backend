@@ -10,6 +10,7 @@ use App\Models\Episode;
 use App\Models\Path;
 use App\Models\Plan;
 use App\Models\Question;
+use App\Models\View;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -128,10 +129,14 @@ class IndexController extends Controller
     }
 
 
-    public function getPath(Request $request, $path)
+    public function getPath(Request $request, $pathSlug)
     {
+        $pathModel = $pathSlug instanceof Path ? $pathSlug : Path::where('slug', $pathSlug)->firstOrFail();
+
+        View::createFor($pathModel);
+
         $user = auth('api')->user();
-        $path->load([
+        $pathModel->load([
             'courses',
             'prerequisites.courses',
             'nextSteps.courses',
@@ -143,7 +148,7 @@ class IndexController extends Controller
 
         $userCourseIds = $user ? $user->courses->pluck('id')->toArray() : [];
 
-        $availableCourses = $path->courses->where('publish', true)->filter(function ($course) use ($userCourseIds, $courseIdsInCart) {
+        $availableCourses = $pathModel->courses->where('publish', true)->filter(function ($course) use ($userCourseIds, $courseIdsInCart) {
             return $course->type !== 'free' && !in_array($course->id, $userCourseIds) && !in_array($course->id, $courseIdsInCart);
         });
 
@@ -153,7 +158,7 @@ class IndexController extends Controller
         $finalPrice = $totalPrice - ($totalPrice * $this->discountPercentForPath / 100);
 
         // Build trailer like course: prefer raw video from videos relation
-        $rawTrailer = $path->videos ? $path->videos->where('type', 'raw')->first() : null;
+        $rawTrailer = $pathModel->videos ? $pathModel->videos->where('type', 'raw')->first() : null;
         $trailerUrl = null;
         $trailerStatus = null;
         $trailerVideoId = null;
@@ -169,29 +174,29 @@ class IndexController extends Controller
             $trailerVideoId = $rawTrailer->id;
         } else {
             // Backward compatibility
-            $trailerUrl = $path->trailer;
+            $trailerUrl = $pathModel->trailer;
         }
 
         $path = [
-            'id' => $path->id,
-            'title' => $path->title,
-            'english_title' => $path->english_title,
-            'slug' => $path->slug,
-            'icon' => $path->icon,
-            'poster' => $path->poster,
+            'id' => $pathModel->id,
+            'title' => $pathModel->title,
+            'english_title' => $pathModel->english_title,
+            'slug' => $pathModel->slug,
+            'icon' => $pathModel->icon,
+            'poster' => $pathModel->poster,
             'trailer' => $trailerUrl,
             'trailer_status' => $trailerStatus,
             'trailer_video_id' => $trailerVideoId,
-            'description' => $path->description,
-            'short_description' => $path->short_description,
-            'faqs' => $path->faqs,
+            'description' => $pathModel->description,
+            'short_description' => $pathModel->short_description,
+            'faqs' => $pathModel->faqs,
             'user_courseIds' => $userCourseIds,
             'user_courseIds_inCart' => $courseIdsInCart,
             'available_courses' => $availableCourses->map->only(['id', 'title', 'english_title', 'short_description', 'profile_pic', 'type', 'poster'])->values(),
             'total_price' => $totalPrice,
             'discount_percent' => $this->discountPercentForPath,
             'final_price' => $finalPrice,
-            'courses' => $path->courses->where('publish', true)->map(function ($course) use ($user) {
+            'courses' => $pathModel->courses->where('publish', true)->map(function ($course) use ($user) {
                 return [
                     'id' => $course->id,
                     'title' => $course->title,
@@ -208,7 +213,7 @@ class IndexController extends Controller
                 ];
             })->values(),
 
-            'prerequisites' => $path->prerequisites->map(function ($prerequisite) use ($user) {
+            'prerequisites' => $pathModel->prerequisites->map(function ($prerequisite) use ($user) {
                 return [
                     'id' => $prerequisite->id,
                     'title' => $prerequisite->title,
@@ -238,7 +243,7 @@ class IndexController extends Controller
                 ];
             }),
 
-            'nextSteps' => $path->nextSteps->map(function ($nextStep) use ($user) {
+            'nextSteps' => $pathModel->nextSteps->map(function ($nextStep) use ($user) {
                 return [
                     'id' => $nextStep->id,
                     'title' => $nextStep->title,

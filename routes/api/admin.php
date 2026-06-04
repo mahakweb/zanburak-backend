@@ -248,6 +248,19 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::get('/sales-report/analytics', [\App\Http\Controllers\Api\Admin\SalesReportController::class, 'analytics'])->name('sales-report.analytics');
     Route::get('/sales-report/export', [\App\Http\Controllers\Api\Admin\SalesReportController::class, 'export'])->name('sales-report.export');
 
+    // Content Views Analytics
+    Route::post('/views', [\App\Http\Controllers\Api\Admin\ViewController::class, 'index'])->name('views.index');
+    Route::get('/views/stats', [\App\Http\Controllers\Api\Admin\ViewController::class, 'stats'])->name('views.stats');
+    Route::get('/views/ip-info', [\App\Http\Controllers\Api\Admin\ViewController::class, 'ipInfo'])->name('views.ip-info');
+
+    // Likes & Bookmarks Analytics
+    Route::get('/engagement/overview/stats', [\App\Http\Controllers\Api\Admin\EngagementController::class, 'overviewStats'])->name('engagement.overview.stats');
+    Route::get('/engagement/user-detail', [\App\Http\Controllers\Api\Admin\EngagementController::class, 'userDetail'])->name('engagement.user-detail');
+    Route::get('/likes/stats', [\App\Http\Controllers\Api\Admin\EngagementController::class, 'likeStats'])->name('likes.stats');
+    Route::post('/likes', [\App\Http\Controllers\Api\Admin\EngagementController::class, 'likeIndex'])->name('likes.index');
+    Route::get('/bookmarks/stats', [\App\Http\Controllers\Api\Admin\EngagementController::class, 'bookmarkStats'])->name('bookmarks.stats');
+    Route::post('/bookmarks', [\App\Http\Controllers\Api\Admin\EngagementController::class, 'bookmarkIndex'])->name('bookmarks.index');
+
     // User Activity Reports
     Route::post('/user-activity-report', [\App\Http\Controllers\Api\Admin\UserActivityReportController::class, 'activities'])->name('user-activity-report.index');
     Route::get('/user-activity-report/stats', [\App\Http\Controllers\Api\Admin\UserActivityReportController::class, 'stats'])->name('user-activity-report.stats');
