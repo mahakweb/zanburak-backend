@@ -321,13 +321,8 @@ class DiscussController extends Controller
     // Get answers for a question
     public function getAnswers(Request $request, Question $question)
     {
-        $perPage = $request->input('perPage', 15);
-
-        $answers = $question->answers()
-            ->with(['user:id,first_name,last_name,username,profile_pic'])
-            ->orderBy('pinned_at', 'desc')
-            ->orderBy('created_at', 'desc')
-            ->paginate($perPage);
+        $perPage = $request->input('perPage', 10);
+        $page = $request->input('page', 1);
 
         // Get best answer if exists
         $bestAnswer = null;
@@ -346,6 +341,22 @@ class DiscussController extends Controller
             ->orderBy('pinned_at', 'desc')
             ->orderBy('created_at', 'desc')
             ->get();
+
+        $excludeIds = $pinnedAnswers->pluck('id')->all();
+        if ($question->best_answer) {
+            $excludeIds[] = $question->best_answer;
+        }
+        $excludeIds = array_values(array_unique($excludeIds));
+
+        $answersQuery = $question->answers()
+            ->with(['user:id,first_name,last_name,username,profile_pic'])
+            ->orderBy('created_at', 'desc');
+
+        if (! empty($excludeIds)) {
+            $answersQuery->whereNotIn('id', $excludeIds);
+        }
+
+        $answers = $answersQuery->paginate($perPage, ['*'], 'page', $page);
 
         return response()->json([
             'message' => 'Success',

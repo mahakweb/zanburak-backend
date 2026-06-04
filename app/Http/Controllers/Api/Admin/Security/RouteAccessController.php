@@ -149,6 +149,21 @@ class RouteAccessController extends Controller
 			'permission_id' => $validated['permission'],
 		], 200);
 	}
+
+	public function removeAllPermissions(Request $request)
+	{
+		$validated = $request->validate([
+			'route_name' => 'required|string',
+		]);
+
+		$deletedCount = PermissionRoute::where('route_name', $validated['route_name'])->delete();
+
+		return response()->json([
+			'message' => 'All permissions removed from route',
+			'route_name' => $validated['route_name'],
+			'deleted_count' => $deletedCount,
+		], 200);
+	}
 }
 
 

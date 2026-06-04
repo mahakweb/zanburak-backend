@@ -8,6 +8,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::get('/routes', [\App\Http\Controllers\Api\Admin\Security\RouteAccessController::class, 'index'])->name('routes.index');
     Route::post('/route-permissions/add', [\App\Http\Controllers\Api\Admin\Security\RouteAccessController::class, 'addPermissions'])->name('routes.permissions.add');
     Route::post('/route-permissions/remove', [\App\Http\Controllers\Api\Admin\Security\RouteAccessController::class, 'removePermission'])->name('routes.permissions.remove');
+    Route::post('/route-permissions/remove-all', [\App\Http\Controllers\Api\Admin\Security\RouteAccessController::class, 'removeAllPermissions'])->name('routes.permissions.remove-all');
 
     // Payments
     Route::prefix('payments')->as('payments.')->group(function () {

@@ -477,6 +477,7 @@ class ReportController extends Controller
             return response()->json(['message' => 'Report not found'], 404);
         }
 
+        $report->normalizeReportableType();
         $reportable = $report->reportable;
 
         if (!$reportable) {
@@ -523,16 +524,19 @@ class ReportController extends Controller
 
             DB::commit();
 
-            // ارسال notification تایید گزارش
-            $reportTitle = $this->getReportTitle($report);
-            $actionTaken = $this->getActionTaken($report, 'deactivated');
-            event(new \App\Events\Report\ReportApproved($report->user, $reportTitle, $actionTaken));
-            
-            // Fire event for points (only if report led to action)
-            if ($actionTaken) {
-                event(new \App\Events\Score\Report\ReportApprovedForScores($report->user, $report));
-                // Fire Mission Community Activity Event
-                event(new \App\Events\Mission\CommunityActivityEvent($report->user, 'report', $report));
+            try {
+                // ارسال notification تایید گزارش
+                $reportTitle = $this->getReportTitle($report);
+                $actionTaken = $this->getActionTaken($report, 'deactivated');
+                event(new \App\Events\Report\ReportApproved($report->user, $reportTitle, $actionTaken));
+
+                // Fire event for points (only if report led to action)
+                if ($actionTaken) {
+                    event(new \App\Events\Score\Report\ReportApprovedForScores($report->user, $report));
+                    event(new \App\Events\Mission\CommunityActivityEvent($report->user, 'report', $report));
+                }
+            } catch (\Exception $eventException) {
+                \Log::warning('Report deactivate side-effects failed: ' . $eventException->getMessage());
             }
 
             return response()->json([
@@ -658,10 +662,14 @@ class ReportController extends Controller
 
             DB::commit();
 
-            // ارسال notification رد گزارش
-            $reportTitle = $this->getReportTitle($report);
-            $reason = $request->input('reason', 'گزارش شما بررسی شد و محتوا دوباره فعال شد.');
-            event(new \App\Events\Report\ReportRejected($report->user, $reportTitle, $reason));
+            try {
+                // ارسال notification رد گزارش
+                $reportTitle = $this->getReportTitle($report);
+                $reason = $request->input('reason', 'گزارش شما بررسی شد و محتوا دوباره فعال شد.');
+                event(new \App\Events\Report\ReportRejected($report->user, $reportTitle, $reason));
+            } catch (\Exception $eventException) {
+                \Log::warning('Report activate side-effects failed: ' . $eventException->getMessage());
+            }
 
             return response()->json([
                 'message' => 'Content activated successfully',
