@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin\Course;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesAdminCourses;
 use App\Models\Category;
 use App\Models\Course;
 use App\Models\Episode;

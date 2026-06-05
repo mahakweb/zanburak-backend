@@ -17,6 +17,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             // مرحله 1: پایه‌ای ترین داده‌ها (بدون وابستگی)
             PermissionsAndRolesSeeder::class,
+            RoutePermissionsSeeder::class,
             LevelsTableSeeder::class,
             StatusesTableSeeder::class,
             CategoriesAndQuestionCategoriesSeeder::class,

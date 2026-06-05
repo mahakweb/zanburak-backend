@@ -34,13 +34,18 @@ class Permission
 
     protected function hasAllowed($routeName){
 
-        $routePermissions = PermissionRoute::where('route_name', $routeName)->get();
+        $routePermissions = PermissionRoute::with('permission')
+            ->where('route_name', $routeName)
+            ->get();
 
-        if(!count($routePermissions)) return true;
+        if ($routePermissions->isEmpty()) {
+            return true;
+        }
 
-        foreach($routePermissions as $perm){
-            $permission = \App\Models\Permission::find($perm->permission_id);
-            if(auth()->user()->hasPermission($permission)){
+        $user = auth()->user();
+
+        foreach ($routePermissions as $perm) {
+            if ($perm->permission && $user->hasPermissionName($perm->permission->name)) {
                 return true;
             }
         }

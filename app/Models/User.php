@@ -509,17 +509,14 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     public function getAllPermissions()
     {
-        // Get direct permissions
-        $directPermissions = $this->permissions;
+        $directPermissions = $this->permissions()->get();
 
-        // Get permissions from roles
         $rolePermissions = $this->roles()
             ->with('permissions')
             ->get()
             ->pluck('permissions')
             ->flatten();
 
-        // Merge and get unique permissions by id
         return $directPermissions->merge($rolePermissions)->unique('id');
     }
 
@@ -530,7 +527,6 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function hasPermission($permission)
     {
-        // Superuser bypasses permission checks
         if ($this->is_superuser) {
             return true;
         }
@@ -539,7 +535,32 @@ class User extends Authenticatable implements MustVerifyEmail
             return false;
         }
 
-        return $this->permissions->contains('name', $permission->name) || $this->hasRole($permission->roles);
+        $name = is_string($permission) ? $permission : $permission->name;
+
+        return $this->hasPermissionName($name);
+    }
+
+    /**
+     * @param  string[]  $names
+     */
+    public function hasAnyPermissionName(array $names): bool
+    {
+        if ($this->is_superuser) {
+            return true;
+        }
+
+        if ($names === []) {
+            return true;
+        }
+
+        $userPermissionNames = $this->getAllPermissions()->pluck('name');
+
+        return collect($names)->contains(fn ($name) => $userPermissionNames->contains($name));
+    }
+
+    public function hasPermissionName(string $name): bool
+    {
+        return $this->hasAnyPermissionName([$name]);
     }
 
     public function info()
