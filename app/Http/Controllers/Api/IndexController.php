@@ -42,7 +42,9 @@ class IndexController extends Controller
         $rawCourses = $rawCourses->orderBy('id', 'desc')->get();
 
         $courses = $rawCourses->map(function ($course) use ($user) {
-            $teacher = $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic');
+            $teacher = $course->teacher
+                ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                : null;
             $totalTime = $course->totalTime();
             $likesCount = $course->likes()->count();
             $userHasLiked = $user ? $user->hasLiked($course) : false;
@@ -77,7 +79,9 @@ class IndexController extends Controller
         $rawCourses = $rawCourses->orderBy('id', 'desc')->get();
 
         $courses = $rawCourses->map(function ($course) use ($user) {
-            $teacher = $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic');
+            $teacher = $course->teacher
+                ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                : null;
             $totalTime = $course->totalTime();
             $likesCount = $course->likes()->count();
             $userHasLiked = $user ? $user->hasLiked($course) : false;
@@ -208,7 +212,9 @@ class IndexController extends Controller
                     'price' => $course->price,
                     'type' => $course->type,
                     'status' => $course->status->title,
-                    'teacher' => $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic'),
+                    'teacher' => $course->teacher
+                        ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                        : null,
                     'user_has_liked' => $user ? $user->hasLiked($course) : false
                 ];
             })->values(),
@@ -236,7 +242,9 @@ class IndexController extends Controller
                             'price' => $course->price,
                             'type' => $course->type,
                             'status' => $course->status->title,
-                            'teacher' => $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic'),
+                            'teacher' => $course->teacher
+                        ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                        : null,
                             'user_has_liked' => $user ? $user->hasLiked($course) : false
                         ];
                     })->values(),
@@ -266,7 +274,9 @@ class IndexController extends Controller
                             'price' => $course->price,
                             'type' => $course->type,
                             'status' => $course->status->title,
-                            'teacher' => $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic'),
+                            'teacher' => $course->teacher
+                        ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                        : null,
                             'user_has_liked' => $user ? $user->hasLiked($course) : false
                         ];
                     })->values(),
