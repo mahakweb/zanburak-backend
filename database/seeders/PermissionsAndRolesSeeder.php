@@ -85,6 +85,7 @@ class PermissionsAndRolesSeeder extends Seeder
             ['name' => 'users.view', 'label' => 'مشاهده کاربران', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'users.create', 'label' => 'ایجاد کاربر', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'users.update', 'label' => 'ویرایش کاربر', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'users.delete', 'label' => 'حذف کاربر', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'users.deactivate', 'label' => 'غیرفعال‌سازی کاربر', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'users.reactivate', 'label' => 'فعال‌سازی مجدد کاربر', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'users.reset_password', 'label' => 'ریست پسورد کاربر', 'created_at' => $now, 'updated_at' => $now],
@@ -346,6 +347,9 @@ class PermissionsAndRolesSeeder extends Seeder
             ['name' => 'security.routes.view', 'label' => 'مشاهده مپ روت→پرمیشن', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'security.routes.manage', 'label' => 'مدیریت مپ روت→پرمیشن', 'created_at' => $now, 'updated_at' => $now],
 
+            // System resources
+            ['name' => 'system.resources.view', 'label' => 'مشاهده منابع سیستم', 'created_at' => $now, 'updated_at' => $now],
+
             // Marketing / SEO
             ['name' => 'marketing.manage', 'label' => 'مدیریت مارکتینگ/بنرها', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'marketing.view', 'label' => 'مشاهده مارکتینگ/بنرها', 'created_at' => $now, 'updated_at' => $now],
@@ -398,12 +402,14 @@ class PermissionsAndRolesSeeder extends Seeder
                 'users.sessions.view',
                 'security.access.view',
                 'security.routes.view',
+                'system.resources.view',
             ],
 
             'security_admin' => [
                 'users.view',
                 'users.create',
                 'users.update',
+                'users.delete',
                 'users.deactivate',
                 'users.reactivate',
                 'users.reset_password',
@@ -416,6 +422,7 @@ class PermissionsAndRolesSeeder extends Seeder
                 'security.access.manage',
                 'security.routes.view',
                 'security.routes.manage',
+                'system.resources.view',
             ],
 
             'user_admin' => [
@@ -428,6 +435,7 @@ class PermissionsAndRolesSeeder extends Seeder
                 'users.view',
                 'users.create',
                 'users.update',
+                'users.delete',
                 'users.deactivate',
                 'users.reactivate',
                 'users.reset_password',

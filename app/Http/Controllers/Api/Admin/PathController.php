@@ -3,10 +3,15 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Path;
+use App\Models\Cart;
 use App\Models\Course;
+use App\Models\DiscountEligibility;
+use App\Models\Path;
 use App\Models\PathAutomationRule;
+use App\Models\Report;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Storage;
@@ -318,22 +323,102 @@ class PathController extends Controller
     }
 
     /**
-     * Delete path by id
+     * Delete one or more paths
+     */
+    public function deletePaths(Request $request)
+    {
+        $slugs = $request->input('slug');
+
+        if (!is_array($slugs)) {
+            $slugs = [$slugs];
+        }
+
+        $slugs = array_values(array_unique(array_filter(array_map('strval', $slugs))));
+
+        if (empty($slugs)) {
+            return response()->json([
+                'message' => 'Validation error!',
+                'errors' => ['slug' => ['شناسه مسیر الزامی است.']],
+            ], 422);
+        }
+
+        $paths = Path::whereIn('slug', $slugs)->get();
+
+        if ($paths->isEmpty()) {
+            return response()->json([
+                'message' => 'مسیر یافت نشد.',
+            ], 404);
+        }
+
+        $deletedIds = [];
+        $skipped = [];
+
+        foreach ($paths as $path) {
+            try {
+                DB::transaction(function () use ($path) {
+                    Cart::where('cartable_type', Path::class)
+                        ->where('cartable_id', $path->id)
+                        ->delete();
+
+                    DiscountEligibility::where(function ($query) {
+                        $query->where('target_type', 'path')
+                            ->orWhere('target_type', Path::class);
+                    })
+                        ->where('target_id', $path->id)
+                        ->delete();
+
+                    Report::where('reportable_type', Path::class)
+                        ->where('reportable_id', $path->id)
+                        ->delete();
+
+                    DB::table(config('subscribe.subscriptions_table', 'subscriptions'))
+                        ->where('subscribable_type', Path::class)
+                        ->where('subscribable_id', $path->id)
+                        ->delete();
+
+                    $path->courses()->detach();
+                    $path->prerequisites()->detach();
+                    $path->nextSteps()->detach();
+                    $path->corequisites()->detach();
+                    $path->prerequisiteFor()->detach();
+                    $path->previousSteps()->detach();
+
+                    $path->delete();
+                });
+
+                $deletedIds[] = $path->id;
+            } catch (\Throwable $e) {
+                Log::error('Admin path delete failed', [
+                    'path_id' => $path->id,
+                    'error' => $e->getMessage(),
+                ]);
+                $skipped[] = $path->title;
+            }
+        }
+
+        if (empty($deletedIds)) {
+            return response()->json([
+                'message' => 'حذف مسیرها انجام نشد.',
+                'skipped' => $skipped,
+            ], 409);
+        }
+
+        return response()->json([
+            'message' => 'مسیر(ها) با موفقیت حذف شدند.',
+            'deleted_ids' => $deletedIds,
+            'deleted_slugs' => $paths->whereIn('id', $deletedIds)->pluck('slug')->values(),
+            'skipped' => $skipped,
+        ], 200);
+    }
+
+    /**
+     * Delete path by slug (legacy endpoint)
      */
     public function destroy(Request $request, Path $path)
     {
-        // Detach many-to-many relations before delete
-        $path->courses()->detach();
-        // remove path relations in both directions
-        $path->prerequisites()->detach();
-        $path->nextSteps()->detach();
-        $path->corequisites()->detach();
-        $path->prerequisiteFor()->detach();
-        $path->previousSteps()->detach();
+        $request->merge(['slug' => $path->slug]);
 
-        // Deleting will cascade: media files, videos, comments, automationRules via model hooks
-        $path->delete();
-        return response()->json(['message' => 'Success, path deleted successfully.'], 200);
+        return $this->deletePaths($request);
     }
 
     /**

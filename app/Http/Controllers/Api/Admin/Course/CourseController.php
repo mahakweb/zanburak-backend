@@ -4,10 +4,13 @@ namespace App\Http\Controllers\Api\Admin\Course;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\AuthorizesAdminCourses;
+use App\Models\Cart;
 use App\Models\Category;
 use App\Models\Course;
+use App\Models\DiscountEligibility;
 use App\Models\Episode;
 use App\Models\Level;
+use App\Models\Report;
 use App\Models\Status;
 use App\Models\User;
 use App\Models\VideoView;
@@ -19,6 +22,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use App\Services\UploadTokenService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Ip2location\IP2LocationLaravel\Facade\IP2LocationLaravel;
 
 class CourseController extends Controller
@@ -1113,25 +1117,77 @@ class CourseController extends Controller
             $ids = [$ids];
         }
 
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+
+        if (empty($ids)) {
+            return response()->json([
+                'message' => 'Validation error!',
+                'errors' => ['id' => ['شناسه دوره الزامی است.']],
+            ], 422);
+        }
+
         $courses = Course::whereIn('id', $ids)->get();
 
         if ($courses->isEmpty()) {
             return response()->json([
-                'message' => 'Not found any course for delete',
+                'message' => 'دوره‌ای یافت نشد.',
             ], 404);
         }
 
+        $deletedIds = [];
+        $skipped = [];
+
         foreach ($courses as $course) {
-            // Delete cart items that reference this course
-            \App\Models\Cart::where('cartable_type', Course::class)
-                ->where('cartable_id', $course->id)
-                ->delete();
-            
-            $course->delete();
+            try {
+                DB::transaction(function () use ($course) {
+                    Cart::where('cartable_type', Course::class)
+                        ->where('cartable_id', $course->id)
+                        ->delete();
+
+                    DiscountEligibility::where(function ($query) use ($course) {
+                        $query->where('target_type', 'course')
+                            ->orWhere('target_type', Course::class);
+                    })
+                        ->where('target_id', $course->id)
+                        ->delete();
+
+                    Report::where('reportable_type', Course::class)
+                        ->where('reportable_id', $course->id)
+                        ->delete();
+
+                    DB::table(config('subscribe.subscriptions_table', 'subscriptions'))
+                        ->where('subscribable_type', Course::class)
+                        ->where('subscribable_id', $course->id)
+                        ->delete();
+
+                    $course->paths()->detach();
+                    $course->users()->detach();
+                    $course->category()->detach();
+
+                    $course->delete();
+                });
+
+                $deletedIds[] = $course->id;
+            } catch (\Throwable $e) {
+                Log::error('Admin course delete failed', [
+                    'course_id' => $course->id,
+                    'error' => $e->getMessage(),
+                ]);
+                $skipped[] = $course->title;
+            }
+        }
+
+        if (empty($deletedIds)) {
+            return response()->json([
+                'message' => 'حذف دوره‌ها انجام نشد.',
+                'skipped' => $skipped,
+            ], 409);
         }
 
         return response()->json([
-            'message' => 'Success, Course(s) deleted successfully',
+            'message' => 'دوره(ها) با موفقیت حذف شدند.',
+            'deleted_ids' => $deletedIds,
+            'skipped' => $skipped,
         ], 200);
     }
 

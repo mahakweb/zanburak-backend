@@ -45,6 +45,12 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::get('/dashboard/stats', [\App\Http\Controllers\Api\Admin\DashboardController::class, 'stats'])->name('dashboard.stats');
     Route::get('/dashboard/unapproved-comments-count', [\App\Http\Controllers\Api\Admin\DashboardController::class, 'unapprovedCommentsCount'])->name('dashboard.unapproved-comments-count');
 
+    // System resources
+    Route::prefix('system')->as('system.')->group(function () {
+        Route::get('/resources', [\App\Http\Controllers\Api\Admin\System\SystemResourceController::class, 'index'])->name('resources.index');
+        Route::get('/resources/history', [\App\Http\Controllers\Api\Admin\System\SystemResourceController::class, 'history'])->name('resources.history');
+    });
+
     // Plans
     Route::post('/plans', [\App\Http\Controllers\Api\Admin\PlanController::class, 'plans'])->name('plans.index');
     Route::post('/plan/create', [\App\Http\Controllers\Api\Admin\PlanController::class, 'store'])->name('plan.create');
@@ -70,6 +76,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/path/create', [\App\Http\Controllers\Api\Admin\PathController::class, 'store'])->name('path.create');
     Route::get('/path/{path:slug}/edit', [\App\Http\Controllers\Api\Admin\PathController::class, 'edit'])->name('path.edit');
     Route::patch('/path/{path:slug}/update', [\App\Http\Controllers\Api\Admin\PathController::class, 'update'])->name('path.update');
+    Route::post('/path/delete', [\App\Http\Controllers\Api\Admin\PathController::class, 'deletePaths'])->name('path.delete.bulk');
     Route::delete('/path/{path:slug}', [\App\Http\Controllers\Api\Admin\PathController::class, 'destroy'])->name('path.delete');
     Route::post('/path/removeFile', [\App\Http\Controllers\Api\Admin\PathController::class, 'removeFile'])->name('path.remove-file');
     Route::get('/path/search/courses', [\App\Http\Controllers\Api\Admin\PathController::class, 'searchCourses'])->name('path.search.courses');
@@ -82,6 +89,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/users', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'users'])->name('users');
     Route::post('/searchUser', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'searchUser'])->name('user.search');
     Route::post('/user/create', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'create'])->name('user.create');
+    Route::post('/user/delete', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'deleteUsers'])->name('user.delete');
     Route::post('/user/{userId}/upload-image', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'uploadImage'])->name('user.upload-image');
     Route::post('/user/{username}/base', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'base'])->name('user.base');
     Route::post('/user/{username}/details', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'details'])->name('user.details');

@@ -48,6 +48,10 @@ Route::prefix('auth')->as('api.auth.')->group(function () {
     Route::post('password/email', [\App\Http\Controllers\Api\Auth\ForgotPasswordController::class, 'sendResetLinkEmail'])->name('password.email');
 });
 
+Route::get('email/verify/{id}/{hash}', [\App\Http\Controllers\Api\Auth\EmailVerificationController::class, 'verify'])
+    ->middleware('signed')
+    ->name('verification.verify');
+
 Route::middleware('auth:sanctum')->post('/email/resend', [\App\Http\Controllers\Api\Auth\EmailVerificationController::class, 'resend'])->name('api.auth.email.resend');
 
 // OAuth

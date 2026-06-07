@@ -134,6 +134,12 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.dashboard.unapproved-comments-count',
         ], ['dashboard.view']);
 
+        // System resources
+        $assign([
+            'api.admin.system.resources.index',
+            'api.admin.system.resources.history',
+        ], ['system.resources.view']);
+
         // Payments
         $assign('api.admin.payments.index', $paymentsView);
         $assign('api.admin.payments.stats', ['payments.stats']);
@@ -188,6 +194,7 @@ class RoutePermissionsSeeder extends Seeder
         $assign('api.admin.path.edit', ['paths.view', 'paths.edit']);
         $assign('api.admin.path.update', ['paths.update', 'paths.edit']);
         $assign('api.admin.path.delete', ['paths.delete']);
+        $assign('api.admin.path.delete.bulk', ['paths.delete']);
         $assign('api.admin.path.remove-file', ['paths.remove_file']);
         $assign('api.admin.path.search.courses', ['paths.search.courses']);
         $assign('api.admin.path.search.paths', ['paths.search.paths']);
@@ -206,6 +213,7 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.user.courses',
         ], $usersView);
         $assign('api.admin.user.create', ['users.create']);
+        $assign('api.admin.user.delete', ['users.delete']);
         $assign([
             'api.admin.user.upload-image',
             'api.admin.user.remove-provider',

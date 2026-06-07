@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api\Admin\User;
 
 use App\Http\Controllers\Controller;
+use App\Models\Contact;
 use App\Models\Course;
 use App\Models\Comment;
+use App\Models\Invite;
 use App\Models\Payment;
 use App\Models\Permission;
 use App\Models\Plan;
@@ -16,7 +18,9 @@ use Carbon\Carbon;
 use App\Rules\JalalianBirthDateParts;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Ip2location\IP2LocationLaravel\Facade\IP2LocationLaravel;
@@ -1423,5 +1427,92 @@ class UserController extends Controller
         $username->courses()->detach($course->id);
 
         return response()->json(['message' => 'Success, Course has been removed from user.'], 200);
+    }
+
+    public function deleteUsers(Request $request)
+    {
+        $ids = $request->input('id');
+
+        if (!is_array($ids)) {
+            $ids = [$ids];
+        }
+
+        $ids = array_values(array_unique(array_filter(array_map('intval', $ids))));
+
+        if (empty($ids)) {
+            return response()->json([
+                'message' => 'Validation error!',
+                'errors' => ['id' => ['شناسه کاربر الزامی است.']],
+            ], 422);
+        }
+
+        $currentUser = auth('api')->user();
+
+        if (in_array($currentUser->id, $ids, true)) {
+            return response()->json([
+                'message' => 'نمی‌توانید حساب کاربری خود را حذف کنید.',
+            ], 403);
+        }
+
+        $users = User::whereIn('id', $ids)->get();
+
+        if ($users->isEmpty()) {
+            return response()->json([
+                'message' => 'کاربری یافت نشد.',
+            ], 404);
+        }
+
+        $deletedIds = [];
+        $skipped = [];
+
+        foreach ($users as $user) {
+            if ($user->is_superuser) {
+                $skipped[] = $user->username;
+                continue;
+            }
+
+            try {
+                DB::transaction(function () use ($user) {
+                    Course::where('teacher_id', $user->id)->update(['teacher_id' => null]);
+                    Contact::where('user_id', $user->id)
+                        ->orWhere('contact_user_id', $user->id)
+                        ->delete();
+                    Invite::where('inviter_id', $user->id)
+                        ->orWhere('invitee_id', $user->id)
+                        ->delete();
+                    DB::table('acl_rules')->where('user_id', $user->id)->delete();
+                    DB::table('bookmarks')->where('user_id', $user->id)->delete();
+                    DB::table('followables')->where('user_id', $user->id)->delete();
+                    DB::table(config('subscribe.subscriptions_table', 'subscriptions'))
+                        ->where('user_id', $user->id)
+                        ->delete();
+                    User::where('deactivated_by', $user->id)->update(['deactivated_by' => null]);
+                    $user->tokens()->delete();
+                    $user->notifications()->delete();
+                    $user->delete();
+                });
+
+                $deletedIds[] = $user->id;
+            } catch (\Throwable $e) {
+                Log::error('Admin user delete failed', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage(),
+                ]);
+                $skipped[] = $user->username;
+            }
+        }
+
+        if (empty($deletedIds)) {
+            return response()->json([
+                'message' => 'حذف کاربران انجام نشد.',
+                'skipped' => $skipped,
+            ], 409);
+        }
+
+        return response()->json([
+            'message' => 'کاربر(ان) با موفقیت حذف شدند.',
+            'deleted_ids' => $deletedIds,
+            'skipped' => $skipped,
+        ], 200);
     }
 }

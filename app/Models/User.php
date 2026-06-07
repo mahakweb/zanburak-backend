@@ -789,13 +789,11 @@ class User extends Authenticatable implements MustVerifyEmail
             Carbon::now()->addMinutes(60),
             [
                 'id' => $this->id,
-                'hash' => sha1($this->email),
+                'hash' => sha1($this->getEmailForVerification()),
             ]
         );
 
-        $apiVerificationUrl = str_replace('/email/verify', '/api/email/verify', $verificationUrl);
-
-        $this->notify(new \App\Notifications\Auth\VerifyEmail($apiVerificationUrl));
+        $this->notify(new \App\Notifications\Auth\VerifyEmail($verificationUrl));
     }
 
 

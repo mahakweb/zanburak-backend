@@ -17,9 +17,12 @@ use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Carbon\Carbon;
+use Symfony\Component\Mailer\Exception\TransportException;
 
 class UnifiedAuthController extends Controller
 {
@@ -98,23 +101,34 @@ class UnifiedAuthController extends Controller
         $expireMinutes = $isEmail ? 5 : 2;
         $code = $activeCode->generateCodeForContact($identifier, $expireMinutes);
 
-        // notify if user exists; otherwise send generic email (no user needed)
-        if ($isEmail) {
-            $user = User::where('email', $identifier)->first();
-            if ($user) {
-                $user->notify(new ActiveCodeEmail($code));
+        try {
+            if ($isEmail) {
+                $user = User::where('email', $identifier)->first();
+                if ($user) {
+                    $user->notify(new ActiveCodeEmail($code));
+                } else {
+                    Notification::route('mail', $identifier)
+                        ->notify(new ActiveCodeEmail($code));
+                }
             } else {
-                // If user not exists yet, we can send to a notifiable route via on-demand notifications
-                \Illuminate\Support\Facades\Notification::route('mail', $identifier)
-                    ->notify(new ActiveCodeEmail($code));
+                $user = User::where('mobile', $identifier)->first();
+                if (!$user) {
+                    $user = new User(['mobile' => $identifier, 'email' => 'temp@example.com']);
+                }
+                $user->notify(new ActiveCodeNotification($code, $identifier));
             }
-        } else {
-            $user = User::where('mobile', $identifier)->first();
-            // for SMS we require a notifiable user; if not exists, create a temporary notifiable proxy
-            if (!$user) {
-                $user = new User(['mobile' => $identifier, 'email' => 'temp@example.com']);
-            }
-            $user->notify(new ActiveCodeNotification($code, $identifier));
+        } catch (TransportException $e) {
+            Log::error('OTP delivery failed', [
+                'identifier' => $identifier,
+                'type' => $isEmail ? 'email' : 'mobile',
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => $isEmail
+                    ? 'ارسال ایمیل با خطا مواجه شد. تنظیمات SMTP سرور را بررسی کنید.'
+                    : 'ارسال پیامک با خطا مواجه شد.',
+            ], 503);
         }
 
         return response()->json([
@@ -207,6 +221,7 @@ class UnifiedAuthController extends Controller
                     'profile_pic' => $user->profile_pic,
                     'cover_pic' => $user->cover_pic,
                     'wallet_balance' => $user->wallet_balance,
+                    'score' => $user->currentScore(),
                     'last_seen' => $user->last_seen,
                     'active' => $user->active,
                     'is_superuser' => $user->is_superuser,
@@ -309,6 +324,7 @@ class UnifiedAuthController extends Controller
                 'profile_pic' => $user->profile_pic,
                 'cover_pic' => $user->cover_pic,
                 'wallet_balance' => $user->wallet_balance,
+                'score' => $user->currentScore(),
                 'last_seen' => $user->last_seen,
                 'active' => $user->active,
                 'is_superuser' => $user->is_superuser,
@@ -429,6 +445,7 @@ class UnifiedAuthController extends Controller
                 'profile_pic' => $user->profile_pic,
                 'cover_pic' => $user->cover_pic,
                 'wallet_balance' => $user->wallet_balance,
+                'score' => $user->currentScore(),
                 'last_seen' => $user->last_seen,
                 'active' => $user->active,
                 'is_superuser' => $user->is_superuser,
@@ -493,6 +510,7 @@ class UnifiedAuthController extends Controller
                 'profile_pic' => $user->profile_pic,
                 'cover_pic' => $user->cover_pic,
                 'wallet_balance' => $user->wallet_balance,
+                'score' => $user->currentScore(),
                 'last_seen' => $user->last_seen,
                 'active' => $user->active,
                 'is_superuser' => $user->is_superuser,
