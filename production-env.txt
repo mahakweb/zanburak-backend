@@ -1,7 +1,7 @@
 APP_NAME=zanburak
 APP_ENV=production
 APP_KEY=base64:LkOpsHi7kQ29of2r9eH8+kZfQZmYYQaE+QlhgOuGZlE=
-APP_DEBUG=true
+APP_DEBUG=false
 APP_URL=https://api.zanburak.ir
 FRONT_APP_URL=https://zanburak.ir
 
