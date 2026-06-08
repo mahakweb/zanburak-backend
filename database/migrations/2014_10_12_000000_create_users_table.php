@@ -38,6 +38,7 @@ return new class extends Migration
             $table->boolean('is_staff')->default(0);
             $table->text('profile_pic')->nullable();
             $table->text('cover_pic')->nullable();
+            $table->string('bio', 255)->nullable();
             $table->string('role')->nullable();
             $table->rememberToken();
             $table->timestamp('last_seen')->nullable();

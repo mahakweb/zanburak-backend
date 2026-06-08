@@ -1,5 +1,8 @@
 <?php
 
+use Laravel\Reverb\Servers\Reverb\ChannelConnectionManager;
+use Laravel\Reverb\Servers\Reverb\ChannelManager;
+
 return [
 
     /*
@@ -47,7 +50,6 @@ return [
                     'username' => env('REDIS_USERNAME'),
                     'password' => env('REDIS_PASSWORD'),
                     'database' => env('REDIS_DB', '0'),
-                    'timeout' => env('REDIS_TIMEOUT', 60),
                 ],
             ],
             'pulse_ingest_interval' => env('REVERB_PULSE_INGEST_INTERVAL', 15),
@@ -85,7 +87,6 @@ return [
                 'allowed_origins' => ['*'],
                 'ping_interval' => env('REVERB_APP_PING_INTERVAL', 60),
                 'activity_timeout' => env('REVERB_APP_ACTIVITY_TIMEOUT', 30),
-                'max_connections' => env('REVERB_APP_MAX_CONNECTIONS'),
                 'max_message_size' => env('REVERB_APP_MAX_MESSAGE_SIZE', 10_000),
             ],
         ],

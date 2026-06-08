@@ -2,118 +2,362 @@
 
 namespace App\Http\Controllers\Api\Messenger;
 
-use App\Events\MessageSent;
-use App\Events\Typing;
-use App\Events\MessageRead;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Messenger\ConversationResource;
+use App\Http\Resources\Messenger\MessageResource;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Services\Messenger\MessengerService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Carbon;
 
 class MessengerController extends Controller
 {
-    public function conversations(Request $request)
+    public function __construct(
+        protected MessengerService $messenger
+    ) {}
+
+    public function conversations(Request $request): JsonResponse
     {
-        $user = $request->user();
+        $conversations = $this->messenger->listConversations($request->user());
 
-        $conversations = Conversation::whereHas('users', function ($q) use ($user) {
-            $q->where('user_id', $user->id);
-        })->with(['users:id,first_name,last_name', 'messages' => function ($q) {
-            $q->latest()->limit(1);
-        }])->get();
-
-        return response()->json($conversations);
+        return response()->json(ConversationResource::collection($conversations));
     }
 
-    public function createConversation(Request $request)
+    public function createConversation(Request $request): JsonResponse
     {
         $request->validate(['user_id' => 'required|integer|exists:users,id']);
-        $me = $request->user();
-        $otherId = (int) $request->input('user_id');
 
-        if ($otherId === $me->id) {
-            return response()->json(['message' => 'Cannot create conversation with yourself'], 422);
+        try {
+            $conversation = $this->messenger->findOrCreateConversation(
+                $request->user(),
+                (int) $request->input('user_id')
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
         }
 
-        $conversation = Conversation::whereHas('users', function ($q) use ($me) {
-            $q->where('user_id', $me->id);
-        })->whereHas('users', function ($q) use ($otherId) {
-            $q->where('user_id', $otherId);
-        })->first();
-
-        if (! $conversation) {
-            $conversation = Conversation::create();
-            $conversation->users()->attach([$me->id, $otherId]);
-        }
-
-        return response()->json($conversation);
+        return response()->json(new ConversationResource($conversation));
     }
 
-    public function messages(Request $request, Conversation $conversation)
+    public function showConversation(Request $request, Conversation $conversation): JsonResponse
     {
-        $user = $request->user();
-
-        if (! $conversation->users()->where('user_id', $user->id)->exists()) {
+        if (! $conversation->hasParticipant($request->user())) {
             return response()->json(['message' => 'Forbidden'], 403);
         }
 
-        $messages = $conversation->messages()->with('user:id,first_name,last_name')->get();
-
-        return response()->json($messages);
-    }
-
-    public function sendMessage(Request $request, Conversation $conversation)
-    {
-        $request->validate(['body' => 'required|string']);
-        $me = $request->user();
-
-        if (! $conversation->users()->where('user_id', $me->id)->exists()) {
-            return response()->json(['message' => 'Forbidden'], 403);
-        }
-
-        $message = Message::create([
-            'conversation_id' => $conversation->id,
-            'user_id' => $me->id,
-            'body' => $request->input('body'),
+        $conversation->load([
+            'users:id,first_name,last_name,username,profile_pic,last_seen',
+            'lastMessage',
         ]);
+        $conversation->unread_count = $conversation->unreadCountFor($request->user());
 
-        $conversation->update(['last_message_at' => Carbon::now()]);
-
-        broadcast(new MessageSent($message))->toOthers();
-
-        return response()->json($message);
+        return response()->json(new ConversationResource($conversation));
     }
 
-    public function typing(Request $request, Conversation $conversation)
+    public function deleteConversation(Request $request, Conversation $conversation): JsonResponse
     {
-        $me = $request->user();
-
-        if (! $conversation->users()->where('user_id', $me->id)->exists()) {
-            return response()->json(['message' => 'Forbidden'], 403);
+        try {
+            $this->messenger->deleteConversation($request->user(), $conversation);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
         }
-
-        broadcast(new Typing($conversation->id, $me->id));
 
         return response()->json(['ok' => true]);
     }
 
-    public function markRead(Request $request, Conversation $conversation)
+    public function clearConversation(Request $request, Conversation $conversation): JsonResponse
     {
-        $me = $request->user();
-
-        if (! $conversation->users()->where('user_id', $me->id)->exists()) {
-            return response()->json(['message' => 'Forbidden'], 403);
+        try {
+            $this->messenger->clearConversation($request->user(), $conversation);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
         }
 
-        $updated = Message::where('conversation_id', $conversation->id)
-            ->where('user_id', '!=', $me->id)
-            ->whereNull('read_at')
-            ->update(['read_at' => Carbon::now()]);
+        return response()->json(['ok' => true]);
+    }
 
-        broadcast(new MessageRead($conversation->id, $me->id));
+    public function muteConversation(Request $request, Conversation $conversation): JsonResponse
+    {
+        $request->validate(['mute' => 'sometimes|boolean']);
+
+        try {
+            $this->messenger->muteConversation(
+                $request->user(),
+                $conversation,
+                $request->boolean('mute', true)
+            );
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function messages(Request $request, Conversation $conversation): JsonResponse
+    {
+        try {
+            $paginator = $this->messenger->getMessages(
+                $request->user(),
+                $conversation,
+                $request->integer('before_id') ?: null
+            );
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json([
+            'data' => MessageResource::collection($paginator->items()),
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'has_more' => $paginator->hasMorePages(),
+            ],
+        ]);
+    }
+
+    public function sendMessage(Request $request, Conversation $conversation): JsonResponse
+    {
+        $request->validate([
+            'body' => 'required|string|max:'.config('messenger.max_message_length', 5000),
+            'client_id' => 'sometimes|string|max:64',
+            'reply_to_id' => 'sometimes|nullable|integer|exists:messages,id',
+            'reply_show_title' => 'sometimes|boolean',
+        ]);
+
+        try {
+            $message = $this->messenger->sendMessage(
+                $request->user(),
+                $conversation,
+                $request->input('body'),
+                $request->input('client_id'),
+                [
+                    'reply_to_id' => $request->input('reply_to_id'),
+                    'reply_show_title' => $request->boolean('reply_show_title', true),
+                ]
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json(new MessageResource($message), 201);
+    }
+
+    public function forwardMessages(Request $request, Conversation $conversation): JsonResponse
+    {
+        $request->validate([
+            'message_ids' => 'required|array|min:1|max:50',
+            'message_ids.*' => 'integer|exists:messages,id',
+        ]);
+
+        try {
+            $messages = $this->messenger->forwardMessages(
+                $request->user(),
+                $request->input('message_ids'),
+                $conversation
+            );
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json([
+            'data' => MessageResource::collection($messages),
+        ], 201);
+    }
+
+    public function bulkDelete(Request $request): JsonResponse
+    {
+        $request->validate([
+            'message_ids' => 'required|array|min:1|max:100',
+            'message_ids.*' => 'integer',
+        ]);
+
+        $deleted = $this->messenger->bulkDeleteMessages(
+            $request->user(),
+            $request->input('message_ids')
+        );
+
+        return response()->json(['deleted' => $deleted]);
+    }
+
+    public function editMessage(Request $request, Message $message): JsonResponse
+    {
+        $request->validate([
+            'body' => 'required|string|max:'.config('messenger.max_message_length', 5000),
+        ]);
+
+        try {
+            $message = $this->messenger->editMessage(
+                $request->user(),
+                $message,
+                $request->input('body')
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json(new MessageResource($message));
+    }
+
+    public function deleteMessage(Request $request, Message $message): JsonResponse
+    {
+        try {
+            $this->messenger->deleteMessage($request->user(), $message);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function typing(Request $request, Conversation $conversation): JsonResponse
+    {
+        try {
+            $this->messenger->sendTyping($request->user(), $conversation);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function markRead(Request $request, Conversation $conversation): JsonResponse
+    {
+        try {
+            $updated = $this->messenger->markRead($request->user(), $conversation);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
 
         return response()->json(['updated' => $updated]);
+    }
+
+    public function unreadCount(Request $request): JsonResponse
+    {
+        return response()->json([
+            'unread_count' => $this->messenger->totalUnreadCount($request->user()),
+        ]);
+    }
+
+    public function getSettings(Request $request): JsonResponse
+    {
+        $settings = $this->messenger->getSettings($request->user());
+
+        return response()->json([
+            'enter_to_send' => $settings->enter_to_send,
+            'quote_with_title' => $settings->quote_with_title,
+            'wallpaper' => $settings->wallpaper,
+            'theme' => $settings->theme,
+            'locale' => $settings->locale,
+        ]);
+    }
+
+    public function updateSettings(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'enter_to_send' => 'sometimes|boolean',
+            'quote_with_title' => 'sometimes|boolean',
+            'wallpaper' => 'sometimes|nullable|string|max:40',
+            'theme' => 'sometimes|nullable|string|max:20',
+            'locale' => 'sometimes|nullable|string|max:5',
+        ]);
+
+        $settings = $this->messenger->updateSettings($request->user(), $data);
+
+        return response()->json([
+            'enter_to_send' => $settings->enter_to_send,
+            'quote_with_title' => $settings->quote_with_title,
+            'wallpaper' => $settings->wallpaper,
+            'theme' => $settings->theme,
+            'locale' => $settings->locale,
+        ]);
+    }
+
+    public function myProfile(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        return response()->json([
+            'id' => $user->id,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'username' => $user->username,
+            'profile_pic' => $user->profile_pic,
+            'cover_pic' => $user->cover_pic,
+            'bio' => $user->bio,
+        ]);
+    }
+
+    public function updateMyProfile(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $data = $request->validate([
+            'first_name' => 'sometimes|string|min:2|max:255',
+            'last_name' => 'sometimes|string|min:2|max:255',
+            'username' => 'sometimes|string|min:3|max:50|alpha_dash|unique:users,username,'.$user->id,
+            'bio' => 'sometimes|nullable|string|max:255',
+        ]);
+
+        $user = $this->messenger->updateMyProfile($user, $data);
+
+        return response()->json([
+            'id' => $user->id,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'username' => $user->username,
+            'profile_pic' => $user->profile_pic,
+            'cover_pic' => $user->cover_pic,
+            'bio' => $user->bio,
+        ]);
+    }
+
+    public function userProfile(Request $request, int $userId): JsonResponse
+    {
+        try {
+            $user = $this->messenger->getUserProfile($request->user(), $userId);
+        } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {
+            return response()->json(['message' => 'User not found'], 404);
+        }
+
+        return response()->json([
+            'id' => $user->id,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'username' => $user->username,
+            'profile_pic' => $user->profile_pic,
+            'cover_pic' => $user->cover_pic,
+            'bio' => $user->bio,
+            'last_seen' => $user->last_seen,
+            'is_online' => $user->isOnline(),
+        ]);
+    }
+
+    /**
+     * Lightweight polling endpoint for clients that cannot use SSE.
+     */
+    public function sync(Request $request): JsonResponse
+    {
+        $sinceId = $request->integer('since', 0);
+        $events = $this->messenger->getEventsSince($request->user()->id, $sinceId);
+
+        return response()->json([
+            'events' => $events->map(fn ($e) => [
+                'id' => $e->id,
+                'type' => $e->type,
+                'conversation_id' => $e->conversation_id,
+                'payload' => $e->payload,
+                'created_at' => $e->created_at?->toIso8601String(),
+            ]),
+            'cursor' => $this->messenger->getLatestCursor($request->user()->id),
+        ]);
     }
 }

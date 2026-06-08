@@ -19,7 +19,7 @@ DB_DATABASE=zanburak
 DB_USERNAME=zanburak
 DB_PASSWORD=Milad@4970
 
-BROADCAST_DRIVER=pusher
+BROADCAST_DRIVER=reverb
 CACHE_DRIVER=file
 FILESYSTEM_DISK=local
 QUEUE_CONNECTION=database
@@ -29,9 +29,19 @@ SESSION_LIFETIME=43200
 
 MEMCACHED_HOST=127.0.0.1
 
+REDIS_CLIENT=predis
 REDIS_HOST=127.0.0.1
 REDIS_PASSWORD=null
 REDIS_PORT=6379
+
+# Messenger realtime (self-hosted, no external service). Redis enabled => instant realtime + fast cursor checks.
+MESSENGER_REDIS=true
+MESSENGER_STREAM_TTL=30
+MESSENGER_STREAM_POLL_MS=1000
+MESSENGER_STREAM_HEARTBEAT=15
+MESSENGER_STREAM_REDIS_BLOCK=5
+MESSENGER_TYPING_THROTTLE=2
+MESSENGER_EVENT_RETENTION_HOURS=48
 
 MAIL_MAILER=smtp
 MAIL_HOST=mail.zanburak.ir
@@ -139,3 +149,26 @@ UPLOAD_TOKEN_SECRET=8f3f0a2b0b4b9d6b7f3e2a961f0c4d9bbd1a2f36e7c4b8a0d93c6efb1d7a
 
 SCORES_CONVERSION_RATE=1.35
 SCORES_MIN_SCORES=10000
+
+# ---------------------------------------------------------------------------
+# Laravel Reverb (self-hosted websockets, NO Pusher / NO external service)
+# The Reverb server runs internally and is reverse-proxied by Nginx over wss.
+# ---------------------------------------------------------------------------
+REVERB_APP_ID=728401
+REVERB_APP_KEY=zb_live_3kf9d2m7p1q8
+REVERB_APP_SECRET=zb_secret_a1b2c3d4e5f6g7h8i9j0
+REVERB_HOST="api.zanburak.ir"
+REVERB_PORT=443
+REVERB_SCHEME=https
+
+# Internal server bind (proxied by Nginx -> wss://api.zanburak.ir). Local-only for security.
+REVERB_SERVER_HOST=127.0.0.1
+REVERB_SERVER_PORT=8080
+
+# Use Redis for Reverb horizontal scaling / pub-sub
+REVERB_SCALING_ENABLED=true
+
+VITE_REVERB_APP_KEY="${REVERB_APP_KEY}"
+VITE_REVERB_HOST="${REVERB_HOST}"
+VITE_REVERB_PORT="${REVERB_PORT}"
+VITE_REVERB_SCHEME="${REVERB_SCHEME}"

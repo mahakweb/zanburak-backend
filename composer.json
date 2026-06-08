@@ -30,6 +30,7 @@
         "overtrue/laravel-follow": "^5.3",
         "overtrue/laravel-subscribe": "^4.1",
         "pbmedia/laravel-ffmpeg": "^8.2",
+        "predis/predis": "^3.5",
         "pusher/pusher-php-server": "^7.2",
         "spatie/image": "^3.9",
         "ybazli/faker": "^1.0"

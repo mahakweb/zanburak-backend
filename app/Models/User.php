@@ -49,6 +49,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'last_seen',
         'profile_pic',
         'cover_pic',
+        'bio',
         'active',
         'notifications_enabled',
         'deactivated_by',
@@ -779,6 +780,42 @@ class User extends Authenticatable implements MustVerifyEmail
     public function providers()
     {
         return $this->hasMany(UserProvider::class);
+    }
+
+    // -------------------- Messenger --------------------
+
+    public function conversations()
+    {
+        return $this->belongsToMany(Conversation::class, 'conversation_user')
+            ->withTimestamps()
+            ->withPivot(['last_read_at', 'cleared_at', 'deleted_at', 'muted_at']);
+    }
+
+    public function contacts()
+    {
+        return $this->hasMany(Contact::class, 'user_id');
+    }
+
+    public function messengerEvents()
+    {
+        return $this->hasMany(MessengerEvent::class, 'user_id');
+    }
+
+    public function messengerSettings()
+    {
+        return $this->hasOne(MessengerSetting::class, 'user_id');
+    }
+
+    /**
+     * A user is considered online if seen within the last few minutes.
+     */
+    public function isOnline(): bool
+    {
+        if (! $this->last_seen) {
+            return false;
+        }
+
+        return Carbon::parse($this->last_seen)->gt(Carbon::now()->subMinutes(2));
     }
 
 

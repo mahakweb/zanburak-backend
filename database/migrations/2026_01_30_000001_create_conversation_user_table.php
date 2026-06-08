@@ -12,6 +12,9 @@ return new class extends Migration {
             $table->unsignedBigInteger('conversation_id');
             $table->unsignedBigInteger('user_id');
             $table->timestamp('last_read_at')->nullable();
+            $table->timestamp('cleared_at')->nullable();  // hide messages before this time
+            $table->timestamp('deleted_at')->nullable();  // hide conversation from this user's list
+            $table->timestamp('muted_at')->nullable();
             $table->timestamps();
 
             $table->foreign('conversation_id')->references('id')->on('conversations')->onDelete('cascade');
