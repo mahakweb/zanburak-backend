@@ -136,6 +136,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     // Permissions
     Route::post('/permissions', [\App\Http\Controllers\Api\Admin\Permission\PermissionController::class, 'permissions'])->name('permissions.index');
     Route::post('/permission/create', [\App\Http\Controllers\Api\Admin\Permission\PermissionController::class, 'store'])->name('permission.create');
+    Route::get('/permission/{permission}/details', [\App\Http\Controllers\Api\Admin\Permission\PermissionController::class, 'details'])->name('permission.details');
     Route::post('/permission/{permission}/update', [\App\Http\Controllers\Api\Admin\Permission\PermissionController::class, 'update'])->name('permission.update');
     Route::delete('/permission/{permission}/delete', [\App\Http\Controllers\Api\Admin\Permission\PermissionController::class, 'delete'])->name('permission.delete');
     
@@ -144,6 +145,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::get('/permissions/all', [\App\Http\Controllers\Api\Admin\Role\RoleController::class, 'allPermissions'])->name('permissions.all');
     Route::get('/roles/all', [\App\Http\Controllers\Api\Admin\Role\RoleController::class, 'allRoles'])->name('roles.all');
     Route::post('/role/create', [\App\Http\Controllers\Api\Admin\Role\RoleController::class, 'store'])->name('role.create');
+    Route::get('/role/{role}/details', [\App\Http\Controllers\Api\Admin\Role\RoleController::class, 'details'])->name('role.details');
     Route::post('/role/{role}/update', [\App\Http\Controllers\Api\Admin\Role\RoleController::class, 'update'])->name('role.update');
     Route::delete('/role/{role}/delete', [\App\Http\Controllers\Api\Admin\Role\RoleController::class, 'delete'])->name('role.delete');
     Route::post('/categories', [\App\Http\Controllers\Api\Admin\Course\CategoryController::class, 'categories'])->name('categories.index');

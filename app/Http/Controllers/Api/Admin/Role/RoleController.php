@@ -14,7 +14,7 @@ class RoleController extends Controller
 
     public function roles(Request $request)
     {
-        $query = Role::with('permissions');
+        $query = Role::with('permissions')->withCount(['permissions', 'users']);
 
         // Search functionality
         $search = $request->input('search');
@@ -25,17 +25,36 @@ class RoleController extends Controller
             });
         }
 
+        // Sorting
+        switch ($request->input('sort', 'newest')) {
+            case 'oldest':
+                $query->orderBy('created_at', 'asc');
+                break;
+            case 'name':
+                $query->orderBy('name', 'asc');
+                break;
+            case 'most_users':
+                $query->orderBy('users_count', 'desc');
+                break;
+            case 'most_permissions':
+                $query->orderBy('permissions_count', 'desc');
+                break;
+            default:
+                $query->orderBy('created_at', 'desc');
+                break;
+        }
+
         // Pagination
         $perPage = (int) $request->input('perPage', 15);
-        $roles = $query->orderBy('created_at', 'desc')->paginate($perPage);
+        $roles = $query->paginate($perPage);
 
         $data = $roles->map(function ($role) {
             return [
                 'id' => $role->id,
                 'name' => $role->name,
                 'label' => $role->label,
-                'permissions_count' => $role->permissions()->count(),
-                'users_count' => $role->users()->count(),
+                'permissions_count' => $role->permissions_count,
+                'users_count' => $role->users_count,
                 'permissions' => $role->permissions->map(function ($permission) {
                     return [
                         'id' => $permission->id,
@@ -58,6 +77,45 @@ class RoleController extends Controller
                 'last_page' => $roles->lastPage(),
                 'prev_page' => $roles->currentPage() > 1 ? $roles->currentPage() - 1 : null,
                 'next_page' => $roles->hasMorePages() ? $roles->currentPage() + 1 : null,
+            ],
+        ], 200);
+    }
+
+    public function details(Role $role)
+    {
+        if (!$role) {
+            return response()->json(['message' => 'Error! role not found.'], 404);
+        }
+
+        $role->load([
+            'permissions:id,name,label',
+            'users:id,first_name,last_name,username,profile_pic',
+        ]);
+
+        return response()->json([
+            'message' => 'Success',
+            'role' => [
+                'id' => $role->id,
+                'name' => $role->name,
+                'label' => $role->label,
+                'permissions_count' => $role->permissions->count(),
+                'users_count' => $role->users->count(),
+                'permissions' => $role->permissions->map(function ($permission) {
+                    return [
+                        'id' => $permission->id,
+                        'name' => $permission->name,
+                        'label' => $permission->label,
+                    ];
+                })->values(),
+                'users' => $role->users->map(function ($user) {
+                    return [
+                        'id' => $user->id,
+                        'first_name' => $user->first_name,
+                        'last_name' => $user->last_name,
+                        'username' => $user->username,
+                        'profile_pic' => $user->profile_pic,
+                    ];
+                })->values(),
             ],
         ], 200);
     }

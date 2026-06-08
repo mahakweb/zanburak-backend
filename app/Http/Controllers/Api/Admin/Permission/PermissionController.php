@@ -13,7 +13,7 @@ class PermissionController extends Controller
 
     public function permissions(Request $request)
     {
-        $query = Permission::query();
+        $query = Permission::query()->withCount(['roles', 'users']);
 
         // Search functionality
         $search = $request->input('search');
@@ -24,17 +24,36 @@ class PermissionController extends Controller
             });
         }
 
+        // Sorting
+        switch ($request->input('sort', 'newest')) {
+            case 'oldest':
+                $query->orderBy('created_at', 'asc');
+                break;
+            case 'name':
+                $query->orderBy('name', 'asc');
+                break;
+            case 'most_users':
+                $query->orderBy('users_count', 'desc');
+                break;
+            case 'most_roles':
+                $query->orderBy('roles_count', 'desc');
+                break;
+            default:
+                $query->orderBy('created_at', 'desc');
+                break;
+        }
+
         // Pagination
         $perPage = (int) $request->input('perPage', 15);
-        $permissions = $query->orderBy('created_at', 'desc')->paginate($perPage);
+        $permissions = $query->paginate($perPage);
 
         $data = $permissions->map(function ($permission) {
             return [
                 'id' => $permission->id,
                 'name' => $permission->name,
                 'label' => $permission->label,
-                'roles_count' => $permission->roles()->count(),
-                'users_count' => $permission->users()->count(),
+                'roles_count' => $permission->roles_count,
+                'users_count' => $permission->users_count,
                 'created_at' => $permission->created_at,
                 'updated_at' => $permission->updated_at,
             ];
@@ -50,6 +69,45 @@ class PermissionController extends Controller
                 'last_page' => $permissions->lastPage(),
                 'prev_page' => $permissions->currentPage() > 1 ? $permissions->currentPage() - 1 : null,
                 'next_page' => $permissions->hasMorePages() ? $permissions->currentPage() + 1 : null,
+            ],
+        ], 200);
+    }
+
+    public function details(Permission $permission)
+    {
+        if (!$permission) {
+            return response()->json(['message' => 'Error! permission not found.'], 404);
+        }
+
+        $permission->load([
+            'roles:id,name,label',
+            'users:id,first_name,last_name,username,profile_pic',
+        ]);
+
+        return response()->json([
+            'message' => 'Success',
+            'permission' => [
+                'id' => $permission->id,
+                'name' => $permission->name,
+                'label' => $permission->label,
+                'roles_count' => $permission->roles->count(),
+                'users_count' => $permission->users->count(),
+                'roles' => $permission->roles->map(function ($role) {
+                    return [
+                        'id' => $role->id,
+                        'name' => $role->name,
+                        'label' => $role->label,
+                    ];
+                })->values(),
+                'users' => $permission->users->map(function ($user) {
+                    return [
+                        'id' => $user->id,
+                        'first_name' => $user->first_name,
+                        'last_name' => $user->last_name,
+                        'username' => $user->username,
+                        'profile_pic' => $user->profile_pic,
+                    ];
+                })->values(),
             ],
         ], 200);
     }
