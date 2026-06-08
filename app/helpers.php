@@ -143,6 +143,11 @@ if (!function_exists("upgrade_mission_for_user")) {
     function upgrade_mission_for_user($userId, $missionId, $defaultProgressValue = 1, $defaultIncrementValue = 1)
     {
         $mission = Mission::where('id', $missionId)->first();
+
+        if (!$mission || !($mission->is_active ?? true)) {
+            return;
+        }
+
         $userMission = UserMission::where([
             ['mission_id', $missionId],
             ['user_id', $userId],

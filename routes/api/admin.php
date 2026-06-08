@@ -128,6 +128,23 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/level/create', [\App\Http\Controllers\Api\Admin\Course\LevelController::class, 'store'])->name('level.create');
     Route::post('/level/{level}/update', [\App\Http\Controllers\Api\Admin\Course\LevelController::class, 'update'])->name('level.update');
     Route::delete('/level/{level}/delete', [\App\Http\Controllers\Api\Admin\Course\LevelController::class, 'delete'])->name('level.delete');
+    // Missions (gamification)
+    Route::prefix('missions')->as('missions.')->group(function () {
+        Route::get('/stats', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'stats'])->name('stats');
+        Route::post('/list', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'index'])->name('index');
+        Route::get('/categories', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'categories'])->name('categories');
+        Route::post('/create', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'store'])->name('create');
+        Route::post('/upload-icon', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'uploadIcon'])->name('upload-icon');
+        Route::get('/{mission}', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'show'])->name('show');
+        Route::get('/{mission}/participants', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'participants'])->name('participants');
+        Route::post('/{mission}/toggle-active', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'toggleActive'])->name('toggle-active');
+        Route::post('/{mission}/update', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'update'])->name('update');
+        Route::delete('/{mission}', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'destroy'])->name('delete');
+    });
+    Route::post('/mission-category/create', [\App\Http\Controllers\Api\Admin\Mission\MissionCategoryController::class, 'store'])->name('mission-category.create');
+    Route::post('/mission-category/{category}/update', [\App\Http\Controllers\Api\Admin\Mission\MissionCategoryController::class, 'update'])->name('mission-category.update');
+    Route::delete('/mission-category/{category}', [\App\Http\Controllers\Api\Admin\Mission\MissionCategoryController::class, 'destroy'])->name('mission-category.delete');
+
     Route::post('/statuses', [\App\Http\Controllers\Api\Admin\Course\StatusController::class, 'statuses'])->name('statuses.index');
     Route::post('/status/create', [\App\Http\Controllers\Api\Admin\Course\StatusController::class, 'store'])->name('status.create');
     Route::post('/status/{status}/update', [\App\Http\Controllers\Api\Admin\Course\StatusController::class, 'update'])->name('status.update');

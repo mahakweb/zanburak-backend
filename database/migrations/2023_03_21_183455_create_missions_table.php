@@ -29,6 +29,7 @@ return new class extends Migration
             $table->foreign('category_id')->references('id')->on('mission_categories')->onUpdate('cascade')->onDelete('cascade');
             $table->text('icon');
             $table->text('description');
+            $table->boolean('is_active')->default(true);
             $table->json('levels');
             $table->timestamp('expired_at')->nullable();
             $table->timestamps();

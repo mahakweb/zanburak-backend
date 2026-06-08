@@ -167,6 +167,13 @@ class PermissionsAndRolesSeeder extends Seeder
             ['name' => 'statuses.update', 'label' => 'ویرایش وضعیت', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'statuses.delete', 'label' => 'حذف وضعیت', 'created_at' => $now, 'updated_at' => $now],
 
+            // Missions (gamification)
+            ['name' => 'missions.view', 'label' => 'مشاهده ماموریت‌ها', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'missions.create', 'label' => 'ایجاد ماموریت', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'missions.update', 'label' => 'ویرایش ماموریت', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'missions.delete', 'label' => 'حذف ماموریت', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'mission-categories.manage', 'label' => 'مدیریت دسته‌بندی ماموریت‌ها', 'created_at' => $now, 'updated_at' => $now],
+
             // Paths
             ['name' => 'paths.view', 'label' => 'مشاهده مسیرها', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'paths.create', 'label' => 'ایجاد مسیر', 'created_at' => $now, 'updated_at' => $now],
@@ -655,6 +662,13 @@ class PermissionsAndRolesSeeder extends Seeder
                 'levels.*',
                 'statuses.*',
                 'paths.*',
+                'missions.*',
+                'mission-categories.manage',
+            ],
+
+            'mission_manager' => [
+                'missions.*',
+                'mission-categories.manage',
             ],
 
             'catalog_viewer' => [

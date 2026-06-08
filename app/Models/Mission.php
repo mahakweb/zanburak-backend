@@ -9,11 +9,27 @@ class Mission extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['id', 'title', 'category_id', 'icon', 'description', 'requirements', 'levels', 'expired_at'];
+    protected $primaryKey = 'id';
+
+    public $incrementing = false;
+
+    protected $keyType = 'string';
+
+    protected $fillable = ['id', 'title', 'category_id', 'icon', 'description', 'is_active', 'levels', 'expired_at'];
 
     protected $casts = [
-        'id' => 'string', // change to string
+        'id' => 'string',
+        'is_active' => 'boolean',
+        'expired_at' => 'datetime',
     ];
+
+    public function scopeActive($query)
+    {
+        return $query->where('is_active', true)
+            ->where(function ($q) {
+                $q->whereNull('expired_at')->orWhere('expired_at', '>=', now());
+            });
+    }
 
     public function category()
     {

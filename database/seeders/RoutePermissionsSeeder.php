@@ -247,6 +247,27 @@ class RoutePermissionsSeeder extends Seeder
         $assign('api.admin.user.courses.assign', $coursesAssign);
         $assign('api.admin.user.courses.remove', $coursesAssign);
 
+        // Missions (gamification)
+        $assign([
+            'api.admin.missions.stats',
+            'api.admin.missions.index',
+            'api.admin.missions.categories',
+            'api.admin.missions.show',
+            'api.admin.missions.participants',
+        ], ['missions.view']);
+        $assign('api.admin.missions.create', ['missions.create']);
+        $assign('api.admin.missions.upload-icon', ['missions.create', 'missions.update']);
+        $assign([
+            'api.admin.missions.update',
+            'api.admin.missions.toggle-active',
+        ], ['missions.update']);
+        $assign('api.admin.missions.delete', ['missions.delete']);
+        $assign([
+            'api.admin.mission-category.create',
+            'api.admin.mission-category.update',
+            'api.admin.mission-category.delete',
+        ], ['mission-categories.manage']);
+
         // Levels & statuses
         $assign('api.admin.levels.index', ['levels.view']);
         $assign('api.admin.level.create', ['levels.create']);

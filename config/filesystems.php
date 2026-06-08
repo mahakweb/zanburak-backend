@@ -48,9 +48,9 @@ return [
 
         'static' => [
             'driver' => 'ftp',
-            'host' => '185.252.28.150',
-            'username' => 'zanburak',
-            'password' => 'r*9IX)dR91Yu3n',
+            'host' => '78.157.38.113',
+            'username' => 'staticza',
+            'password' => 'nOFC0]+82e4sZY',
 
             // Optional FTP Settings...
             // 'port' => 21,

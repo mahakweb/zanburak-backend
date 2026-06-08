@@ -470,7 +470,7 @@ class PanelController extends Controller
         $defaultCategory = MissionCategory::where('slug', $defaultCategory)->first();
         $user = auth('api')->user();
         $userId = $user->id;
-        $missions = Mission::where('category_id', $defaultCategory->id)->get();
+        $missions = Mission::where('category_id', $defaultCategory->id)->active()->get();
         $userMissions = UserMission::where('user_id', $userId)->get()->keyBy('mission_id');
         $missionsData = [];
 
