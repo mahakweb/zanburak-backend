@@ -5,14 +5,19 @@ namespace App\Services\Messenger;
 use App\Events\Messenger\MessengerBroadcast;
 use App\Http\Resources\Messenger\MessageResource;
 use App\Models\Contact;
+use App\Models\ContactInvite;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessengerEvent;
 use App\Models\User;
+use App\Notifications\Channels\GhasedakChannel;
+use App\Notifications\Messenger\InviteToZanburak;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 
 class MessengerService
@@ -34,17 +39,42 @@ class MessengerService
             })
             ->with([
                 'users:id,first_name,last_name,username,profile_pic,last_seen',
+                'users.messengerSettings',
                 'lastMessage' => fn ($q) => $q->with('user:id,first_name,last_name,username,profile_pic,last_seen'),
             ])
             ->orderByDesc('last_message_at')
             ->get();
 
-        // Attach unread counts
         foreach ($conversations as $conv) {
             $conv->unread_count = $conv->unreadCountFor($user);
+            // Honor per-user cleared history & "delete for me" when previewing.
+            $conv->setRelation('lastMessage', $this->lastVisibleMessageFor($user, $conv));
         }
 
         return $conversations;
+    }
+
+    /**
+     * The most recent message in a conversation that is still visible to the
+     * given user (not soft-deleted, not hidden via "delete for me", and after
+     * the user's cleared_at marker).
+     */
+    public function lastVisibleMessageFor(User $user, Conversation $conversation): ?Message
+    {
+        $pivot = $conversation->users->firstWhere('id', $user->id)?->pivot
+            ?? $conversation->users()->where('users.id', $user->id)->first()?->pivot;
+        $clearedAt = $pivot?->cleared_at;
+
+        $query = $conversation->messages()
+            ->with($this->messageRelations())
+            ->whereDoesntHave('deletedForUsers', fn ($q) => $q->where('users.id', $user->id))
+            ->orderByDesc('id');
+
+        if ($clearedAt) {
+            $query->where('created_at', '>', $clearedAt);
+        }
+
+        return $query->first();
     }
 
     public function findOrCreateConversation(User $me, int $otherUserId): Conversation
@@ -104,12 +134,22 @@ class MessengerService
     {
         $this->assertParticipant($user, $conversation);
         $conversation->users()->updateExistingPivot($user->id, ['deleted_at' => now()]);
+
+        // Sync removal to the user's other devices.
+        $this->emitEvent($user->id, $conversation->id, 'conversation.deleted', [
+            'conversation_id' => $conversation->id,
+        ]);
     }
 
     public function clearConversation(User $user, Conversation $conversation): void
     {
         $this->assertParticipant($user, $conversation);
         $conversation->users()->updateExistingPivot($user->id, ['cleared_at' => now()]);
+
+        // Clearing history is per-user; sync only to the same user's devices.
+        $this->emitEvent($user->id, $conversation->id, 'conversation.cleared', [
+            'conversation_id' => $conversation->id,
+        ]);
     }
 
     public function muteConversation(User $user, Conversation $conversation, bool $mute = true): void
@@ -117,6 +157,11 @@ class MessengerService
         $this->assertParticipant($user, $conversation);
         $conversation->users()->updateExistingPivot($user->id, [
             'muted_at' => $mute ? now() : null,
+        ]);
+
+        $this->emitEvent($user->id, $conversation->id, 'conversation.muted', [
+            'conversation_id' => $conversation->id,
+            'muted' => $mute,
         ]);
     }
 
@@ -133,6 +178,7 @@ class MessengerService
 
         $query = $conversation->messages()
             ->with($this->messageRelations())
+            ->whereDoesntHave('deletedForUsers', fn ($q) => $q->where('users.id', $user->id))
             ->orderByDesc('id');
 
         if ($clearedAt) {
@@ -156,6 +202,7 @@ class MessengerService
     public function sendMessage(User $user, Conversation $conversation, string $body, ?string $clientId = null, array $options = []): Message
     {
         $this->assertParticipant($user, $conversation);
+        $this->assertNotBlocked($user, $conversation);
 
         $body = trim($body);
         if ($body === '') {
@@ -215,13 +262,11 @@ class MessengerService
 
             $message->load($this->messageRelations());
 
-            // Notify all other participants
-            $otherUsers = $conversation->users()->where('users.id', '!=', $user->id)->get();
-            foreach ($otherUsers as $recipient) {
-                $this->emitEvent($recipient->id, $conversation->id, 'message.new', [
-                    'message' => (new MessageResource($message))->resolve(),
-                ]);
-            }
+            // Notify every participant — including the sender's *other* devices
+            // so a chat stays in sync across multiple logged-in sessions.
+            $this->notifyAllParticipants($conversation, 'message.new', [
+                'message' => (new MessageResource($message))->resolve(),
+            ]);
 
             return $message;
         });
@@ -234,7 +279,7 @@ class MessengerService
      * @param  int[]  $messageIds
      * @return Message[]
      */
-    public function forwardMessages(User $user, array $messageIds, Conversation $target): array
+    public function forwardMessages(User $user, array $messageIds, Conversation $target, bool $dropAuthor = false): array
     {
         $this->assertParticipant($user, $target);
 
@@ -245,9 +290,13 @@ class MessengerService
 
         $created = [];
         foreach ($sources as $source) {
-            $created[] = $this->sendMessage($user, $target, $source->body, null, [
-                'forwarded_from_user_id' => $source->forwarded_from_user_id ?: $source->user_id,
-            ]);
+            // When $dropAuthor is true we forward "without quote": the message is
+            // re-sent as if authored by the forwarder, with no original-author header.
+            $options = $dropAuthor
+                ? []
+                : ['forwarded_from_user_id' => $source->forwarded_from_user_id ?: $source->user_id];
+
+            $created[] = $this->sendMessage($user, $target, $source->body, null, $options);
         }
 
         return $created;
@@ -271,9 +320,9 @@ class MessengerService
 
         $message->load($this->messageRelations());
 
-        $this->notifyConversationParticipants(
+        // Notify everyone, including the editor's other devices.
+        $this->notifyAllParticipants(
             $message->conversation,
-            $user->id,
             'message.updated',
             ['message' => (new MessageResource($message))->resolve()]
         );
@@ -281,40 +330,68 @@ class MessengerService
         return $message;
     }
 
-    public function deleteMessage(User $user, Message $message): void
+    /**
+     * Delete a message.
+     *
+     * @param  string  $scope  'everyone' (hard/soft delete for all, owner only)
+     *                         or 'me' (hide from this user's view only).
+     */
+    public function deleteMessage(User $user, Message $message, string $scope = 'everyone'): void
     {
-        if (! $message->isOwnedBy($user)) {
-            throw new \RuntimeException('You can only delete your own messages');
-        }
+        $conversation = $message->conversation;
+        $this->assertParticipant($user, $conversation);
 
         $conversationId = $message->conversation_id;
         $messageId = $message->id;
 
+        if ($scope === 'me') {
+            // Hide only from this user; sync to their own devices.
+            $message->deletedForUsers()->syncWithoutDetaching([$user->id]);
+
+            $this->emitEvent($user->id, $conversationId, 'message.deleted', [
+                'message_id' => $messageId,
+                'conversation_id' => $conversationId,
+                'scope' => 'me',
+            ]);
+
+            return;
+        }
+
+        // scope === everyone: only the author may remove for both sides.
+        if (! $message->isOwnedBy($user)) {
+            throw new \RuntimeException('You can only delete your own messages for everyone');
+        }
+
         $message->delete();
 
-        $this->notifyConversationParticipants(
-            $message->conversation,
-            $user->id,
-            'message.deleted',
-            ['message_id' => $messageId, 'conversation_id' => $conversationId]
-        );
+        $this->notifyAllParticipants($conversation, 'message.deleted', [
+            'message_id' => $messageId,
+            'conversation_id' => $conversationId,
+            'scope' => 'everyone',
+        ]);
     }
 
     /**
-     * Delete several of the user's own messages at once.
+     * Delete several messages at once.
      *
      * @param  int[]  $messageIds
      * @return int  Number of messages actually deleted
      */
-    public function bulkDeleteMessages(User $user, array $messageIds): int
+    public function bulkDeleteMessages(User $user, array $messageIds, string $scope = 'everyone'): int
     {
-        $messages = Message::whereIn('id', $messageIds)
-            ->where('user_id', $user->id)
-            ->get();
+        $query = Message::whereIn('id', $messageIds)
+            ->whereHas('conversation.users', fn ($q) => $q->where('users.id', $user->id));
+
+        // "delete for everyone" is restricted to the user's own messages.
+        if ($scope !== 'me') {
+            $query->where('user_id', $user->id);
+        }
+
+        $messages = $query->get();
 
         $count = 0;
         foreach ($messages as $message) {
-            $this->deleteMessage($user, $message);
+            $this->deleteMessage($user, $message, $scope);
             $count++;
         }
 
@@ -333,9 +410,10 @@ class MessengerService
         $conversation->users()->updateExistingPivot($user->id, ['last_read_at' => now()]);
 
         if ($updated > 0) {
-            $this->notifyConversationParticipants(
+            // Notify everyone: the partner sees read ticks, and the reader's
+            // other devices reset their unread badge.
+            $this->notifyAllParticipants(
                 $conversation,
-                $user->id,
                 'messages.read',
                 [
                     'conversation_id' => $conversation->id,
@@ -534,6 +612,7 @@ class MessengerService
         $settings = $this->getSettings($user);
         $settings->update(array_intersect_key($data, array_flip([
             'enter_to_send', 'quote_with_title', 'wallpaper', 'theme', 'locale',
+            'show_online', 'show_last_seen', 'show_phone', 'show_email',
         ])));
 
         return $settings;
@@ -555,7 +634,8 @@ class MessengerService
     {
         return User::where('id', $userId)
             ->where('active', true)
-            ->select('id', 'first_name', 'last_name', 'username', 'profile_pic', 'cover_pic', 'bio', 'last_seen')
+            ->select('id', 'first_name', 'last_name', 'username', 'profile_pic', 'cover_pic', 'bio', 'last_seen', 'email', 'mobile')
+            ->with('messengerSettings')
             ->firstOrFail();
     }
 
@@ -593,5 +673,255 @@ class MessengerService
         foreach ($participants as $recipient) {
             $this->emitEvent($recipient->id, $conversation->id, $type, $payload, $persist);
         }
+    }
+
+    /**
+     * Notify *every* participant of a conversation, including the actor's own
+     * other devices. Enables multi-device realtime sync.
+     */
+    protected function notifyAllParticipants(
+        Conversation $conversation,
+        string $type,
+        array $payload,
+        bool $persist = true
+    ): void {
+        $participants = $conversation->users()->get();
+        foreach ($participants as $recipient) {
+            $this->emitEvent($recipient->id, $conversation->id, $type, $payload, $persist);
+        }
+    }
+
+    /**
+     * Reject sending if either side has blocked the other.
+     */
+    protected function assertNotBlocked(User $user, Conversation $conversation): void
+    {
+        $other = $conversation->otherUser($user)
+            ?? $conversation->users()->where('users.id', '!=', $user->id)->first();
+
+        if (! $other) {
+            return;
+        }
+
+        $iBlocked = Contact::where('user_id', $user->id)
+            ->where('contact_user_id', $other->id)
+            ->where('is_blocked', true)
+            ->exists();
+
+        if ($iBlocked) {
+            throw new \RuntimeException('You have blocked this user');
+        }
+
+        $blockedByThem = Contact::where('user_id', $other->id)
+            ->where('contact_user_id', $user->id)
+            ->where('is_blocked', true)
+            ->exists();
+
+        if ($blockedByThem) {
+            throw new \RuntimeException('This user has blocked you');
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Presence
+    // -------------------------------------------------------------------------
+
+    /**
+     * Users who should be told about my presence changes: conversation
+     * partners plus people who have me in their contacts.
+     *
+     * @return int[]
+     */
+    protected function presenceAudience(User $user): array
+    {
+        $partnerIds = DB::table('conversation_user as cu_me')
+            ->join('conversation_user as cu_other', 'cu_me.conversation_id', '=', 'cu_other.conversation_id')
+            ->where('cu_me.user_id', $user->id)
+            ->where('cu_other.user_id', '!=', $user->id)
+            ->pluck('cu_other.user_id');
+
+        $contactOwners = Contact::where('contact_user_id', $user->id)->pluck('user_id');
+
+        return $partnerIds->merge($contactOwners)->unique()->values()->all();
+    }
+
+    /**
+     * Heartbeat: refresh last_seen and broadcast that I'm online (respecting
+     * my privacy preference).
+     */
+    public function pingPresence(User $user): void
+    {
+        $user->forceFill(['last_seen' => now()])->saveQuietly();
+
+        $this->broadcastPresence($user, true);
+    }
+
+    /**
+     * Mark me offline now (called when leaving the messenger).
+     */
+    public function setOffline(User $user): void
+    {
+        $this->broadcastPresence($user, false);
+    }
+
+    protected function broadcastPresence(User $user, bool $online): void
+    {
+        $settings = $user->resolvedMessengerSettings();
+        $isOnline = $online && $settings->show_online;
+        $lastSeen = null;
+        if ($settings->show_last_seen) {
+            $lastSeen = $user->last_seen
+                ? \Illuminate\Support\Carbon::parse($user->last_seen)->toIso8601String()
+                : now()->toIso8601String();
+        }
+
+        $payload = [
+            'user_id' => $user->id,
+            'is_online' => $isOnline,
+            'last_seen' => $lastSeen,
+        ];
+
+        foreach ($this->presenceAudience($user) as $audienceId) {
+            // Presence is ephemeral; don't persist to the durable event log.
+            $this->emitEvent($audienceId, null, 'presence', $payload, false);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Blocking
+    // -------------------------------------------------------------------------
+
+    public function listBlocked(User $user): Collection
+    {
+        return Contact::where('user_id', $user->id)
+            ->where('is_blocked', true)
+            ->with('contactUser:id,first_name,last_name,username,profile_pic,last_seen')
+            ->orderBy('name')
+            ->get();
+    }
+
+    public function blockUser(User $user, int $targetUserId): Contact
+    {
+        if ($targetUserId === $user->id) {
+            throw new \InvalidArgumentException('Cannot block yourself');
+        }
+
+        $target = User::findOrFail($targetUserId);
+
+        $contact = Contact::firstOrCreate(
+            ['user_id' => $user->id, 'contact_user_id' => $targetUserId],
+            ['name' => trim("{$target->first_name} {$target->last_name}") ?: $target->username]
+        );
+        $contact->update(['is_blocked' => true]);
+
+        return $contact->load('contactUser:id,first_name,last_name,username,profile_pic,last_seen');
+    }
+
+    public function unblockUser(User $user, int $targetUserId): void
+    {
+        Contact::where('user_id', $user->id)
+            ->where('contact_user_id', $targetUserId)
+            ->update(['is_blocked' => false]);
+    }
+
+    // -------------------------------------------------------------------------
+    // Contact lookup & invitations
+    // -------------------------------------------------------------------------
+
+    /**
+     * Find a user by exact email, mobile, or username.
+     */
+    public function findUserByIdentifier(string $identifier): ?User
+    {
+        $identifier = trim($identifier);
+        if ($identifier === '') {
+            return null;
+        }
+
+        $normalizedMobile = $this->normalizeMobile($identifier);
+
+        return User::query()
+            ->where('active', true)
+            ->where(function ($q) use ($identifier, $normalizedMobile) {
+                $q->where('email', $identifier)
+                    ->orWhere('username', ltrim($identifier, '@'));
+                if ($normalizedMobile) {
+                    $q->orWhere('mobile', $normalizedMobile);
+                }
+            })
+            ->first();
+    }
+
+    public function detectIdentifierChannel(string $identifier): ?string
+    {
+        $identifier = trim($identifier);
+        if (filter_var($identifier, FILTER_VALIDATE_EMAIL)) {
+            return 'email';
+        }
+        if ($this->normalizeMobile($identifier)) {
+            return 'sms';
+        }
+
+        return null;
+    }
+
+    protected function normalizeMobile(string $value): ?string
+    {
+        $digits = preg_replace('/[^0-9]/', '', $value);
+        if ($digits === null || $digits === '') {
+            return null;
+        }
+        // Iranian mobile normalization: 0098/+98/98 → 0XXXXXXXXXX
+        if (str_starts_with($digits, '0098')) {
+            $digits = '0'.substr($digits, 4);
+        } elseif (str_starts_with($digits, '98') && strlen($digits) === 12) {
+            $digits = '0'.substr($digits, 2);
+        }
+        if (strlen($digits) === 10 && $digits[0] === '9') {
+            $digits = '0'.$digits;
+        }
+
+        return preg_match('/^09\d{9}$/', $digits) ? $digits : null;
+    }
+
+    /**
+     * Send an invitation to a non-registered email/phone, throttled per target.
+     */
+    public function sendInvite(User $inviter, string $identifier, string $channel): array
+    {
+        $identifier = trim($identifier);
+        $inviterName = trim("{$inviter->first_name} {$inviter->last_name}") ?: ($inviter->username ?: 'A Zanburak user');
+        $registerUrl = rtrim((string) (config('app.frontend_url') ?: config('app.url') ?: 'https://zanburak.ir'), '/').'/auth';
+
+        $invite = ContactInvite::firstOrNew([
+            'inviter_id' => $inviter->id,
+            'identifier' => $identifier,
+            'channel' => $channel,
+        ]);
+
+        // Throttle: at most one invite per target per 24h.
+        if ($invite->exists && $invite->last_sent_at && $invite->last_sent_at->gt(now()->subDay())) {
+            return ['invited' => true, 'throttled' => true];
+        }
+
+        try {
+            if ($channel === 'email') {
+                Notification::route('mail', $identifier)
+                    ->notify(new InviteToZanburak($inviterName, $registerUrl, 'email'));
+            } else {
+                $mobile = $this->normalizeMobile($identifier) ?? $identifier;
+                (new GhasedakChannel)->send(null, new InviteToZanburak($inviterName, $registerUrl, 'sms', $mobile));
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Messenger invite failed: '.$e->getMessage());
+
+            return ['invited' => false, 'error' => true];
+        }
+
+        $invite->last_sent_at = now();
+        $invite->send_count = ($invite->send_count ?? 0) + 1;
+        $invite->save();
+
+        return ['invited' => true];
     }
 }

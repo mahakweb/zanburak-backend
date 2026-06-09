@@ -49,6 +49,14 @@ class Message extends Model
         return $this->belongsTo(User::class, 'forwarded_from_user_id');
     }
 
+    /**
+     * Users who have hidden this message from their own view ("delete for me").
+     */
+    public function deletedForUsers()
+    {
+        return $this->belongsToMany(User::class, 'message_deletions', 'message_id', 'user_id')->withTimestamps();
+    }
+
     public function isOwnedBy(?User $user): bool
     {
         return $user !== null && (int) $this->user_id === (int) $user->id;

@@ -85,4 +85,98 @@ class ContactController extends Controller
 
         return response()->json(UserBriefResource::collection($users));
     }
+
+    /**
+     * Resolve an identifier (email / phone / username) WITHOUT taking any
+     * action, so the UI can ask the user what to do next.
+     */
+    public function lookup(Request $request): JsonResponse
+    {
+        $request->validate(['identifier' => 'required|string|max:150']);
+
+        $identifier = trim($request->input('identifier'));
+        $found = $this->messenger->findUserByIdentifier($identifier);
+
+        if ($found) {
+            return response()->json([
+                'status' => $found->id === $request->user()->id ? 'self' : 'found',
+                'user' => new UserBriefResource($found),
+            ]);
+        }
+
+        $channel = $this->messenger->detectIdentifierChannel($identifier);
+
+        return response()->json([
+            'status' => $channel ? 'can_invite' : 'invalid',
+            'channel' => $channel,
+        ]);
+    }
+
+    /**
+     * Add a contact by email / phone / username. If the person is already a
+     * member we add them; otherwise we send an invitation to register.
+     */
+    public function invite(Request $request): JsonResponse
+    {
+        $request->validate(['identifier' => 'required|string|max:150']);
+
+        $identifier = trim($request->input('identifier'));
+        $found = $this->messenger->findUserByIdentifier($identifier);
+
+        if ($found) {
+            if ($found->id === $request->user()->id) {
+                return response()->json(['message' => 'Cannot add yourself'], 422);
+            }
+
+            $contact = $this->messenger->addContact($request->user(), $found->id);
+
+            return response()->json([
+                'status' => 'added',
+                'contact' => new ContactResource($contact),
+                'user' => new UserBriefResource($found),
+            ], 201);
+        }
+
+        $channel = $this->messenger->detectIdentifierChannel($identifier);
+        if (! $channel) {
+            return response()->json([
+                'status' => 'not_found',
+                'message' => 'User not found and the identifier is not a valid email or phone to invite.',
+            ], 422);
+        }
+
+        $result = $this->messenger->sendInvite($request->user(), $identifier, $channel);
+
+        return response()->json([
+            'status' => 'invited',
+            'channel' => $channel,
+            'invited' => $result['invited'] ?? false,
+            'throttled' => $result['throttled'] ?? false,
+        ]);
+    }
+
+    public function blocked(Request $request): JsonResponse
+    {
+        $contacts = $this->messenger->listBlocked($request->user());
+
+        return response()->json(ContactResource::collection($contacts));
+    }
+
+    public function block(Request $request, int $userId): JsonResponse
+    {
+        try {
+            $contact = $this->messenger->blockUser($request->user(), $userId);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(new ContactResource($contact));
+    }
+
+    public function unblock(Request $request, int $userId): JsonResponse
+    {
+        $this->messenger->unblockUser($request->user(), $userId);
+
+        return response()->json(['ok' => true]);
+    }
 }

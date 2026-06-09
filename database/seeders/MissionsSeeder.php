@@ -904,7 +904,7 @@ class MissionsSeeder extends Seeder
             );
         }
 
-        $this->command->info('تمام ماموریت‌ها با موفقیت ایجاد شدند!');
+        // $this->command->info('تمام ماموریت‌ها با موفقیت ایجاد شدند!');
     }
 }
 

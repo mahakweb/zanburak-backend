@@ -154,13 +154,15 @@ class MessengerController extends Controller
         $request->validate([
             'message_ids' => 'required|array|min:1|max:50',
             'message_ids.*' => 'integer|exists:messages,id',
+            'drop_author' => 'sometimes|boolean',
         ]);
 
         try {
             $messages = $this->messenger->forwardMessages(
                 $request->user(),
                 $request->input('message_ids'),
-                $conversation
+                $conversation,
+                $request->boolean('drop_author', false)
             );
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 403);
@@ -176,12 +178,18 @@ class MessengerController extends Controller
         $request->validate([
             'message_ids' => 'required|array|min:1|max:100',
             'message_ids.*' => 'integer',
+            'scope' => 'sometimes|in:me,everyone',
         ]);
 
-        $deleted = $this->messenger->bulkDeleteMessages(
-            $request->user(),
-            $request->input('message_ids')
-        );
+        try {
+            $deleted = $this->messenger->bulkDeleteMessages(
+                $request->user(),
+                $request->input('message_ids'),
+                $request->input('scope', 'everyone')
+            );
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
 
         return response()->json(['deleted' => $deleted]);
     }
@@ -209,11 +217,31 @@ class MessengerController extends Controller
 
     public function deleteMessage(Request $request, Message $message): JsonResponse
     {
+        $request->validate(['scope' => 'sometimes|in:me,everyone']);
+
         try {
-            $this->messenger->deleteMessage($request->user(), $message);
+            $this->messenger->deleteMessage(
+                $request->user(),
+                $message,
+                $request->input('scope', 'everyone')
+            );
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 403);
         }
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function presencePing(Request $request): JsonResponse
+    {
+        $this->messenger->pingPresence($request->user());
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function presenceOffline(Request $request): JsonResponse
+    {
+        $this->messenger->setOffline($request->user());
 
         return response()->json(['ok' => true]);
     }
@@ -251,13 +279,7 @@ class MessengerController extends Controller
     {
         $settings = $this->messenger->getSettings($request->user());
 
-        return response()->json([
-            'enter_to_send' => $settings->enter_to_send,
-            'quote_with_title' => $settings->quote_with_title,
-            'wallpaper' => $settings->wallpaper,
-            'theme' => $settings->theme,
-            'locale' => $settings->locale,
-        ]);
+        return response()->json($this->settingsPayload($settings));
     }
 
     public function updateSettings(Request $request): JsonResponse
@@ -268,17 +290,30 @@ class MessengerController extends Controller
             'wallpaper' => 'sometimes|nullable|string|max:40',
             'theme' => 'sometimes|nullable|string|max:20',
             'locale' => 'sometimes|nullable|string|max:5',
+            'show_online' => 'sometimes|boolean',
+            'show_last_seen' => 'sometimes|boolean',
+            'show_phone' => 'sometimes|boolean',
+            'show_email' => 'sometimes|boolean',
         ]);
 
         $settings = $this->messenger->updateSettings($request->user(), $data);
 
-        return response()->json([
+        return response()->json($this->settingsPayload($settings));
+    }
+
+    private function settingsPayload(\App\Models\MessengerSetting $settings): array
+    {
+        return [
             'enter_to_send' => $settings->enter_to_send,
             'quote_with_title' => $settings->quote_with_title,
             'wallpaper' => $settings->wallpaper,
             'theme' => $settings->theme,
             'locale' => $settings->locale,
-        ]);
+            'show_online' => $settings->show_online,
+            'show_last_seen' => $settings->show_last_seen,
+            'show_phone' => $settings->show_phone,
+            'show_email' => $settings->show_email,
+        ];
     }
 
     public function myProfile(Request $request): JsonResponse
@@ -328,6 +363,9 @@ class MessengerController extends Controller
             return response()->json(['message' => 'User not found'], 404);
         }
 
+        $settings = $user->resolvedMessengerSettings();
+        $isSelf = $request->user() && (int) $request->user()->id === (int) $user->id;
+
         return response()->json([
             'id' => $user->id,
             'first_name' => $user->first_name,
@@ -336,8 +374,10 @@ class MessengerController extends Controller
             'profile_pic' => $user->profile_pic,
             'cover_pic' => $user->cover_pic,
             'bio' => $user->bio,
-            'last_seen' => $user->last_seen,
-            'is_online' => $user->isOnline(),
+            'last_seen' => $user->lastSeenVisible(),
+            'is_online' => $user->isOnlineVisible(),
+            'mobile' => ($isSelf || $settings->show_phone) ? $user->mobile : null,
+            'email' => ($isSelf || $settings->show_email) ? $user->email : null,
         ]);
     }
 

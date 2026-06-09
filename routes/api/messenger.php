@@ -26,12 +26,21 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         Route::post('/conversations/{conversation}/typing', [MessengerController::class, 'typing'])->name('conversations.typing');
         Route::post('/conversations/{conversation}/read', [MessengerController::class, 'markRead'])->name('conversations.read');
 
+        // Presence (heartbeat / explicit offline)
+        Route::post('/presence/ping', [MessengerController::class, 'presencePing'])->name('presence.ping');
+        Route::post('/presence/offline', [MessengerController::class, 'presenceOffline'])->name('presence.offline');
+
         // Contacts
         Route::get('/contacts', [ContactController::class, 'index'])->name('contacts.index');
+        Route::get('/contacts/blocked', [ContactController::class, 'blocked'])->name('contacts.blocked');
         Route::post('/contacts', [ContactController::class, 'store'])->name('contacts.store');
+        Route::post('/contacts/lookup', [ContactController::class, 'lookup'])->name('contacts.lookup');
+        Route::post('/contacts/invite', [ContactController::class, 'invite'])->name('contacts.invite');
         Route::put('/contacts/{contact}', [ContactController::class, 'update'])->name('contacts.update');
         Route::delete('/contacts/{contact}', [ContactController::class, 'destroy'])->name('contacts.destroy');
         Route::get('/users/search', [ContactController::class, 'search'])->name('users.search');
+        Route::post('/users/{userId}/block', [ContactController::class, 'block'])->name('users.block');
+        Route::post('/users/{userId}/unblock', [ContactController::class, 'unblock'])->name('users.unblock');
 
         // Settings & profiles
         Route::get('/settings', [MessengerController::class, 'getSettings'])->name('settings.show');

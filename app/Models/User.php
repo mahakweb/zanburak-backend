@@ -818,6 +818,51 @@ class User extends Authenticatable implements MustVerifyEmail
         return Carbon::parse($this->last_seen)->gt(Carbon::now()->subMinutes(2));
     }
 
+    /**
+     * Resolve this user's messenger settings, falling back to defaults
+     * without forcing a DB write (read-only privacy resolution).
+     */
+    public function resolvedMessengerSettings(): \App\Models\MessengerSetting
+    {
+        $settings = $this->relationLoaded('messengerSettings')
+            ? $this->getRelation('messengerSettings')
+            : $this->messengerSettings()->first();
+
+        if ($settings) {
+            return $settings;
+        }
+
+        return new \App\Models\MessengerSetting(array_merge(
+            ['user_id' => $this->id],
+            \App\Models\MessengerSetting::defaults()
+        ));
+    }
+
+    /**
+     * Online status honoring the user's privacy preference.
+     */
+    public function isOnlineVisible(): bool
+    {
+        if (! $this->resolvedMessengerSettings()->show_online) {
+            return false;
+        }
+
+        return $this->isOnline();
+    }
+
+    /**
+     * last_seen honoring the user's privacy preference.
+     */
+    public function lastSeenVisible(): ?string
+    {
+        $settings = $this->resolvedMessengerSettings();
+        if (! $settings->show_last_seen) {
+            return null;
+        }
+
+        return $this->last_seen ? Carbon::parse($this->last_seen)->toIso8601String() : null;
+    }
+
 
     public function sendEmailVerificationNotification()
     {

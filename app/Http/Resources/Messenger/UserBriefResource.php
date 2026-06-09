@@ -15,8 +15,8 @@ class UserBriefResource extends JsonResource
             'last_name' => $this->last_name,
             'username' => $this->username,
             'profile_pic' => $this->profile_pic,
-            'last_seen' => $this->last_seen,
-            'is_online' => $this->isOnline(),
+            'last_seen' => $this->lastSeenVisible(),
+            'is_online' => $this->isOnlineVisible(),
         ];
     }
 }

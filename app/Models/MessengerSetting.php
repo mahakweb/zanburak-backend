@@ -16,11 +16,19 @@ class MessengerSetting extends Model
         'wallpaper',
         'theme',
         'locale',
+        'show_online',
+        'show_last_seen',
+        'show_phone',
+        'show_email',
     ];
 
     protected $casts = [
         'enter_to_send' => 'boolean',
         'quote_with_title' => 'boolean',
+        'show_online' => 'boolean',
+        'show_last_seen' => 'boolean',
+        'show_phone' => 'boolean',
+        'show_email' => 'boolean',
     ];
 
     public function user()
@@ -36,6 +44,10 @@ class MessengerSetting extends Model
             'wallpaper' => 'default',
             'theme' => null,
             'locale' => null,
+            'show_online' => true,
+            'show_last_seen' => true,
+            'show_phone' => false,
+            'show_email' => false,
         ];
     }
 }
