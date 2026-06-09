@@ -61,4 +61,11 @@ return [
 
     // Messages page size.
     'messages_per_page' => (int) env('MESSENGER_MESSAGES_PER_PAGE', 40),
+
+    // Conversations page size (sidebar pagination / infinite scroll).
+    'conversations_per_page' => (int) env('MESSENGER_CONVERSATIONS_PER_PAGE', 30),
+
+    // How many recent messages to preload with each conversation in the list,
+    // so an opened chat renders instantly without a follow-up request.
+    'conversation_preview_messages' => (int) env('MESSENGER_CONVERSATION_PREVIEW_MESSAGES', 30),
 ];

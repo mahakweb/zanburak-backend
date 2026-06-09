@@ -39,9 +39,11 @@ class ActiveCodeNotification extends Notification
     }
 
     public function toGhasedakSms($notifiable){
+        $origin = parse_url(config('app.frontend_url', 'https://zanburak.ir'), PHP_URL_HOST) ?: 'zanburak.ir';
 
         return[
-            'text' => "کد احراز هویت شما در وبسایت زنبورک:\n {$this->code}",
+            // Web OTP format: last line must be @<domain> #<code> for Android Chrome SMS autofill
+            'text' => "کد احراز هویت شما در وبسایت زنبورک: {$this->code}\n\n@{$origin} #{$this->code}",
             'phone' => $this->phone,
         ];
 

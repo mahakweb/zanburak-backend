@@ -19,9 +19,18 @@ class MessengerController extends Controller
 
     public function conversations(Request $request): JsonResponse
     {
-        $conversations = $this->messenger->listConversations($request->user());
+        $paginator = $this->messenger->listConversations($request->user());
 
-        return response()->json(ConversationResource::collection($conversations));
+        return response()->json([
+            'data' => ConversationResource::collection($paginator->items()),
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'has_more' => $paginator->hasMorePages(),
+            ],
+        ]);
     }
 
     public function createConversation(Request $request): JsonResponse

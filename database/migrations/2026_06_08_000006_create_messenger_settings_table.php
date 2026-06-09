@@ -15,6 +15,12 @@ return new class extends Migration {
             $table->string('wallpaper', 40)->nullable();         // chat background preset
             $table->string('theme', 20)->nullable();             // system | dark | light (synced)
             $table->string('locale', 5)->nullable();             // fa | en (synced)
+            // Privacy: control what other users can see about me.
+            $table->boolean('show_online')->default(true);       // broadcast my online status
+            $table->boolean('show_last_seen')->default(true); // expose my last_seen time
+            $table->boolean('show_phone')->default(false); // expose my mobile in profile
+            $table->boolean('show_email')->default(false);     // expose my email in profile
+
             $table->timestamps();
 
             $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');

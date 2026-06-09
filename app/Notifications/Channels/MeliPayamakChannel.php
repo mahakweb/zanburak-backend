@@ -22,6 +22,8 @@ class MeliPayamakChannel
 
         $receptor = $data['phone'];
         $code = $data['code'];
+        // Web OTP (Android Chrome SMS autofill) requires the SMS to end with: @<domain> #<code>
+        // MeliPayamak OTP template should include a line like: @zanburak.ir #{1} (both params are the code)
 
         try
         {
@@ -32,12 +34,9 @@ class MeliPayamakChannel
             $data = array(
                 "username"=>$username,
                 "password"=>$password,
-                // "text"=>array($code),
-                "text"=>array($code,$code),
+                "text"=>array($code, $code),
                 "to"=>$receptor,
-                // "bodyId"=>"259235", // for mahakweb
-                // "bodyId"=>"259360", // for mahakweb
-                "bodyId"=>"372965", // for zanburak
+                "bodyId"=>config('services.meliPayamak.otp_template_id', '372965'),
             );
             $send_Result = $sms->SendByBaseNumber($data)->SendByBaseNumberResult;
             // echo $send_Result;

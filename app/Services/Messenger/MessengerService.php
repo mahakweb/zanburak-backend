@@ -30,9 +30,11 @@ class MessengerService
     // Conversations
     // -------------------------------------------------------------------------
 
-    public function listConversations(User $user): Collection
+    public function listConversations(User $user, ?int $perPage = null): LengthAwarePaginator
     {
-        $conversations = Conversation::query()
+        $perPage = $perPage ?: (int) config('messenger.conversations_per_page', 30);
+
+        $paginator = Conversation::query()
             ->whereHas('users', function ($q) use ($user) {
                 $q->where('users.id', $user->id)
                     ->whereNull('conversation_user.deleted_at');
@@ -40,41 +42,80 @@ class MessengerService
             ->with([
                 'users:id,first_name,last_name,username,profile_pic,last_seen',
                 'users.messengerSettings',
-                'lastMessage' => fn ($q) => $q->with('user:id,first_name,last_name,username,profile_pic,last_seen'),
             ])
             ->orderByDesc('last_message_at')
-            ->get();
+            ->paginate($perPage);
 
-        foreach ($conversations as $conv) {
+        $previewLimit = (int) config('messenger.conversation_preview_messages', 30);
+
+        foreach ($paginator->getCollection() as $conv) {
             $conv->unread_count = $conv->unreadCountFor($user);
-            // Honor per-user cleared history & "delete for me" when previewing.
-            $conv->setRelation('lastMessage', $this->lastVisibleMessageFor($user, $conv));
+
+            // Preload the most recent messages so the chat opens instantly
+            // without waiting for a separate request.
+            $preview = $this->recentMessagesFor($user, $conv, $previewLimit);
+            $conv->setRelation('recentMessages', $preview['messages']);
+            $conv->messages_has_more = $preview['has_more'];
+
+            // The newest visible message doubles as the list preview, honoring
+            // per-user cleared history & "delete for me".
+            $conv->setRelation('lastMessage', $preview['messages']->last());
         }
 
-        return $conversations;
+        return $paginator;
     }
 
     /**
-     * The most recent message in a conversation that is still visible to the
-     * given user (not soft-deleted, not hidden via "delete for me", and after
-     * the user's cleared_at marker).
+     * Base query for the messages a user is allowed to see in a conversation:
+     * not soft-deleted, not hidden via "delete for me", and after the user's
+     * cleared_at marker. Ordered newest-first for cursor pagination.
      */
-    public function lastVisibleMessageFor(User $user, Conversation $conversation): ?Message
+    protected function visibleMessagesQuery(User $user, Conversation $conversation)
     {
-        $pivot = $conversation->users->firstWhere('id', $user->id)?->pivot
-            ?? $conversation->users()->where('users.id', $user->id)->first()?->pivot;
+        $pivot = $conversation->relationLoaded('users')
+            ? $conversation->users->firstWhere('id', $user->id)?->pivot
+            : null;
+        $pivot ??= $conversation->users()->where('users.id', $user->id)->first()?->pivot;
         $clearedAt = $pivot?->cleared_at;
 
         $query = $conversation->messages()
             ->with($this->messageRelations())
             ->whereDoesntHave('deletedForUsers', fn ($q) => $q->where('users.id', $user->id))
-            ->orderByDesc('id');
+            ->reorder('id', 'desc');
 
         if ($clearedAt) {
             $query->where('created_at', '>', $clearedAt);
         }
 
-        return $query->first();
+        return $query;
+    }
+
+    /**
+     * The most recent message in a conversation that is still visible to the
+     * given user.
+     */
+    public function lastVisibleMessageFor(User $user, Conversation $conversation): ?Message
+    {
+        return $this->visibleMessagesQuery($user, $conversation)->first();
+    }
+
+    /**
+     * The latest $limit visible messages, returned chronologically (oldest
+     * first) for direct rendering, plus a flag indicating older messages exist.
+     *
+     * @return array{messages: \Illuminate\Support\Collection, has_more: bool}
+     */
+    public function recentMessagesFor(User $user, Conversation $conversation, int $limit = 30): array
+    {
+        $rows = $this->visibleMessagesQuery($user, $conversation)
+            ->limit($limit + 1)
+            ->get();
+
+        $hasMore = $rows->count() > $limit;
+
+        $messages = $rows->take($limit)->sortBy('id')->values();
+
+        return ['messages' => $messages, 'has_more' => $hasMore];
     }
 
     public function findOrCreateConversation(User $me, int $otherUserId): Conversation
@@ -110,9 +151,9 @@ class MessengerService
             ->first();
 
         if ($existing) {
-            // Restore if user had "deleted" the conversation
+            // Restore visibility only for me. The other side manages their own
+            // (and my cleared_at stays, so old history doesn't reappear).
             $existing->users()->updateExistingPivot($me->id, ['deleted_at' => null]);
-            $existing->users()->updateExistingPivot($otherUserId, ['deleted_at' => null]);
 
             return $existing->load([
                 'users:id,first_name,last_name,username,profile_pic,last_seen',
@@ -133,22 +174,52 @@ class MessengerService
     public function deleteConversation(User $user, Conversation $conversation): void
     {
         $this->assertParticipant($user, $conversation);
-        $conversation->users()->updateExistingPivot($user->id, ['deleted_at' => now()]);
+
+        $now = now();
+        // Delete-for-me: hide from my list AND start fresh if it is reopened
+        // (a new message restores it, but old history stays hidden for me).
+        $conversation->users()->updateExistingPivot($user->id, [
+            'deleted_at' => $now,
+            'cleared_at' => $now,
+        ]);
 
         // Sync removal to the user's other devices.
         $this->emitEvent($user->id, $conversation->id, 'conversation.deleted', [
             'conversation_id' => $conversation->id,
         ]);
+
+        // Once every participant has deleted it, purge it from the database.
+        $remaining = $conversation->users()
+            ->whereNull('conversation_user.deleted_at')
+            ->count();
+
+        if ($remaining === 0) {
+            DB::transaction(function () use ($conversation) {
+                $conversation->update(['last_message_id' => null]);
+                $conversation->messages()->forceDelete();
+                $conversation->users()->detach();
+                $conversation->delete();
+            });
+        }
     }
 
     public function clearConversation(User $user, Conversation $conversation): void
     {
         $this->assertParticipant($user, $conversation);
-        $conversation->users()->updateExistingPivot($user->id, ['cleared_at' => now()]);
 
-        // Clearing history is per-user; sync only to the same user's devices.
-        $this->emitEvent($user->id, $conversation->id, 'conversation.cleared', [
+        $now = now();
+        // Clearing history wipes it for *both* participants (Telegram-style),
+        // while attributing who performed the action.
+        foreach ($conversation->users()->pluck('users.id') as $uid) {
+            $conversation->users()->updateExistingPivot($uid, ['cleared_at' => $now]);
+        }
+
+        $clearedByName = trim("{$user->first_name} {$user->last_name}") ?: ($user->username ?: '');
+
+        $this->notifyAllParticipants($conversation, 'conversation.cleared', [
             'conversation_id' => $conversation->id,
+            'cleared_by' => $user->id,
+            'cleared_by_name' => $clearedByName,
         ]);
     }
 
@@ -173,17 +244,7 @@ class MessengerService
     {
         $this->assertParticipant($user, $conversation);
 
-        $pivot = $conversation->users()->where('users.id', $user->id)->first()?->pivot;
-        $clearedAt = $pivot?->cleared_at;
-
-        $query = $conversation->messages()
-            ->with($this->messageRelations())
-            ->whereDoesntHave('deletedForUsers', fn ($q) => $q->where('users.id', $user->id))
-            ->orderByDesc('id');
-
-        if ($clearedAt) {
-            $query->where('created_at', '>', $clearedAt);
-        }
+        $query = $this->visibleMessagesQuery($user, $conversation);
 
         if ($beforeId) {
             $query->where('id', '<', $beforeId);
@@ -610,10 +671,27 @@ class MessengerService
     public function updateSettings(User $user, array $data): \App\Models\MessengerSetting
     {
         $settings = $this->getSettings($user);
+
+        $before = [
+            'show_online' => (bool) $settings->show_online,
+            'show_last_seen' => (bool) $settings->show_last_seen,
+        ];
+
         $settings->update(array_intersect_key($data, array_flip([
             'enter_to_send', 'quote_with_title', 'wallpaper', 'theme', 'locale',
             'show_online', 'show_last_seen', 'show_phone', 'show_email',
         ])));
+
+        // Privacy preferences that change what *others* see (online state &
+        // last seen) must propagate in realtime to everyone in contact.
+        $privacyChanged = (bool) $settings->show_online !== $before['show_online']
+            || (bool) $settings->show_last_seen !== $before['show_last_seen'];
+
+        if ($privacyChanged) {
+            // Make sure broadcastPresence resolves the freshly-saved settings.
+            $user->setRelation('messengerSettings', $settings);
+            $this->broadcastPresence($user, $user->isOnline());
+        }
 
         return $settings;
     }

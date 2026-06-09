@@ -17,6 +17,11 @@ class ConversationResource extends JsonResource
             'last_message_at' => $this->last_message_at?->toIso8601String(),
             'users' => UserBriefResource::collection($this->whenLoaded('users')),
             'last_message' => new MessageResource($this->whenLoaded('lastMessage')),
+            'messages' => MessageResource::collection($this->whenLoaded('recentMessages')),
+            'messages_has_more' => $this->when(
+                isset($this->messages_has_more),
+                fn () => (bool) $this->messages_has_more
+            ),
             'unread_count' => $this->when(
                 isset($this->unread_count),
                 fn () => (int) $this->unread_count

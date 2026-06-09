@@ -44,6 +44,8 @@ return [
         'username' => env('MELI_PAYAMAK_USERNAME', '19168474970'),
         'password' => env('MELI_PAYAMAK_PASSWORD', 'EQ9FG'),
         'notification_template_id' => env('MELI_PAYAMAK_NOTIFICATION_TEMPLATE_ID', null), // ID الگوی اطلاع‌رسانی در پنل MeliPayamak
+        // OTP template should include Web OTP suffix, e.g. @zanburak.ir #{1} (see MeliPayamakChannel)
+        'otp_template_id' => env('MELI_PAYAMAK_OTP_TEMPLATE_ID', '372965'),
     ],
 
     'google' => [
