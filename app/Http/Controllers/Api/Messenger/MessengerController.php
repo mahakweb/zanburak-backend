@@ -51,6 +51,14 @@ class MessengerController extends Controller
         return response()->json(new ConversationResource($conversation));
     }
 
+    public function savedConversation(Request $request): JsonResponse
+    {
+        $conversation = $this->messenger->getOrCreateSavedConversation($request->user());
+        $conversation->unread_count = 0;
+
+        return response()->json(new ConversationResource($conversation));
+    }
+
     public function showConversation(Request $request, Conversation $conversation): JsonResponse
     {
         if (! $conversation->hasParticipant($request->user())) {

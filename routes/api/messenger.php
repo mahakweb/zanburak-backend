@@ -11,6 +11,7 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         // Conversations
         Route::get('/conversations', [MessengerController::class, 'conversations'])->name('conversations.index');
         Route::post('/conversations', [MessengerController::class, 'createConversation'])->name('conversations.create');
+        Route::post('/saved', [MessengerController::class, 'savedConversation'])->name('saved');
         Route::get('/conversations/{conversation}', [MessengerController::class, 'showConversation'])->name('conversations.show');
         Route::delete('/conversations/{conversation}', [MessengerController::class, 'deleteConversation'])->name('conversations.delete');
         Route::post('/conversations/{conversation}/clear', [MessengerController::class, 'clearConversation'])->name('conversations.clear');

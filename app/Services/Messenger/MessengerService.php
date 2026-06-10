@@ -171,6 +171,36 @@ class MessengerService
         });
     }
 
+    /**
+     * The user's personal "Saved Messages" chat: a single-participant
+     * conversation of type 'saved' where a user can forward / keep notes.
+     */
+    public function getOrCreateSavedConversation(User $me): Conversation
+    {
+        $existing = Conversation::where('type', 'saved')
+            ->whereHas('users', fn ($q) => $q->where('users.id', $me->id))
+            ->first();
+
+        if ($existing) {
+            // Restore visibility in case the user had hidden it.
+            $existing->users()->updateExistingPivot($me->id, ['deleted_at' => null]);
+
+            return $existing->load([
+                'users:id,first_name,last_name,username,profile_pic,last_seen',
+                'lastMessage',
+            ]);
+        }
+
+        return DB::transaction(function () use ($me) {
+            $conversation = Conversation::create(['type' => 'saved']);
+            $conversation->users()->attach([$me->id]);
+
+            return $conversation->load([
+                'users:id,first_name,last_name,username,profile_pic,last_seen',
+            ]);
+        });
+    }
+
     public function deleteConversation(User $user, Conversation $conversation): void
     {
         $this->assertParticipant($user, $conversation);
