@@ -249,6 +249,58 @@ class MessengerController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    public function pins(Request $request, Conversation $conversation): JsonResponse
+    {
+        try {
+            $messages = $this->messenger->pinnedMessagesFor($request->user(), $conversation);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json([
+            'data' => MessageResource::collection($messages),
+        ]);
+    }
+
+    public function pinMessage(Request $request, Message $message): JsonResponse
+    {
+        $request->validate(['for_everyone' => 'sometimes|boolean']);
+
+        try {
+            $this->messenger->pinMessage(
+                $request->user(),
+                $message,
+                $request->boolean('for_everyone', false)
+            );
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function unpinMessage(Request $request, Message $message): JsonResponse
+    {
+        try {
+            $this->messenger->unpinMessage($request->user(), $message);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function unpinAll(Request $request, Conversation $conversation): JsonResponse
+    {
+        try {
+            $this->messenger->unpinAll($request->user(), $conversation);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json(['ok' => true]);
+    }
+
     public function presencePing(Request $request): JsonResponse
     {
         $this->messenger->pingPresence($request->user());
@@ -304,6 +356,7 @@ class MessengerController extends Controller
         $data = $request->validate([
             'enter_to_send' => 'sometimes|boolean',
             'quote_with_title' => 'sometimes|boolean',
+            'forward_tap_to_chat' => 'sometimes|boolean',
             'wallpaper' => 'sometimes|nullable|string|max:40',
             'theme' => 'sometimes|nullable|string|max:20',
             'locale' => 'sometimes|nullable|string|max:5',
@@ -323,6 +376,7 @@ class MessengerController extends Controller
         return [
             'enter_to_send' => $settings->enter_to_send,
             'quote_with_title' => $settings->quote_with_title,
+            'forward_tap_to_chat' => $settings->forward_tap_to_chat,
             'wallpaper' => $settings->wallpaper,
             'theme' => $settings->theme,
             'locale' => $settings->locale,

@@ -20,7 +20,7 @@ return new class extends Migration {
             $table->boolean('show_last_seen')->default(true); // expose my last_seen time
             $table->boolean('show_phone')->default(false); // expose my mobile in profile
             $table->boolean('show_email')->default(false);     // expose my email in profile
-
+            $table->boolean('forward_tap_to_chat')->default(false);
             $table->timestamps();
 
             $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');

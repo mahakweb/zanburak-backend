@@ -439,6 +439,11 @@ class MessengerService
             // Hide only from this user; sync to their own devices.
             $message->deletedForUsers()->syncWithoutDetaching([$user->id]);
 
+            // Drop it from this user's pinned list too.
+            \App\Models\MessagePin::where('message_id', $messageId)
+                ->where('user_id', $user->id)
+                ->delete();
+
             $this->emitEvent($user->id, $conversationId, 'message.deleted', [
                 'message_id' => $messageId,
                 'conversation_id' => $conversationId,
@@ -452,6 +457,9 @@ class MessengerService
         if (! $message->isOwnedBy($user)) {
             throw new \RuntimeException('You can only delete your own messages for everyone');
         }
+
+        // Pins reference this message; clear them for all participants.
+        \App\Models\MessagePin::where('message_id', $messageId)->delete();
 
         $message->delete();
 
@@ -542,6 +550,96 @@ class MessengerService
             ],
             false
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Pinned messages
+    // -------------------------------------------------------------------------
+
+    /**
+     * Messages pinned in this conversation for the given user, oldest first.
+     */
+    public function pinnedMessagesFor(User $user, Conversation $conversation): Collection
+    {
+        $this->assertParticipant($user, $conversation);
+
+        $ids = \App\Models\MessagePin::where('conversation_id', $conversation->id)
+            ->where('user_id', $user->id)
+            ->orderBy('message_id')
+            ->pluck('message_id');
+
+        if ($ids->isEmpty()) {
+            return new Collection();
+        }
+
+        return Message::whereIn('id', $ids)
+            ->with($this->messageRelations())
+            ->orderBy('id')
+            ->get();
+    }
+
+    /**
+     * Pin a message for myself, or for every participant when $forEveryone.
+     */
+    public function pinMessage(User $user, Message $message, bool $forEveryone = false): void
+    {
+        $conversation = $message->conversation;
+        $this->assertParticipant($user, $conversation);
+
+        $recipients = $forEveryone
+            ? $conversation->users()->pluck('users.id')->all()
+            : [$user->id];
+
+        foreach ($recipients as $uid) {
+            \App\Models\MessagePin::firstOrCreate(
+                ['message_id' => $message->id, 'user_id' => $uid],
+                ['conversation_id' => $conversation->id, 'pinned_by_id' => $user->id]
+            );
+        }
+
+        $message->load($this->messageRelations());
+        $resource = (new MessageResource($message))->resolve();
+
+        foreach ($recipients as $uid) {
+            $this->emitEvent($uid, $conversation->id, 'message.pinned', [
+                'conversation_id' => $conversation->id,
+                'message' => $resource,
+            ]);
+        }
+    }
+
+    /**
+     * Remove a message from my own pinned list.
+     */
+    public function unpinMessage(User $user, Message $message): void
+    {
+        $conversation = $message->conversation;
+        $this->assertParticipant($user, $conversation);
+
+        \App\Models\MessagePin::where('message_id', $message->id)
+            ->where('user_id', $user->id)
+            ->delete();
+
+        $this->emitEvent($user->id, $conversation->id, 'message.unpinned', [
+            'conversation_id' => $conversation->id,
+            'message_id' => $message->id,
+        ]);
+    }
+
+    /**
+     * Clear my entire pinned list for a conversation.
+     */
+    public function unpinAll(User $user, Conversation $conversation): void
+    {
+        $this->assertParticipant($user, $conversation);
+
+        \App\Models\MessagePin::where('conversation_id', $conversation->id)
+            ->where('user_id', $user->id)
+            ->delete();
+
+        $this->emitEvent($user->id, $conversation->id, 'messages.unpinned_all', [
+            'conversation_id' => $conversation->id,
+        ]);
     }
 
     // -------------------------------------------------------------------------
@@ -708,7 +806,7 @@ class MessengerService
         ];
 
         $settings->update(array_intersect_key($data, array_flip([
-            'enter_to_send', 'quote_with_title', 'wallpaper', 'theme', 'locale',
+            'enter_to_send', 'quote_with_title', 'forward_tap_to_chat', 'wallpaper', 'theme', 'locale',
             'show_online', 'show_last_seen', 'show_phone', 'show_email',
         ])));
 
@@ -759,6 +857,7 @@ class MessengerService
         return [
             'user:id,first_name,last_name,username,profile_pic,last_seen',
             'forwardedFromUser:id,first_name,last_name,username,profile_pic,last_seen',
+            'forwardedFromUser.messengerSettings',
             'replyTo' => fn ($q) => $q->with('user:id,first_name,last_name,username,profile_pic,last_seen'),
         ];
     }

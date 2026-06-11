@@ -17,6 +17,9 @@ class UserBriefResource extends JsonResource
             'profile_pic' => $this->profile_pic,
             'last_seen' => $this->lastSeenVisible(),
             'is_online' => $this->isOnlineVisible(),
+            // Whether this user lets others jump into a chat with them by tapping
+            // their name in a forwarded-message header.
+            'forward_tap_to_chat' => (bool) $this->resolvedMessengerSettings()->forward_tap_to_chat,
         ];
     }
 }

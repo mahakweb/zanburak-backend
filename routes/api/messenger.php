@@ -24,6 +24,12 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         Route::post('/messages/bulk-delete', [MessengerController::class, 'bulkDelete'])->name('messages.bulk-delete');
         Route::put('/messages/{message}', [MessengerController::class, 'editMessage'])->name('messages.edit');
         Route::delete('/messages/{message}', [MessengerController::class, 'deleteMessage'])->name('messages.delete');
+        // Pinned messages
+        Route::get('/conversations/{conversation}/pins', [MessengerController::class, 'pins'])->name('conversations.pins');
+        Route::post('/conversations/{conversation}/unpin-all', [MessengerController::class, 'unpinAll'])->name('conversations.unpin-all');
+        Route::post('/messages/{message}/pin', [MessengerController::class, 'pinMessage'])->name('messages.pin');
+        Route::delete('/messages/{message}/pin', [MessengerController::class, 'unpinMessage'])->name('messages.unpin');
+
         Route::post('/conversations/{conversation}/typing', [MessengerController::class, 'typing'])->name('conversations.typing');
         Route::post('/conversations/{conversation}/read', [MessengerController::class, 'markRead'])->name('conversations.read');
 

@@ -13,6 +13,7 @@ class MessengerSetting extends Model
         'user_id',
         'enter_to_send',
         'quote_with_title',
+        'forward_tap_to_chat',
         'wallpaper',
         'theme',
         'locale',
@@ -25,6 +26,7 @@ class MessengerSetting extends Model
     protected $casts = [
         'enter_to_send' => 'boolean',
         'quote_with_title' => 'boolean',
+        'forward_tap_to_chat' => 'boolean',
         'show_online' => 'boolean',
         'show_last_seen' => 'boolean',
         'show_phone' => 'boolean',
@@ -41,6 +43,7 @@ class MessengerSetting extends Model
         return [
             'enter_to_send' => true,
             'quote_with_title' => true,
+            'forward_tap_to_chat' => false,
             'wallpaper' => 'default',
             'theme' => null,
             'locale' => null,
