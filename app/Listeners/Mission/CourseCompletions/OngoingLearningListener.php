@@ -2,6 +2,7 @@
 
 namespace App\Listeners\Mission\CourseCompletions;
 
+use App\Support\SqlDialect;
 use App\Events\Mission\CourseCompletionEvent;
 use Carbon\Carbon;
 
@@ -30,7 +31,7 @@ class OngoingLearningListener
         $monthsWithCompletions = $event->user->courses()
             ->wherePivot('completed_at', '>=', $oneYearAgo)
             ->wherePivotNotNull('completed_at')
-            ->selectRaw('YEAR(completed_at) as year, MONTH(completed_at) as month')
+            ->selectRaw(SqlDialect::year('completed_at').' as year, '.SqlDialect::month('completed_at').' as month')
             ->groupBy('year', 'month')
             ->get()
             ->count();

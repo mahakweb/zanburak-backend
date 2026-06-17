@@ -6,6 +6,8 @@ use App\Contracts\Likeable;
 use App\Models\Cart;
 use App\Models\Concerns\Likes;
 use App\Models\Status;
+use App\Support\SqlDialect;
+use Illuminate\Support\Facades\DB;
 use Cviebrock\EloquentSluggable\Sluggable;
 use Cviebrock\EloquentTaggable\Taggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -42,9 +44,12 @@ class Course extends Model implements Likeable
         'trailer',
         'poster',
         'attached_file',
+        'certificate_enabled',
+        'certificate_template_id',
     ];
     protected $casts = [
         'publish' => 'boolean',
+        'certificate_enabled' => 'boolean',
     ];
 
     public function getCascadeRelations(): array
@@ -326,6 +331,11 @@ class Course extends Model implements Likeable
         return $this->morphMany(Attach::class, 'attachable');
     }
 
+    public function quizzes(): MorphMany
+    {
+        return $this->morphMany(\App\Models\Quiz\Quiz::class, 'quizzable');
+    }
+
     public function section()
     {
         return $this->hasMany(Section::class);
@@ -469,10 +479,13 @@ class Course extends Model implements Likeable
     {
         $totalTime = 0;
         foreach ($this->section as $item => $value) {
+            // total_time is stored as a string column; cast for SQL SUM (PostgreSQL
+            // won't implicitly coerce varchar to numeric the way MySQL does).
+            $timeColumn = DB::raw(SqlDialect::castInt('total_time'));
             if ($published)
-                $totalTime += $value->episode()->where('publish', 1)->sum('total_time');
+                $totalTime += $value->episode()->where('publish', 1)->sum($timeColumn);
             else
-                $totalTime += $value->episode()->sum('total_time');
+                $totalTime += $value->episode()->sum($timeColumn);
         }
         return $totalTime;
     }
@@ -495,6 +508,11 @@ class Course extends Model implements Likeable
                 });
             });
         });
+    }
+
+    public function certificateTemplate()
+    {
+        return $this->belongsTo(CertificateTemplate::class, 'certificate_template_id');
     }
 
     public function certificates()

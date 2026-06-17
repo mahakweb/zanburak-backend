@@ -25,7 +25,7 @@ class DiverseCompletionListener
             ->whereNotNull('course_user.completed_at')
             ->select('category_course.category_id', DB::raw('COUNT(DISTINCT course_user.course_id) as course_count'))
             ->groupBy('category_course.category_id')
-            ->having('course_count', '>=', 1)
+            ->havingRaw('COUNT(DISTINCT course_user.course_id) >= ?', [1])
             ->count();
 
         // تعداد کل دوره‌های تکمیل شده

@@ -6,8 +6,10 @@
     "license": "MIT",
     "require": {
         "php": "^8.2",
+        "barryvdh/laravel-dompdf": "^3.1",
         "cviebrock/eloquent-sluggable": "^11.0",
         "cviebrock/eloquent-taggable": "^11.0",
+        "endroid/qr-code": "^6.0",
         "ghasedak/php": "dev-master",
         "guzzlehttp/guzzle": "^7.2",
         "http-interop/http-factory-guzzle": "^1.2",

@@ -6,12 +6,15 @@ use App\Http\Controllers\Controller;
 use App\Models\Certificate;
 use App\Models\Course;
 use App\Models\User;
+use App\Services\Certificate\CertificateIssuanceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
 
 class CertificateController extends Controller
 {
+    public function __construct(
+        protected CertificateIssuanceService $issuance,
+    ) {}
     /**
      * Get all certificates with filters and pagination
      */
@@ -114,6 +117,8 @@ class CertificateController extends Controller
             return [
                 'id' => $certificate->id,
                 'uuid' => $certificate->uuid,
+                'serial_number' => $certificate->serial_number,
+                'status' => $certificate->status,
                 'user_name' => $certificate->user_name,
                 'course_title' => $certificate->course_title,
                 'time_completed' => $certificate->time_completed,
@@ -220,6 +225,7 @@ class CertificateController extends Controller
             'user_name' => 'nullable|string|max:255',
             'course_title' => 'nullable|string|max:255',
             'time_completed' => 'nullable|integer|min:0',
+            'grade' => 'nullable|numeric|min:0|max:100',
             'issued_at' => 'nullable|date',
             'auto_issue' => 'boolean',
         ]);
@@ -230,50 +236,64 @@ class CertificateController extends Controller
             $user = User::findOrFail($request->user_id);
             $course = Course::findOrFail($request->course_id);
 
-            // Check if certificate already exists for this user and course
-            $existingCertificate = Certificate::where('user_id', $request->user_id)
-                ->where('course_id', $request->course_id)
-                ->first();
+            if ($request->boolean('auto_issue', true)) {
+                $certificate = $this->issuance->issueManually(
+                    $user,
+                    $course,
+                    $request->input('grade'),
+                    $request->input('time_completed'),
+                );
 
-            if ($existingCertificate) {
-                return response()->json([
-                    'message' => 'گواهینامه برای این کاربر و دوره قبلاً صادر شده است',
-                    'errors' => [
-                        'certificate' => ['گواهینامه برای این کاربر و دوره قبلاً صادر شده است']
-                    ]
-                ], 422);
+                if ($request->filled('user_name')) {
+                    $certificate->update(['user_name' => $request->user_name]);
+                }
+                if ($request->filled('course_title')) {
+                    $certificate->update(['course_title' => $request->course_title]);
+                }
+                if ($request->filled('issued_at')) {
+                    $certificate->update(['issued_at' => $request->issued_at]);
+                }
+            } else {
+                $existingCertificate = Certificate::where('user_id', $request->user_id)
+                    ->where('course_id', $request->course_id)
+                    ->where('status', '!=', 'revoked')
+                    ->first();
+
+                if ($existingCertificate) {
+                    return response()->json([
+                        'message' => 'گواهینامه برای این کاربر و دوره قبلاً صادر شده است',
+                        'errors' => [
+                            'certificate' => ['گواهینامه برای این کاربر و دوره قبلاً صادر شده است'],
+                        ],
+                    ], 422);
+                }
+
+                $userName = $request->user_name ?? trim($user->first_name.' '.$user->last_name);
+                $courseTitle = $request->course_title ?? $course->title;
+
+                $certificate = Certificate::create([
+                    'user_id' => $request->user_id,
+                    'course_id' => $request->course_id,
+                    'uuid' => (string) \Illuminate\Support\Str::uuid(),
+                    'user_name' => $userName,
+                    'course_title' => $courseTitle,
+                    'time_completed' => $request->time_completed ?? null,
+                    'status' => 'pending',
+                ]);
             }
-
-            // Generate UUID
-            $uuid = (string) Str::uuid();
-
-            // Use provided values or get from relationships
-            $userName = $request->user_name ?? ($user->first_name . ' ' . $user->last_name);
-            $courseTitle = $request->course_title ?? $course->title;
-            $issuedAt = $request->auto_issue ? ($request->issued_at ? $request->issued_at : now()) : null;
-
-            $certificate = Certificate::create([
-                'user_id' => $request->user_id,
-                'course_id' => $request->course_id,
-                'uuid' => $uuid,
-                'user_name' => $userName,
-                'course_title' => $courseTitle,
-                'time_completed' => $request->time_completed ?? null,
-                'issued_at' => $issuedAt,
-            ]);
 
             DB::commit();
 
             return response()->json([
                 'message' => 'گواهینامه با موفقیت صادر شد',
-                'certificate' => $certificate->fresh(['user', 'course'])
+                'certificate' => $certificate->fresh(['user', 'course', 'template']),
             ], 201);
 
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
                 'message' => 'خطا در صدور گواهینامه',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -327,15 +347,22 @@ class CertificateController extends Controller
             'issued_at' => 'nullable|date',
         ]);
 
-        $certificate = Certificate::where('uuid', $uuid)->firstOrFail();
+        $certificate = Certificate::with(['user', 'course'])->where('uuid', $uuid)->firstOrFail();
 
-        $certificate->update([
-            'issued_at' => $request->issued_at ?? now(),
-        ]);
+        $certificate = $this->issuance->finalizeIssuance(
+            $certificate,
+            $certificate->course,
+            $certificate->grade,
+            $certificate->time_completed,
+        );
+
+        if ($request->filled('issued_at')) {
+            $certificate->update(['issued_at' => $request->issued_at]);
+        }
 
         return response()->json([
             'message' => 'گواهینامه با موفقیت صادر شد',
-            'certificate' => $certificate->fresh(['user', 'course'])
+            'certificate' => $certificate->fresh(['user', 'course', 'template']),
         ], 200);
     }
 

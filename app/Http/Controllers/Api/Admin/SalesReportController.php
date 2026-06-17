@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Models\Category;
 use App\Models\Level;
 use App\Models\Discount;
+use App\Support\SqlDialect;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Database\Eloquent\Builder;
@@ -573,7 +574,7 @@ class SalesReportController extends Controller
             ->join('courses', 'payment_items.payable_id', '=', 'courses.id')
             ->join('users', 'courses.teacher_id', '=', 'users.id')
             ->select('users.id',
-                DB::raw('CONCAT(users.first_name, " ", users.last_name) as name'),
+                DB::raw(SqlDialect::concatWs(' ', ['users.first_name', 'users.last_name']).' as name'),
                 'users.username',
                 'users.email',
                 DB::raw('SUM(GREATEST(0, COALESCE(payment_items.final_price, payment_items.price - COALESCE(payment_items.discount_amount, 0)))) as total_revenue'),
@@ -789,7 +790,7 @@ class SalesReportController extends Controller
     private function buildHourlySales(Builder $query): array
     {
         $raw = (clone $query)
-            ->select(DB::raw('HOUR(paid_at) as hour'), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::hour('paid_at').' as hour'), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
             ->groupBy('hour')
             ->get()
             ->keyBy('hour');
@@ -813,7 +814,7 @@ class SalesReportController extends Controller
         }
 
         $raw = (clone $query)
-            ->select(DB::raw("DATE_FORMAT(paid_at, '%Y-%m') as month"), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::yearMonth('paid_at').' as month'), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
             ->groupBy('month')
             ->orderBy('month')
             ->get();
@@ -831,8 +832,8 @@ class SalesReportController extends Controller
         $weekdayLabels = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'];
         $raw = (clone $query)
             ->select(
-                DB::raw('DAYOFWEEK(paid_at) as weekday'),
-                DB::raw('HOUR(paid_at) as hour'),
+                DB::raw(SqlDialect::dayOfWeek('paid_at').' as weekday'),
+                DB::raw(SqlDialect::hour('paid_at').' as hour'),
                 DB::raw('COUNT(*) as count'),
                 DB::raw('SUM(amount) as total')
             )
@@ -870,7 +871,7 @@ class SalesReportController extends Controller
 
         $peakDay = $byDay->first();
         $byHour = (clone $query)
-            ->select(DB::raw('HOUR(paid_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::hour('paid_at').' as hour'), DB::raw('COUNT(*) as count'))
             ->groupBy('hour')
             ->orderByDesc('count')
             ->first();

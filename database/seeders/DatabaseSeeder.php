@@ -17,6 +17,8 @@ class DatabaseSeeder extends Seeder
         $this->call([
             // مرحله 1: پایه‌ای ترین داده‌ها (بدون وابستگی)
             PermissionsAndRolesSeeder::class,
+            QuizPermissionsSeeder::class,
+            CertificatePermissionsSeeder::class,
             RoutePermissionsSeeder::class,
             LevelsTableSeeder::class,
             StatusesTableSeeder::class,
@@ -35,6 +37,12 @@ class DatabaseSeeder extends Seeder
             // مرحله 4: داده‌های وابسته به چندین جدول
             CoursesSectionsEpisodesSeeder::class, // نیاز به Users, Levels, Statuses, Categories دارد
             QuestionsAndAnswersSeeder::class, // نیاز به Users و QuestionCategories دارد
+
+            // مرحله 5: سیستم آزمون (نیاز به Courses, Episodes, Users دارد)
+            QuizSeeder::class,
+
+            // مرحله 6: قالب‌های گواهینامه
+            CertificateTemplateSeeder::class,
         ]);
     }
 }

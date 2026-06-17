@@ -109,6 +109,11 @@ class Episode extends Model implements Likeable
         return $this->morphMany(Attach::class, 'attachable');
     }
 
+    public function quizzes(): MorphMany
+    {
+        return $this->morphMany(\App\Models\Quiz\Quiz::class, 'quizzable');
+    }
+
 
     public function comments()
     {

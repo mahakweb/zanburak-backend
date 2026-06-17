@@ -1,5 +1,6 @@
 <?php
 
+use App\Database\Schema\MigrationColumnHelpers;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -17,7 +18,7 @@ return new class extends Migration
             $table->id();
             $table->unsignedBigInteger('user_id');
             $table->unsignedBigInteger('video_id');
-            $table->json('watched_times');
+            MigrationColumnHelpers::jsonColumn($table, 'watched_times');
             $table->boolean('watched')->default(false);
             $table->integer('last_position');
             $table->timestamps();

@@ -154,7 +154,7 @@ class RoutePermissionsSeeder extends Seeder
         $assign('api.admin.payments.plans', ['payments.search.plans']);
         $assign('api.admin.payments.paths', ['payments.search.paths']);
 
-        // Certificates (no dedicated permission — aligned with admin UI)
+        // Certificates
         $assign([
             'api.admin.certificates.index',
             'api.admin.certificates.stats',
@@ -163,11 +163,26 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.certificates.search',
             'api.admin.certificates.users',
             'api.admin.certificates.courses',
-        ], ['analytics.view', 'dashboard.view']);
-        $assign('api.admin.certificates.create', ['analytics.view']);
-        $assign('api.admin.certificates.update', ['analytics.view']);
-        $assign('api.admin.certificates.issue', ['analytics.view']);
-        $assign('api.admin.certificates.delete', ['analytics.view']);
+        ], ['certificates.view']);
+        $assign('api.admin.certificates.create', ['certificates.create']);
+        $assign('api.admin.certificates.update', ['certificates.update']);
+        $assign('api.admin.certificates.issue', ['certificates.create']);
+        $assign('api.admin.certificates.delete', ['certificates.delete']);
+
+        // Certificate Templates
+        $assign([
+            'api.admin.certificate-templates.index',
+            'api.admin.certificate-templates.show',
+        ], ['certificates.templates.view']);
+        $assign([
+            'api.admin.certificate-templates.store',
+            'api.admin.certificate-templates.duplicate',
+        ], ['certificates.templates.create']);
+        $assign([
+            'api.admin.certificate-templates.update',
+            'api.admin.certificate-templates.upload',
+        ], ['certificates.templates.update']);
+        $assign('api.admin.certificate-templates.delete', ['certificates.templates.delete']);
 
         // Plans
         $assign('api.admin.plans.index', ['plans.view']);
@@ -465,6 +480,38 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.notification-management.event-group.delete',
             'api.admin.notification-management.event.delete',
         ], ['notifications.delete']);
+
+        // Quizzes (LMS)
+        $assign('api.admin.quizzes.index', ['quizzes.view']);
+        $assign('api.admin.quizzes.store', ['quizzes.create']);
+        $assign([
+            'api.admin.quizzes.search.courses',
+            'api.admin.quizzes.search.sections',
+            'api.admin.quizzes.search.episodes',
+            'api.admin.quizzes.search.questions',
+        ], ['quizzes.view']);
+        $assign('api.admin.quizzes.show', ['quizzes.view']);
+        $assign('api.admin.quizzes.update', ['quizzes.update']);
+        $assign('api.admin.quizzes.delete', ['quizzes.delete']);
+        $assign([
+            'api.admin.quizzes.reports.summary',
+            'api.admin.quizzes.reports.passed',
+            'api.admin.quizzes.reports.failed',
+            'api.admin.quizzes.reports.review-queue',
+            'api.admin.quizzes.for-course',
+        ], ['quizzes.reports']);
+        $assign([
+            'api.admin.quizzes.answers.grade',
+            'api.admin.quizzes.attempts.complete-review',
+        ], ['quizzes.review']);
+        $assign('api.admin.quiz-questions.index', ['quiz_questions.view']);
+        $assign('api.admin.quiz-questions.store', ['quiz_questions.create']);
+        $assign('api.admin.quiz-questions.categories', ['quiz_questions.view']);
+        $assign('api.admin.quiz-questions.categories.store', ['quiz_questions.create']);
+        $assign('api.admin.quiz-questions.tags', ['quiz_questions.view']);
+        $assign('api.admin.quiz-questions.show', ['quiz_questions.view']);
+        $assign('api.admin.quiz-questions.update', ['quiz_questions.update']);
+        $assign('api.admin.quiz-questions.delete', ['quiz_questions.delete']);
 
         return $map;
     }

@@ -26,6 +26,10 @@ Route::middleware('auth:sanctum')->prefix('cooperation')->as('api.cooperation.')
 
 // Certificate
 Route::get('/certificate/{uuid}', [\App\Http\Controllers\Api\CertificateController::class, 'index'])->name('api.certificate.show');
+Route::get('/certificate/{uuid}/render', [\App\Http\Controllers\Api\CertificateController::class, 'renderData'])->name('api.certificate.render');
+Route::get('/certificate/{uuid}/download/pdf', [\App\Http\Controllers\Api\CertificateController::class, 'downloadPdf'])->name('api.certificate.download.pdf');
+Route::get('/certificate/{uuid}/download/qr', [\App\Http\Controllers\Api\CertificateController::class, 'downloadQr'])->name('api.certificate.download.qr');
+Route::post('/certificate/verify', [\App\Http\Controllers\Api\CertificateController::class, 'verify'])->name('api.certificate.verify');
 
 // Interactions (auth required)
 Route::middleware('auth:sanctum')->group(function () {

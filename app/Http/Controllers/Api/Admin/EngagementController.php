@@ -11,6 +11,7 @@ use App\Models\Like;
 use App\Models\Question;
 use App\Models\User;
 use App\Models\View;
+use App\Support\SqlDialect;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Database\Eloquent\Builder;
@@ -532,7 +533,7 @@ class EngagementController extends Controller
             ->values();
 
         $hourlyRaw = (clone $periodQuery)
-            ->select(DB::raw('HOUR(created_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::hour('created_at').' as hour'), DB::raw('COUNT(*) as count'))
             ->groupBy('hour')
             ->orderBy('hour')
             ->pluck('count', 'hour');
@@ -558,7 +559,7 @@ class EngagementController extends Controller
 
         $weekdayLabels = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'];
         $weekdayRaw = (clone $periodQuery)
-            ->select(DB::raw('DAYOFWEEK(created_at) as weekday'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::dayOfWeek('created_at').' as weekday'), DB::raw('COUNT(*) as count'))
             ->groupBy('weekday')
             ->pluck('count', 'weekday');
 
@@ -1077,14 +1078,14 @@ class EngagementController extends Controller
         $avgPerUser = $uniqueUsers > 0 ? round($total / $uniqueUsers, 1) : 0;
 
         $peakHourRow = (clone $periodQuery)
-            ->select(DB::raw('HOUR(created_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::hour('created_at').' as hour'), DB::raw('COUNT(*) as count'))
             ->groupBy('hour')
             ->orderByDesc('count')
             ->first();
 
         $weekdayLabels = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'];
         $peakDayRow = (clone $periodQuery)
-            ->select(DB::raw('DAYOFWEEK(created_at) as weekday'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::dayOfWeek('created_at').' as weekday'), DB::raw('COUNT(*) as count'))
             ->groupBy('weekday')
             ->orderByDesc('count')
             ->first();
@@ -1113,8 +1114,8 @@ class EngagementController extends Controller
         $weekdayLabels = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'];
         $raw = (clone $periodQuery)
             ->select(
-                DB::raw('DAYOFWEEK(created_at) as weekday'),
-                DB::raw('HOUR(created_at) as hour'),
+                DB::raw(SqlDialect::dayOfWeek('created_at').' as weekday'),
+                DB::raw(SqlDialect::hour('created_at').' as hour'),
                 DB::raw('COUNT(*) as count')
             )
             ->groupBy('weekday', 'hour')
@@ -1151,7 +1152,7 @@ class EngagementController extends Controller
         }
 
         $raw = (clone $periodQuery)
-            ->select(DB::raw("DATE_FORMAT(created_at, '%Y-%m') as month"), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::yearMonth('created_at').' as month'), DB::raw('COUNT(*) as count'))
             ->groupBy('month')
             ->orderBy('month')
             ->pluck('count', 'month');

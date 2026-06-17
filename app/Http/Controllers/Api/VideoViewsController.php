@@ -77,35 +77,28 @@ class VideoViewsController extends Controller
             }
             
             // بررسی تکمیل دوره و صدور گواهینامه
-            if($course->isCompletedByUser($user->id) && $course->end_date && $course->end_date <= now()) {
+            if ($course->certificate_enabled
+                && $course->isCompletedByUser($user->id)
+                && $course->end_date
+                && $course->end_date <= now()
+            ) {
                 $wasCompleted = $user->courses()->where('course_id', $course->id)->whereNotNull('completed_at')->exists();
-                
+
                 $user->courses()->updateExistingPivot($course->id, [
                     'completed_at' => now(),
                 ]);
 
-                $uuid = '';
-                do {
-                    $uuid = Str::uuid();
-                } while (Certificate::where('uuid', $uuid)->exists());
+                $certificate = app(\App\Services\Certificate\CertificateIssuanceService::class)
+                    ->issueForCourse($user, $course);
 
-                $certificate = $user->certificates()->create([
-                    'course_id' => $course->id,
-                    'uuid' => $uuid,
-                    'user_name' => $user->first_name.' '.$user->last_name,
-                    'course_title' => $course->title,
-                    'time_completed' => $course->totalTime(),
-                    'issued_at' => now(),
-                ]);
-                
-                // ارسال notification تکمیل دوره (فقط اگر قبلاً کامل نشده بود)
-                if (!$wasCompleted) {
+                if ($certificate && ! $wasCompleted) {
                     event(new \App\Events\Course\CourseCompleted($user, $course));
                     event(new \App\Events\Mission\CourseCompletionEvent($user, $course, now()));
                 }
-                
-                // ارسال notification صدور گواهینامه
-                event(new \App\Events\Course\CertificateIssued($user, $course, $certificate));
+
+                if ($certificate) {
+                    event(new \App\Events\Course\CertificateIssued($user, $course, $certificate));
+                }
             }
         }
 

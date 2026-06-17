@@ -18,6 +18,7 @@ use App\Models\UserLogin;
 use App\Models\VideoView;
 use App\Models\View;
 use App\Models\Like;
+use App\Support\SqlDialect;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Http\Request;
@@ -41,23 +42,22 @@ class DashboardController extends Controller
             $end = $end->copy()->endOfWeek(Carbon::SUNDAY);
             $period = CarbonPeriod::create($start, '1 week', $end);
             $labelDates = collect($period)->map(fn ($d) => $d->copy()->startOfWeek(Carbon::MONDAY)->toDateString())->values();
-            $groupSelect = "DATE(DATE_SUB(%s, INTERVAL (WEEKDAY(%s)) DAY))";
         } elseif ($groupBy === 'month') {
             $start = $start->copy()->startOfMonth();
             $end = $end->copy()->endOfMonth();
             $period = CarbonPeriod::create($start, '1 month', $end);
             $labelDates = collect($period)->map(fn ($d) => $d->copy()->startOfMonth()->toDateString())->values();
-            $groupSelect = "DATE_FORMAT(%s, '%%Y-%%m-01')";
         } else {
             // day
             $period = CarbonPeriod::create($start, '1 day', $end);
             $labelDates = collect($period)->map(fn ($d) => $d->toDateString())->values();
-            $groupSelect = "DATE(%s)";
         }
+
+        $groupExpr = fn (string $column) => SqlDialect::groupByPeriod($column, $groupBy);
 
         // Users
         $usersDailyRaw = User::whereBetween('created_at', [$start, $end])
-            ->select(DB::raw(sprintf($groupSelect, 'created_at', 'created_at') . ' as grp'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw($groupExpr('created_at').' as grp'), DB::raw('COUNT(*) as count'))
             ->groupBy('grp')
             ->orderBy('grp')
             ->pluck('count', 'grp');
@@ -69,7 +69,7 @@ class DashboardController extends Controller
 
         // Comments
         $commentsDailyRaw = Comment::whereBetween('created_at', [$start, $end])
-            ->select(DB::raw(sprintf($groupSelect, 'created_at', 'created_at') . ' as grp'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw($groupExpr('created_at').' as grp'), DB::raw('COUNT(*) as count'))
             ->groupBy('grp')
             ->orderBy('grp')
             ->pluck('count', 'grp');
@@ -132,7 +132,7 @@ class DashboardController extends Controller
         $dailyPaymentsAmountRaw = Payment::whereBetween('paid_at', [$start, $end])
             ->where('status', 1)
             ->whereNotNull('paid_at')
-            ->select(DB::raw(sprintf($groupSelect, 'paid_at', 'paid_at') . ' as grp'), DB::raw('sum(amount) as total'))
+            ->select(DB::raw($groupExpr('paid_at').' as grp'), DB::raw('sum(amount) as total'))
             ->groupBy('grp')
             ->orderBy('grp')
             ->pluck('total', 'grp');
@@ -143,7 +143,7 @@ class DashboardController extends Controller
         $dailyPaymentsCountRaw = Payment::whereBetween('paid_at', [$start, $end])
             ->where('status', 1)
             ->whereNotNull('paid_at')
-            ->select(DB::raw(sprintf($groupSelect, 'paid_at', 'paid_at') . ' as grp'), DB::raw('count(*) as count'))
+            ->select(DB::raw($groupExpr('paid_at').' as grp'), DB::raw('count(*) as count'))
             ->groupBy('grp')
             ->orderBy('grp')
             ->pluck('count', 'grp');
@@ -330,7 +330,7 @@ class DashboardController extends Controller
         $prevConversion = $prevTotalCount > 0 ? round(($prevPaidCount / $prevTotalCount) * 100, 2) : 0;
         $prevAov = $prevPaidCount > 0 ? (int) floor($prevRevenue / $prevPaidCount) : 0;
 
-        $platform = $this->buildPlatformStats($start, $end, $prevStart, $prevEnd, $labelDates, $groupSelect);
+        $platform = $this->buildPlatformStats($start, $end, $prevStart, $prevEnd, $labelDates, $groupBy);
 
         $comparison = array_merge([
             'revenue' => $this->compareMetric((int) $paymentsStats['total_amount'], $prevRevenue),
@@ -418,7 +418,7 @@ class DashboardController extends Controller
         $salesWeekdayRaw = Payment::whereBetween('paid_at', [$start, $end])
             ->where('status', 1)
             ->whereNotNull('paid_at')
-            ->select(DB::raw('DAYOFWEEK(paid_at) as weekday'), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::dayOfWeek('paid_at').' as weekday'), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
             ->groupBy('weekday')
             ->get()
             ->keyBy('weekday');
@@ -437,7 +437,7 @@ class DashboardController extends Controller
         $salesHourlyRaw = Payment::whereBetween('paid_at', [$start, $end])
             ->where('status', 1)
             ->whereNotNull('paid_at')
-            ->select(DB::raw('HOUR(paid_at) as hour'), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::hour('paid_at').' as hour'), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
             ->groupBy('hour')
             ->get()
             ->keyBy('hour');
@@ -454,7 +454,7 @@ class DashboardController extends Controller
         })->values();
 
         $registrationsWeekdayRaw = User::whereBetween('created_at', [$start, $end])
-            ->select(DB::raw('DAYOFWEEK(created_at) as weekday'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::dayOfWeek('created_at').' as weekday'), DB::raw('COUNT(*) as count'))
             ->groupBy('weekday')
             ->pluck('count', 'weekday');
 
@@ -567,8 +567,10 @@ class DashboardController extends Controller
         Carbon $prevStart,
         Carbon $prevEnd,
         $labelDates,
-        string $groupSelect
+        string $groupBy
     ): array {
+        $groupExpr = fn (string $column) => SqlDialect::groupByPeriod($column, $groupBy);
+
         $viewQuery = View::query()->whereBetween('created_at', [$start, $end]);
         $likeQuery = Like::query()->whereBetween('created_at', [$start, $end]);
         $bookmarkQuery = Bookmark::query()->whereBetween('created_at', [$start, $end]);
@@ -601,11 +603,11 @@ class DashboardController extends Controller
         $prevAnswers = (int) Answer::whereBetween('created_at', [$prevStart, $prevEnd])->count();
 
         $viewsDailyRaw = (clone $viewQuery)
-            ->select(DB::raw(sprintf($groupSelect, 'created_at', 'created_at') . ' as grp'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw($groupExpr('created_at').' as grp'), DB::raw('COUNT(*) as count'))
             ->groupBy('grp')
             ->pluck('count', 'grp');
         $likesDailyRaw = (clone $likeQuery)
-            ->select(DB::raw(sprintf($groupSelect, 'created_at', 'created_at') . ' as grp'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw($groupExpr('created_at').' as grp'), DB::raw('COUNT(*) as count'))
             ->groupBy('grp')
             ->pluck('count', 'grp');
 
@@ -685,7 +687,7 @@ class DashboardController extends Controller
         })->values();
 
         $viewsHourlyRaw = (clone $viewQuery)
-            ->select(DB::raw('HOUR(created_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::hour('created_at').' as hour'), DB::raw('COUNT(*) as count'))
             ->groupBy('hour')
             ->pluck('count', 'hour');
         $viewsByHour = collect(range(0, 23))->map(fn ($hour) => [

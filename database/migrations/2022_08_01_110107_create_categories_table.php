@@ -17,7 +17,7 @@ return new class extends Migration
             $table->id();
             $table->string('title');
             $table->string('english_title');
-            $table->string('slug');
+            $table->string('slug')->unique();
             $table->unsignedBigInteger('parent_id')->nullable();
 //            $table->foreign('parent_id')->references('id')->on('categories')->onUpdate('cascade');
             $table->text('description')->nullable();

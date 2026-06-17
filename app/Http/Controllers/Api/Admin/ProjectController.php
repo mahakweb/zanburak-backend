@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Project;
+use App\Support\SqlDialect;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -45,8 +46,8 @@ class ProjectController extends Controller
         $sort = $request->input('sort', 'newest');
         $query = match ($sort) {
             'oldest' => $query->orderBy('created_at', 'asc'),
-            'price_min' => $query->orderByRaw('CAST(min_price as UNSIGNED) asc'),
-            'price_max' => $query->orderByRaw('CAST(max_price as UNSIGNED) desc'),
+            'price_min' => $query->orderByRaw(SqlDialect::castInt('min_price').' asc'),
+            'price_max' => $query->orderByRaw(SqlDialect::castInt('max_price').' desc'),
             default => $query->orderBy('created_at', 'desc'),
         };
 

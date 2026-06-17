@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Cviebrock\EloquentSluggable\Sluggable;
 use App\Traits\CascadesDeletes;
 use Illuminate\Support\Facades\Storage;
@@ -85,5 +86,10 @@ class Section extends Model
     public function totalTime()
     {
         return $this->episode->sum('total_time');
+    }
+
+    public function quizzes(): MorphMany
+    {
+        return $this->morphMany(\App\Models\Quiz\Quiz::class, 'quizzable');
     }
 }

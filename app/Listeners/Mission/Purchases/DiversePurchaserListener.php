@@ -24,7 +24,7 @@ class DiversePurchaserListener
             ->where('course_user.user_id', $event->user->id)
             ->select('category_course.category_id', DB::raw('COUNT(DISTINCT course_user.course_id) as course_count'))
             ->groupBy('category_course.category_id')
-            ->having('course_count', '>=', 2)
+            ->havingRaw('COUNT(DISTINCT course_user.course_id) >= ?', [2])
             ->count();
 
         upgrade_mission_for_user($event->user->id, $this->missionId, $diverseCategoriesCount, 1);

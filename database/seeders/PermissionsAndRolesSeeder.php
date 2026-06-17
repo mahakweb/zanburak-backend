@@ -8,6 +8,32 @@ use Illuminate\Support\Facades\DB;
 class PermissionsAndRolesSeeder extends Seeder
 {
     /**
+     * PostgreSQL rejects upsert batches that contain duplicate conflict keys.
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     * @param  array<int, string>  $uniqueKeys
+     * @return array<int, array<string, mixed>>
+     */
+    private function deduplicateRows(array $rows, array $uniqueKeys): array
+    {
+        $seen = [];
+        $deduped = [];
+
+        foreach ($rows as $row) {
+            $key = implode('|', array_map(fn (string $column) => (string) $row[$column], $uniqueKeys));
+
+            if (isset($seen[$key])) {
+                continue;
+            }
+
+            $seen[$key] = true;
+            $deduped[] = $row;
+        }
+
+        return $deduped;
+    }
+
+    /**
      * Run the database seeds.
      *
      * @return void
@@ -166,6 +192,28 @@ class PermissionsAndRolesSeeder extends Seeder
             ['name' => 'statuses.create', 'label' => 'ایجاد وضعیت', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'statuses.update', 'label' => 'ویرایش وضعیت', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'statuses.delete', 'label' => 'حذف وضعیت', 'created_at' => $now, 'updated_at' => $now],
+
+            // Quizzes (LMS)
+            ['name' => 'quizzes.view', 'label' => 'مشاهده آزمون‌ها', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'quizzes.create', 'label' => 'ایجاد آزمون', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'quizzes.update', 'label' => 'ویرایش آزمون', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'quizzes.delete', 'label' => 'حذف آزمون', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'quizzes.reports', 'label' => 'گزارش آزمون', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'quizzes.review', 'label' => 'تصحیح دستی آزمون', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'quiz_questions.view', 'label' => 'مشاهده بانک سوال', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'quiz_questions.create', 'label' => 'ایجاد سوال', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'quiz_questions.update', 'label' => 'ویرایش سوال', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'quiz_questions.delete', 'label' => 'حذف سوال', 'created_at' => $now, 'updated_at' => $now],
+
+            // Certificates (LMS)
+            ['name' => 'certificates.view', 'label' => 'مشاهده گواهینامه‌ها', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'certificates.create', 'label' => 'صدور گواهینامه', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'certificates.update', 'label' => 'ویرایش گواهینامه', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'certificates.delete', 'label' => 'حذف/ابطال گواهینامه', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'certificates.templates.view', 'label' => 'مشاهده قالب گواهینامه', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'certificates.templates.create', 'label' => 'ایجاد قالب گواهینامه', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'certificates.templates.update', 'label' => 'ویرایش قالب گواهینامه', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'certificates.templates.delete', 'label' => 'حذف قالب گواهینامه', 'created_at' => $now, 'updated_at' => $now],
 
             // Missions (gamification)
             ['name' => 'missions.view', 'label' => 'مشاهده ماموریت‌ها', 'created_at' => $now, 'updated_at' => $now],
@@ -381,7 +429,11 @@ class PermissionsAndRolesSeeder extends Seeder
                     'updated_at' => $now,
                 ];
             }
-            DB::table('permission_role')->upsert($rolePermissions, ['role_id', 'permission_id'], ['updated_at']);
+            DB::table('permission_role')->upsert(
+                $this->deduplicateRows($rolePermissions, ['role_id', 'permission_id']),
+                ['role_id', 'permission_id'],
+                ['updated_at']
+            );
         }
 
         // Note: Other role-permission mappings from SQL are complex and would require
@@ -491,6 +543,8 @@ class PermissionsAndRolesSeeder extends Seeder
                 'courses.comments.manage',
                 'episodes.*',
                 'videos.*',
+                'quizzes.*',
+                'quiz_questions.*',
             ],
 
             'course_manager_all' => [
@@ -507,6 +561,8 @@ class PermissionsAndRolesSeeder extends Seeder
                 'episodes.reorder.any',
                 'videos.upload.any',
                 'videos.process.any',
+                'quizzes.*',
+                'quiz_questions.*',
             ],
 
             'course_manager_own' => [
@@ -541,6 +597,13 @@ class PermissionsAndRolesSeeder extends Seeder
                 'videos.process.own',
                 'comments.course.view.own',
                 'comments.course.reply.own',
+                'quizzes.view',
+                'quizzes.create',
+                'quizzes.update',
+                'quizzes.reports',
+                'quiz_questions.view',
+                'quiz_questions.create',
+                'quiz_questions.update',
             ],
 
             'teacher_assistant' => [
@@ -825,7 +888,11 @@ class PermissionsAndRolesSeeder extends Seeder
         }
 
         DB::table('permission_role')
-            ->upsert($rows, ['role_id', 'permission_id'], ['updated_at']);
+            ->upsert(
+                $this->deduplicateRows($rows, ['role_id', 'permission_id']),
+                ['role_id', 'permission_id'],
+                ['updated_at']
+            );
     }
 }
 

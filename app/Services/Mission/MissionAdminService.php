@@ -235,10 +235,12 @@ class MissionAdminService
 
     protected function getAverageCompletionRate(): float
     {
+        // has('users') == participants_count > 0; PostgreSQL cannot reference a
+        // SELECT subquery alias in HAVING, so use relationship existence instead.
         $missions = Mission::withCount([
             'users as participants_count',
             'users as completed_count' => fn ($q) => $q->whereNotNull('mission_user.completed_at'),
-        ])->having('participants_count', '>', 0)->get();
+        ])->has('users')->get();
 
         if ($missions->isEmpty()) {
             return 0;

@@ -1,5 +1,6 @@
 <?php
 
+use App\Database\Schema\MigrationColumnHelpers;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -30,7 +31,7 @@ return new class extends Migration
             $table->text('icon');
             $table->text('description');
             $table->boolean('is_active')->default(true);
-            $table->json('levels');
+            MigrationColumnHelpers::jsonColumn($table, 'levels');
             $table->timestamp('expired_at')->nullable();
             $table->timestamps();
             $table->primary('id');

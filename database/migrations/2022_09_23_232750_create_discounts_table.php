@@ -1,5 +1,6 @@
 <?php
 
+use App\Database\Schema\MigrationColumnHelpers;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -60,7 +61,7 @@ return new class extends Migration
             $table->string('operator')->nullable(); // >=, <=, =, != ...
             $table->string('value')->nullable();
             $table->unsignedBigInteger('target_id')->nullable();
-            $table->json('extra')->nullable(); // برای شرایط پیچیده (مثلا چند روز هفته)
+            MigrationColumnHelpers::jsonColumn($table, 'extra', nullable: true); // برای شرایط پیچیده (مثلا چند روز هفته)
             $table->timestamps();
         });
     }

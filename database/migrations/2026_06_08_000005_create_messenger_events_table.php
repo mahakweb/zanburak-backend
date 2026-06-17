@@ -1,5 +1,6 @@
 <?php
 
+use App\Database\Schema\MigrationColumnHelpers;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -17,7 +18,7 @@ return new class extends Migration {
             $table->unsignedBigInteger('user_id');        // recipient
             $table->unsignedBigInteger('conversation_id')->nullable();
             $table->string('type', 40);                   // message.new, message.updated, ...
-            $table->json('payload')->nullable();
+            MigrationColumnHelpers::jsonColumn($table, 'payload', nullable: true);
             $table->timestamp('created_at')->nullable();
 
             $table->index(['user_id', 'id'], 'messenger_events_user_cursor_index');

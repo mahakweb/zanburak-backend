@@ -8,6 +8,20 @@ use Illuminate\Support\Facades\DB;
 class CategoriesAndQuestionCategoriesSeeder extends Seeder
 {
     /**
+     * Explicit-ID upserts do not advance PostgreSQL serial sequences.
+     */
+    private function syncPostgresSequence(string $table, string $column = 'id'): void
+    {
+        if (DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
+        DB::statement(
+            "SELECT setval(pg_get_serial_sequence('{$table}', '{$column}'), COALESCE((SELECT MAX({$column}) FROM {$table}), 1), true)"
+        );
+    }
+
+    /**
      * Run the database seeds.
      *
      * @return void
@@ -260,6 +274,7 @@ class CategoriesAndQuestionCategoriesSeeder extends Seeder
 
         // Insert categories
         DB::table('categories')->upsert($categories, ['id'], ['title', 'english_title', 'slug', 'parent_id', 'description', 'icon', 'status', 'assignment_type', 'match_type', 'updated_at']);
+        $this->syncPostgresSequence('categories');
         DB::table('categories')->upsert($webChildren, ['slug'], ['title', 'parent_id', 'description', 'icon', 'status', 'assignment_type', 'match_type', 'updated_at']);
         DB::table('categories')->upsert($mobileChildren, ['slug'], ['title', 'parent_id', 'description', 'icon', 'status', 'assignment_type', 'match_type', 'updated_at']);
         DB::table('categories')->upsert($dataScienceChildren, ['slug'], ['title', 'parent_id', 'description', 'icon', 'status', 'assignment_type', 'match_type', 'updated_at']);
@@ -411,6 +426,7 @@ class CategoriesAndQuestionCategoriesSeeder extends Seeder
 
         // Insert question categories
         DB::table('question_categories')->upsert($questionCategories, ['id'], ['title', 'english_title', 'slug', 'parent_id', 'description', 'icon', 'status', 'updated_at']);
+        $this->syncPostgresSequence('question_categories');
         DB::table('question_categories')->upsert($questionChildren, ['slug'], ['title', 'parent_id', 'description', 'icon', 'status', 'updated_at']);
     }
 }

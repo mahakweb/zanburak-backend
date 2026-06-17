@@ -41,6 +41,17 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
         Route::get('/courses', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'getCourses'])->name('courses');
     });
 
+    // Certificate Templates
+    Route::prefix('certificate-templates')->as('certificate-templates.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\Admin\CertificateTemplateController::class, 'index'])->name('index');
+        Route::post('/', [\App\Http\Controllers\Api\Admin\CertificateTemplateController::class, 'store'])->name('store');
+        Route::get('/{template}', [\App\Http\Controllers\Api\Admin\CertificateTemplateController::class, 'show'])->name('show');
+        Route::post('/{template}/update', [\App\Http\Controllers\Api\Admin\CertificateTemplateController::class, 'update'])->name('update');
+        Route::delete('/{template}', [\App\Http\Controllers\Api\Admin\CertificateTemplateController::class, 'destroy'])->name('delete');
+        Route::post('/{template}/duplicate', [\App\Http\Controllers\Api\Admin\CertificateTemplateController::class, 'duplicate'])->name('duplicate');
+        Route::post('/{template}/upload', [\App\Http\Controllers\Api\Admin\CertificateTemplateController::class, 'uploadAsset'])->name('upload');
+    });
+
     // Dashboard
     Route::get('/dashboard/stats', [\App\Http\Controllers\Api\Admin\DashboardController::class, 'stats'])->name('dashboard.stats');
     Route::get('/dashboard/unapproved-comments-count', [\App\Http\Controllers\Api\Admin\DashboardController::class, 'unapprovedCommentsCount'])->name('dashboard.unapproved-comments-count');
@@ -311,6 +322,35 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
         Route::post('/event/{event}/update', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'updateEvent'])->name('event.update');
         Route::delete('/event/{event}', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'deleteEvent'])->name('event.delete');
     });
+
+    // Quizzes (LMS)
+    Route::prefix('quizzes')->as('quizzes.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\Admin\Quiz\QuizController::class, 'index'])->name('index');
+        Route::post('/', [\App\Http\Controllers\Api\Admin\Quiz\QuizController::class, 'store'])->name('store');
+        Route::get('/for-course/{course}', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'courseOverview'])->name('for-course');
+        Route::post('/attempt-answers/{answer}/grade', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'gradeAnswer'])->name('answers.grade');
+        Route::post('/attempts/{attempt}/complete-review', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'completeReview'])->name('attempts.complete-review');
+        Route::get('/{quiz}/reports/summary', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'summary'])->name('reports.summary');
+        Route::get('/{quiz}/reports/passed', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'passed'])->name('reports.passed');
+        Route::get('/{quiz}/reports/failed', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'failed'])->name('reports.failed');
+        Route::get('/{quiz}/reports/review-queue', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'reviewQueue'])->name('reports.review-queue');
+        Route::get('/search/courses', [\App\Http\Controllers\Api\Admin\Quiz\QuizSearchController::class, 'courses'])->name('search.courses');
+        Route::get('/search/sections', [\App\Http\Controllers\Api\Admin\Quiz\QuizSearchController::class, 'sections'])->name('search.sections');
+        Route::get('/search/episodes', [\App\Http\Controllers\Api\Admin\Quiz\QuizSearchController::class, 'episodes'])->name('search.episodes');
+        Route::get('/search/questions', [\App\Http\Controllers\Api\Admin\Quiz\QuizSearchController::class, 'questions'])->name('search.questions');
+        Route::get('/{quiz}', [\App\Http\Controllers\Api\Admin\Quiz\QuizController::class, 'show'])->name('show');
+        Route::post('/{quiz}/update', [\App\Http\Controllers\Api\Admin\Quiz\QuizController::class, 'update'])->name('update');
+        Route::delete('/{quiz}', [\App\Http\Controllers\Api\Admin\Quiz\QuizController::class, 'destroy'])->name('delete');
+    });
+
+    Route::prefix('quiz-questions')->as('quiz-questions.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\Admin\Quiz\QuizQuestionController::class, 'index'])->name('index');
+        Route::post('/', [\App\Http\Controllers\Api\Admin\Quiz\QuizQuestionController::class, 'store'])->name('store');
+        Route::get('/categories', [\App\Http\Controllers\Api\Admin\Quiz\QuizQuestionController::class, 'categories'])->name('categories');
+        Route::post('/categories', [\App\Http\Controllers\Api\Admin\Quiz\QuizQuestionController::class, 'storeCategory'])->name('categories.store');
+        Route::get('/tags', [\App\Http\Controllers\Api\Admin\Quiz\QuizQuestionController::class, 'tags'])->name('tags');
+        Route::get('/{question}', [\App\Http\Controllers\Api\Admin\Quiz\QuizQuestionController::class, 'show'])->name('show');
+        Route::post('/{question}/update', [\App\Http\Controllers\Api\Admin\Quiz\QuizQuestionController::class, 'update'])->name('update');
+        Route::delete('/{question}', [\App\Http\Controllers\Api\Admin\Quiz\QuizQuestionController::class, 'destroy'])->name('delete');
+    });
 });
-
-

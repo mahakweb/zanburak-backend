@@ -1,5 +1,6 @@
 <?php
 
+use App\Database\Schema\MigrationColumnHelpers;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -35,8 +36,8 @@ return new class extends Migration
             $table->string('attempt_reference')->nullable();
             $table->string('gateway')->nullable();
             $table->string('status')->nullable(); // pending, success, failed
-            $table->json('request_payload')->nullable();
-            $table->json('response_payload')->nullable();
+            MigrationColumnHelpers::jsonColumn($table, 'request_payload', nullable: true);
+            MigrationColumnHelpers::jsonColumn($table, 'response_payload', nullable: true);
             $table->timestamps();
         });
     }

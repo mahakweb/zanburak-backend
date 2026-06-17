@@ -1,5 +1,6 @@
 <?php
 
+use App\Database\Schema\MigrationColumnHelpers;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -16,14 +17,14 @@ return new class extends Migration
         Schema::create('plans', function (Blueprint $table) {
             $table->id();
             $table->string('title');
-            $table->string('english_title');
+            $table->string('english_title')->unique();
             $table->integer('period_time');
             $table->bigInteger('price');
             $table->string('icon')->nullable();
             $table->boolean('status')->default(1);
             $table->boolean('popular')->default(0);
             $table->text('description')->nullable();
-            $table->json('features')->nullable();
+            MigrationColumnHelpers::jsonColumn($table, 'features', nullable: true);
             $table->timestamps();
         });
 

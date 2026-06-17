@@ -47,6 +47,7 @@ class RouteServiceProvider extends ServiceProvider
                     require base_path('routes/api/admin.php');
                     require base_path('routes/api/media.php');
                     require base_path('routes/api/public.php');
+                    require base_path('routes/api/quiz.php');
                     require base_path('routes/api/misc.php');
                     require base_path('routes/api/broadcast.php');
                 });

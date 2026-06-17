@@ -1,0 +1,249 @@
+<?php
+
+namespace App\Services\Quiz;
+
+use App\Models\Quiz\Quiz;
+use App\Models\Quiz\QuizAttempt;
+use App\Models\Quiz\QuizAttemptAnswer;
+use App\Models\Quiz\QuizQuestion;
+use App\Support\Quiz\QuizConstants;
+
+/**
+ * Auto-grades all machine-scorable question types.
+ * Long answers always return needs_manual_review = true.
+ */
+class QuizGradingService
+{
+    public function gradeAnswer(
+        QuizQuestion $question,
+        ?array $answerPayload,
+        float $maxScore,
+        bool $negativeScoring = false,
+        float $negativeFactor = 0
+    ): array {
+        if ($question->type === 'long_answer') {
+            return [
+                'is_correct' => null,
+                'score' => 0,
+                'max_score' => $maxScore,
+                'needs_manual_review' => true,
+            ];
+        }
+
+        if ($answerPayload === null || $answerPayload === []) {
+            return $this->result(false, 0, $maxScore, $negativeScoring, $negativeFactor);
+        }
+
+        $question->loadMissing('options');
+
+        $isCorrect = match ($question->type) {
+            'single_choice', 'true_false' => $this->gradeSingleChoice($question, $answerPayload),
+            'multiple_choice' => $this->gradeMultipleChoice($question, $answerPayload),
+            'short_answer' => $this->gradeShortAnswer($question, $answerPayload),
+            'fill_blank' => $this->gradeFillBlank($question, $answerPayload),
+            'matching' => $this->gradeMatching($question, $answerPayload),
+            'ordering' => $this->gradeOrdering($question, $answerPayload),
+            default => false,
+        };
+
+        if ($question->type === 'short_answer' && ($question->settings['manual_review'] ?? false)) {
+            return [
+                'is_correct' => null,
+                'score' => 0,
+                'max_score' => $maxScore,
+                'needs_manual_review' => true,
+            ];
+        }
+
+        return $this->result($isCorrect, $isCorrect ? $maxScore : 0, $maxScore, $negativeScoring, $negativeFactor);
+    }
+
+    public function finalizeAttempt(QuizAttempt $attempt): QuizAttempt
+    {
+        $attempt->load(['answers', 'quiz']);
+
+        $score = (float) $attempt->answers->sum('score');
+        $maxScore = (float) $attempt->answers->sum('max_score');
+        $percentage = $maxScore > 0 ? round(($score / $maxScore) * 100, 2) : 0;
+
+        $needsReview = $attempt->answers->contains('needs_manual_review', true)
+            || $attempt->quiz->manual_review_required;
+
+        $passed = $this->determinePass($attempt->quiz, $score, $percentage);
+
+        $attempt->update([
+            'score' => $score,
+            'max_score' => $maxScore,
+            'percentage' => $percentage,
+            'passed' => $needsReview ? null : $passed,
+            'requires_manual_review' => $needsReview,
+            'status' => $needsReview ? 'grading' : 'completed',
+            'completed_at' => $needsReview ? null : now(),
+            'submitted_at' => $attempt->submitted_at ?? now(),
+        ]);
+
+        return $attempt->fresh(['answers', 'quiz']);
+    }
+
+    public function manualGradeAnswer(QuizAttemptAnswer $answer, bool $isCorrect, ?float $score = null, ?string $comment = null): QuizAttemptAnswer
+    {
+        $score = $score ?? ($isCorrect ? (float) $answer->max_score : 0);
+
+        $answer->update([
+            'is_correct' => $isCorrect,
+            'score' => $score,
+            'needs_manual_review' => false,
+            'reviewer_comment' => $comment,
+        ]);
+
+        return $answer;
+    }
+
+    public function completeManualReview(QuizAttempt $attempt, int $reviewerId): QuizAttempt
+    {
+        $attempt->load(['answers', 'quiz']);
+
+        if ($attempt->answers->where('needs_manual_review', true)->isNotEmpty()) {
+            throw new \RuntimeException('All answers must be reviewed before completing.');
+        }
+
+        $score = (float) $attempt->answers->sum('score');
+        $maxScore = (float) $attempt->answers->sum('max_score');
+        $percentage = $maxScore > 0 ? round(($score / $maxScore) * 100, 2) : 0;
+
+        $attempt->update([
+            'score' => $score,
+            'max_score' => $maxScore,
+            'percentage' => $percentage,
+            'passed' => $this->determinePass($attempt->quiz, $score, $percentage),
+            'requires_manual_review' => false,
+            'status' => 'completed',
+            'reviewed_by' => $reviewerId,
+            'reviewed_at' => now(),
+            'completed_at' => now(),
+        ]);
+
+        return $attempt->fresh(['answers', 'quiz']);
+    }
+
+    protected function determinePass(Quiz $quiz, float $score, float $percentage): bool
+    {
+        if ($quiz->passing_percentage !== null) {
+            return $percentage >= (float) $quiz->passing_percentage;
+        }
+        if ($quiz->passing_score !== null) {
+            return $score >= (float) $quiz->passing_score;
+        }
+
+        return $percentage >= 50;
+    }
+
+    protected function gradeSingleChoice(QuizQuestion $question, array $payload): bool
+    {
+        $selected = collect($payload['option_ids'] ?? [])->map(fn ($id) => (int) $id)->unique()->values();
+        if ($selected->count() !== 1) {
+            return false;
+        }
+
+        $correct = $question->options->where('is_correct', true)->pluck('id')->map(fn ($id) => (int) $id);
+
+        return $correct->contains($selected->first());
+    }
+
+    protected function gradeMultipleChoice(QuizQuestion $question, array $payload): bool
+    {
+        $selected = collect($payload['option_ids'] ?? [])->map(fn ($id) => (int) $id)->sort()->values();
+        $correct = $question->options->where('is_correct', true)->pluck('id')->map(fn ($id) => (int) $id)->sort()->values();
+
+        return $selected->count() > 0 && $selected->toArray() === $correct->toArray();
+    }
+
+    protected function gradeShortAnswer(QuizQuestion $question, array $payload): bool
+    {
+        $text = $this->normalizeText((string) ($payload['text'] ?? ''), $question);
+        $accepted = $question->options->where('is_correct', true)->pluck('text')->map(
+            fn ($t) => $this->normalizeText((string) $t, $question)
+        );
+
+        return $accepted->contains($text);
+    }
+
+    protected function gradeFillBlank(QuizQuestion $question, array $payload): bool
+    {
+        $blanks = $payload['blanks'] ?? [];
+        $blankCount = $question->options->pluck('blank_index')->filter(fn ($i) => $i !== null)->max();
+
+        if ($blankCount === null) {
+            return false;
+        }
+
+        for ($i = 0; $i <= $blankCount; $i++) {
+            $student = $this->normalizeText((string) ($blanks[$i] ?? ''), $question);
+            $accepted = $question->options
+                ->where('blank_index', $i)
+                ->where('is_correct', true)
+                ->pluck('text')
+                ->map(fn ($t) => $this->normalizeText((string) $t, $question));
+
+            if (! $accepted->contains($student)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    protected function gradeMatching(QuizQuestion $question, array $payload): bool
+    {
+        $matches = $payload['matches'] ?? [];
+        $pairs = $question->options->filter(fn ($o) => $o->match_key !== null);
+
+        foreach ($pairs as $option) {
+            $key = (string) $option->id;
+            $expected = $this->normalizeText((string) $option->match_value, $question);
+            $given = $this->normalizeText((string) ($matches[$key] ?? $matches[$option->match_key] ?? ''), $question);
+
+            if ($given !== $expected) {
+                return false;
+            }
+        }
+
+        return $pairs->isNotEmpty();
+    }
+
+    protected function gradeOrdering(QuizQuestion $question, array $payload): bool
+    {
+        $order = collect($payload['order'] ?? [])->map(fn ($id) => (int) $id)->values();
+        $correct = $question->options
+            ->sortBy('correct_position')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values();
+
+        return $order->isNotEmpty() && $order->toArray() === $correct->toArray();
+    }
+
+    protected function normalizeText(string $text, QuizQuestion $question): string
+    {
+        $text = trim($text);
+        if (! ($question->settings['case_sensitive'] ?? false)) {
+            $text = mb_strtolower($text);
+        }
+
+        return $text;
+    }
+
+    protected function result(bool $isCorrect, float $score, float $maxScore, bool $negative, float $factor): array
+    {
+        if (! $isCorrect && $negative && $factor > 0) {
+            $score = -1 * round($maxScore * $factor, 2);
+        }
+
+        return [
+            'is_correct' => $isCorrect,
+            'score' => $isCorrect ? $maxScore : ($negative && $factor > 0 ? $score : max($score, 0)),
+            'max_score' => $maxScore,
+            'needs_manual_review' => false,
+        ];
+    }
+}

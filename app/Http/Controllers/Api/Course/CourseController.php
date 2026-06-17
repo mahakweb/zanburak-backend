@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Comment;
 use App\Models\Course;
+use App\Models\Quiz\Quiz;
 use App\Models\Path;
 use App\Models\Status;
 use App\Models\VideoView;
@@ -236,6 +237,7 @@ class CourseController extends Controller
             'certificateUuid' => $certificateUuid,
             'relatedCourses' => $relatedCourses,
             'course' => $course,
+            'quizzes' => $this->quizzesFor(Course::class, $course->id),
             'can_download' => $canDownload,
             'comments_count' => $commentsCount,
             'likes_count' => $likesCount,
@@ -243,6 +245,18 @@ class CourseController extends Controller
             'bookmarks_count' => $bookmarksCount,
             'user_has_bookmarked' => $userHasBookmarked,
         ], 200);
+    }
+
+    protected function quizzesFor(string $type, int $id): array
+    {
+        return Quiz::availableNow()
+            ->where('quizzable_type', $type)
+            ->where('quizzable_id', $id)
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Quiz $quiz) => $quiz->toStudentSummary())
+            ->values()
+            ->all();
     }
 
 }

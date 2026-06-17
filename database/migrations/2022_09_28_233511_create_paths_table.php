@@ -1,5 +1,6 @@
 <?php
 
+use App\Database\Schema\MigrationColumnHelpers;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -17,10 +18,10 @@ return new class extends Migration
             $table->id();
             $table->string('title');
             $table->string('english_title');
-            $table->string('slug');
+            $table->string('slug')->unique();
             $table->text('description')->nullable();
             $table->text('meta_keywords')->nullable();
-            $table->json('faqs')->nullable();
+            MigrationColumnHelpers::jsonColumn($table, 'faqs', nullable: true);
             $table->string('icon', 255)->nullable();
             $table->string('trailer', 255)->nullable();
             $table->string('poster', 255)->nullable();

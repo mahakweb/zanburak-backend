@@ -81,7 +81,7 @@ class Question extends Model implements Likeable
 
         return match ($value) {
             'all' => $query,
-            'no-answer' => $query->withCount('answers')->having('answers_count', 0),
+            'no-answer' => $query->withCount('answers')->doesntHave('answers'),
             'no-best-answer' => $query->whereNull('best_answer'),
             'best-answer' => $query->whereNotNull('best_answer'),
             'my-question' => $userId ? $query->where('user_id', $userId) : $query,

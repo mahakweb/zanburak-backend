@@ -16,8 +16,8 @@ return new class extends Migration
         Schema::create('statuses', function (Blueprint $table) {
             $table->id();
             $table->string('title', 255);
-            $table->string('english_title');
-            $table->string('slug');
+            $table->string('english_title')->unique();
+            $table->string('slug')->unique();
             $table->text('description')->nullable();
             $table->text('icon')->nullable();
             $table->timestamps();

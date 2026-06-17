@@ -1,5 +1,6 @@
 <?php
 
+use App\Database\Schema\MigrationColumnHelpers;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -17,7 +18,7 @@ return new class extends Migration
             $table->id();
             $table->string('title');
             $table->string('english_title');
-            $table->string('slug');
+            $table->string('slug')->unique();
             $table->unsignedBigInteger('parent_id')->nullable();
 //            $table->foreign('parent_id')->references('id')->on('question_categories')->onUpdate('cascade');
             $table->text('description')->nullable();
@@ -38,7 +39,7 @@ return new class extends Migration
             $table->unsignedBigInteger('best_answer')->nullable();
             $table->boolean('publish')->default(1);
             $table->boolean('is_private')->default(false);
-            $table->json('allowed_user_ids')->nullable();
+            MigrationColumnHelpers::jsonColumn($table, 'allowed_user_ids', nullable: true);
             $table->timestamps();
         });
     }

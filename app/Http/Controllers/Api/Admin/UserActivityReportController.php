@@ -15,6 +15,7 @@ use App\Models\Rating;
 use App\Models\Certificate;
 use App\Models\Report;
 use App\Models\Course;
+use App\Support\SqlDialect;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Database\Eloquent\Builder;
@@ -83,7 +84,7 @@ class UserActivityReportController extends Controller
                 ->whereNotNull('paid_at')
                 ->select('user_id', DB::raw('SUM(amount) as total'))
                 ->groupBy('user_id')
-                ->having('total', '>=', $request->spent_min)
+                ->havingRaw('SUM(amount) >= ?', [$request->spent_min])
                 ->pluck('user_id');
             $query->whereIn('id', $userIdsWithSpent);
         }
@@ -93,7 +94,7 @@ class UserActivityReportController extends Controller
                 ->whereNotNull('paid_at')
                 ->select('user_id', DB::raw('SUM(amount) as total'))
                 ->groupBy('user_id')
-                ->having('total', '<=', $request->spent_max)
+                ->havingRaw('SUM(amount) <= ?', [$request->spent_max])
                 ->pluck('user_id');
             $query->whereIn('id', $userIdsWithSpent);
         }
@@ -522,9 +523,12 @@ class UserActivityReportController extends Controller
                     }
                 },
             ])
-            ->orderByRaw('(logins_count + video_views_count + comments_count) DESC')
-            ->limit(10)
             ->get()
+            // PostgreSQL cannot reference SELECT aliases inside an ORDER BY expression,
+            // so sort by the computed activity total in PHP after counts are loaded.
+            ->sortByDesc(fn($user) => $user->logins_count + $user->video_views_count + $user->comments_count)
+            ->take(10)
+            ->values()
             ->map(function($user) {
                 return [
                     'id' => $user->id,
@@ -619,11 +623,11 @@ class UserActivityReportController extends Controller
         $activityByHour = [];
         for ($hour = 0; $hour < 24; $hour++) {
             $hourLogins = UserLogin::whereIn('user_id', $userIds)
-                ->whereRaw('HOUR(logged_in_at) = ?', [$hour])
+                ->whereRaw(SqlDialect::hour('logged_in_at').' = ?', [$hour])
                 ->count();
             
             $hourComments = Comment::whereIn('user_id', $userIds)
-                ->whereRaw('HOUR(created_at) = ?', [$hour])
+                ->whereRaw(SqlDialect::hour('created_at').' = ?', [$hour])
                 ->count();
 
             $activityByHour[] = [
@@ -639,11 +643,11 @@ class UserActivityReportController extends Controller
         $days = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه'];
         for ($day = 0; $day < 7; $day++) {
             $dayLogins = UserLogin::whereIn('user_id', $userIds)
-                ->whereRaw('DAYOFWEEK(logged_in_at) = ?', [$day + 1])
+                ->whereRaw(SqlDialect::dayOfWeek('logged_in_at').' = ?', [$day + 1])
                 ->count();
             
             $dayComments = Comment::whereIn('user_id', $userIds)
-                ->whereRaw('DAYOFWEEK(created_at) = ?', [$day + 1])
+                ->whereRaw(SqlDialect::dayOfWeek('created_at').' = ?', [$day + 1])
                 ->count();
 
             $activityByDay[] = [
@@ -758,9 +762,12 @@ class UserActivityReportController extends Controller
                     }
                 },
             ])
-            ->orderByRaw('(likes_count + comments_count + questions_count + answers_count) DESC')
-            ->limit(10)
             ->get()
+            // PostgreSQL cannot reference SELECT aliases inside an ORDER BY expression,
+            // so sort by the computed interaction total in PHP after counts are loaded.
+            ->sortByDesc(fn($user) => $user->likes_count + $user->comments_count + $user->questions_count + $user->answers_count)
+            ->take(10)
+            ->values()
             ->map(function($user) {
                 return [
                     'id' => $user->id,
@@ -1088,10 +1095,10 @@ class UserActivityReportController extends Controller
     private function buildActivityHourly(string $dateFrom, string $dateTo): array
     {
         $loginRaw = UserLogin::whereDate('logged_in_at', '>=', $dateFrom)->whereDate('logged_in_at', '<=', $dateTo)
-            ->select(DB::raw('HOUR(logged_in_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::hour('logged_in_at').' as hour'), DB::raw('COUNT(*) as count'))
             ->groupBy('hour')->pluck('count', 'hour');
         $commentRaw = Comment::whereDate('created_at', '>=', $dateFrom)->whereDate('created_at', '<=', $dateTo)
-            ->select(DB::raw('HOUR(created_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::hour('created_at').' as hour'), DB::raw('COUNT(*) as count'))
             ->groupBy('hour')->pluck('count', 'hour');
 
         return collect(range(0, 23))->map(function ($hour) use ($loginRaw, $commentRaw) {
@@ -1115,7 +1122,7 @@ class UserActivityReportController extends Controller
         }
 
         $raw = UserLogin::whereDate('logged_in_at', '>=', $dateFrom)->whereDate('logged_in_at', '<=', $dateTo)
-            ->select(DB::raw("DATE_FORMAT(logged_in_at, '%Y-%m') as month"), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::yearMonth('logged_in_at').' as month'), DB::raw('COUNT(*) as count'))
             ->groupBy('month')->orderBy('month')->get();
 
         return $raw->map(fn ($row) => [
@@ -1129,10 +1136,10 @@ class UserActivityReportController extends Controller
     {
         $weekdayLabels = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'];
         $loginRaw = UserLogin::whereDate('logged_in_at', '>=', $dateFrom)->whereDate('logged_in_at', '<=', $dateTo)
-            ->select(DB::raw('DAYOFWEEK(logged_in_at) as weekday'), DB::raw('HOUR(logged_in_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::dayOfWeek('logged_in_at').' as weekday'), DB::raw(SqlDialect::hour('logged_in_at').' as hour'), DB::raw('COUNT(*) as count'))
             ->groupBy('weekday', 'hour')->get();
         $commentRaw = Comment::whereDate('created_at', '>=', $dateFrom)->whereDate('created_at', '<=', $dateTo)
-            ->select(DB::raw('DAYOFWEEK(created_at) as weekday'), DB::raw('HOUR(created_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::dayOfWeek('created_at').' as weekday'), DB::raw(SqlDialect::hour('created_at').' as hour'), DB::raw('COUNT(*) as count'))
             ->groupBy('weekday', 'hour')->get();
 
         $cells = [];
@@ -1177,7 +1184,7 @@ class UserActivityReportController extends Controller
             ->groupBy('date')->orderByDesc('count')->first();
 
         $peakHourRow = UserLogin::whereDate('logged_in_at', '>=', $dateFrom)->whereDate('logged_in_at', '<=', $dateTo)
-            ->select(DB::raw('HOUR(logged_in_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::hour('logged_in_at').' as hour'), DB::raw('COUNT(*) as count'))
             ->groupBy('hour')->orderByDesc('count')->first();
 
         return [

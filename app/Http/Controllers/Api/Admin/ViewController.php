@@ -10,6 +10,7 @@ use App\Models\Question;
 use App\Models\User;
 use App\Models\View;
 use App\Services\IpGeolocationService;
+use App\Support\SqlDialect;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Http\Request;
@@ -132,7 +133,7 @@ class ViewController extends Controller
             ->values();
 
         $hourlyRaw = (clone $periodQuery)
-            ->select(DB::raw('HOUR(created_at) as hour'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::hour('created_at').' as hour'), DB::raw('COUNT(*) as count'))
             ->groupBy('hour')
             ->orderBy('hour')
             ->pluck('count', 'hour');
@@ -179,7 +180,7 @@ class ViewController extends Controller
 
         $weekdayLabels = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'];
         $weekdayRaw = (clone $periodQuery)
-            ->select(DB::raw('DAYOFWEEK(created_at) as weekday'), DB::raw('COUNT(*) as count'))
+            ->select(DB::raw(SqlDialect::dayOfWeek('created_at').' as weekday'), DB::raw('COUNT(*) as count'))
             ->groupBy('weekday')
             ->pluck('count', 'weekday');
 

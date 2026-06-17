@@ -774,7 +774,7 @@ class CourseController extends Controller
     public function edit(Request $request)
     {
         $slug = $request->slug;
-        $course = Course::with(['category', 'tags', 'level', 'status', 'videos', 'paths'])->where('slug', $slug)->first();
+        $course = Course::with(['category', 'tags', 'level', 'status', 'videos', 'paths', 'certificateTemplate'])->where('slug', $slug)->first();
 
         if (!$course) {
             return response()->json(['message' => 'Error! course not found'], 404);
@@ -866,6 +866,12 @@ class CourseController extends Controller
             'trailer_status' => $trailerStatus,
             'trailer_video_id' => $trailerVideoId,
             'attach' => $attach,
+            'certificate_enabled' => (bool) $course->certificate_enabled,
+            'certificate_template_id' => $course->certificate_template_id,
+            'certificate_template' => $course->certificateTemplate ? [
+                'id' => $course->certificateTemplate->id,
+                'name' => $course->certificateTemplate->name,
+            ] : null,
         ];
 
         return response()->json([
@@ -924,6 +930,8 @@ class CourseController extends Controller
             'price' => ['required', 'numeric', 'max:100000000'],
             'start_date' => ['nullable', "date", "before:end_date"],
             'end_date' => ['nullable', "date", "after:start_date"],
+            'certificate_enabled' => ['nullable', 'boolean'],
+            'certificate_template_id' => ['nullable', 'exists:certificate_templates,id'],
         ]);
         if (!$validator->passes()) {
             return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
@@ -937,11 +945,14 @@ class CourseController extends Controller
             } else {
                 $validData['meta_keywords'] = null;
             }
+
+            if (empty($validData['certificate_enabled'])) {
+                $validData['certificate_enabled'] = false;
+                $validData['certificate_template_id'] = null;
+            }
             
             $course->update($validData);
             $course->category()->sync($validData['categories']);
-            
-            // Sync paths if provided
             if (isset($validData['paths'])) {
                 $course->paths()->sync($validData['paths']);
             }

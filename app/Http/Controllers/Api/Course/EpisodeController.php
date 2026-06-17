@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Course;
 use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\Episode;
+use App\Models\Quiz\Quiz;
 use App\Models\VideoView;
 use App\Models\View;
 use Illuminate\Http\Request;
@@ -218,6 +219,7 @@ class EpisodeController extends Controller
             'certificateUuid' => $certificateUuid,
             'course' => $course,
             'episode' => $episode,
+            'quizzes' => $this->quizzesFor(Episode::class, $episode->id),
             'can_download' => $canDownload,
             'comments_count' => $commentsCount,
             'likes_count' => $likesCount,
@@ -326,6 +328,18 @@ class EpisodeController extends Controller
         } catch (\Exception $e) {
             return response()->json(['message' => 'An error occurred while processing your request', 'error' => $e->getMessage()], 500);
         }
+    }
+
+    protected function quizzesFor(string $type, int $id): array
+    {
+        return Quiz::availableNow()
+            ->where('quizzable_type', $type)
+            ->where('quizzable_id', $id)
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Quiz $quiz) => $quiz->toStudentSummary())
+            ->values()
+            ->all();
     }
 
 
