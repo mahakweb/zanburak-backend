@@ -116,17 +116,18 @@ class StudentQuizController extends Controller
     protected function transformResult(QuizAttempt $attempt, int $userId): array
     {
         $quiz = $attempt->quiz;
-        $showAnswers = $quiz->show_correct_answers
-            && in_array($quiz->result_display, ['immediately', 'after_review'], true)
-            && ($attempt->status === 'completed' || ($attempt->status === 'grading' && $quiz->result_display === 'after_review'));
+        $resultAvailable = $quiz->canShowResultsForAttempt($attempt);
+        $showAnswers = $resultAvailable && $quiz->canShowCorrectAnswersForAttempt($attempt);
 
         $payload = [
             'uuid' => $attempt->uuid,
             'status' => $attempt->status,
-            'score' => $attempt->score,
-            'max_score' => $attempt->max_score,
-            'percentage' => $attempt->percentage,
-            'passed' => $attempt->passed,
+            'result_available' => $resultAvailable,
+            'result_message' => $resultAvailable ? null : $quiz->resultUnavailableMessage(),
+            'score' => $resultAvailable ? $attempt->score : null,
+            'max_score' => $resultAvailable ? $attempt->max_score : null,
+            'percentage' => $resultAvailable ? $attempt->percentage : null,
+            'passed' => $resultAvailable ? $attempt->passed : null,
             'time_spent' => $attempt->time_spent,
             'submitted_at' => $attempt->submitted_at,
             'completed_at' => $attempt->completed_at,

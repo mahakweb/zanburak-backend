@@ -17,8 +17,10 @@ class QuizAttemptService
 
     public function start(Quiz $quiz, User $user): QuizAttempt
     {
-        if (! $quiz->isAvailable()) {
-            throw ValidationException::withMessages(['quiz' => 'این آزمون در حال حاضر در دسترس نیست.']);
+        $this->expireStaleAttempts();
+
+        if (! $quiz->userCanTake($user)) {
+            throw ValidationException::withMessages(['quiz' => 'شما مجاز به شرکت در این آزمون نیستید.']);
         }
 
         $inProgress = QuizAttempt::where('quiz_id', $quiz->id)
@@ -161,10 +163,21 @@ class QuizAttemptService
 
     public function activeAttempt(Quiz $quiz, User $user): ?QuizAttempt
     {
+        $this->expireStaleAttempts();
+
         return QuizAttempt::where('quiz_id', $quiz->id)
             ->where('user_id', $user->id)
             ->where('status', 'in_progress')
             ->first();
+    }
+
+    public function expireStaleAttempts(): int
+    {
+        return QuizAttempt::query()
+            ->where('status', 'in_progress')
+            ->whereNotNull('expires_at')
+            ->where('expires_at', '<=', now())
+            ->update(['status' => 'expired']);
     }
 
     public function loadAttemptForStudent(QuizAttempt $attempt): QuizAttempt

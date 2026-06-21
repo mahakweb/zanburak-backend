@@ -16,7 +16,7 @@ class CertificateTemplate extends Model
     protected $fillable = [
         'uuid', 'name', 'slug', 'description',
         'background_image', 'logo_image', 'signature_image',
-        'orientation', 'layout', 'settings',
+        'orientation', 'canvas_width', 'canvas_height', 'layout', 'settings',
         'is_default', 'is_active', 'created_by',
     ];
 
@@ -42,6 +42,13 @@ class CertificateTemplate extends Model
             if (empty($template->settings)) {
                 $template->settings = CertificateConstants::DEFAULT_SETTINGS;
             }
+            $canvas = CertificateConstants::defaultCanvasForOrientation($template->orientation ?? 'landscape');
+            if (empty($template->canvas_width)) {
+                $template->canvas_width = $canvas['width'];
+            }
+            if (empty($template->canvas_height)) {
+                $template->canvas_height = $canvas['height'];
+            }
         });
 
         static::saved(function (self $template) {
@@ -64,6 +71,16 @@ class CertificateTemplate extends Model
     public function certificates(): HasMany
     {
         return $this->hasMany(Certificate::class, 'certificate_template_id');
+    }
+
+    public function resolvedCanvas(): array
+    {
+        $defaults = CertificateConstants::defaultCanvasForOrientation($this->orientation ?? 'landscape');
+
+        return [
+            'width' => (int) ($this->canvas_width ?: $defaults['width']),
+            'height' => (int) ($this->canvas_height ?: $defaults['height']),
+        ];
     }
 
     public function resolvedLayout(): array

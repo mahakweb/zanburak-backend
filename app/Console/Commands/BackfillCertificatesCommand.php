@@ -10,7 +10,7 @@ class BackfillCertificatesCommand extends Command
 {
     protected $signature = 'certificates:backfill {--limit=500 : Max certificates to process}';
 
-    protected $description = 'Backfill serial numbers, verification tokens, and PDFs for existing certificates';
+    protected $description = 'Backfill serial numbers and verification tokens for existing certificates';
 
     public function handle(CertificateIssuanceService $issuance): int
     {
@@ -18,8 +18,7 @@ class BackfillCertificatesCommand extends Command
         $query = Certificate::query()
             ->where(function ($q) {
                 $q->whereNull('serial_number')
-                    ->orWhereNull('verification_token')
-                    ->orWhereNull('pdf_path');
+                    ->orWhereNull('verification_token');
             })
             ->orderBy('id');
 

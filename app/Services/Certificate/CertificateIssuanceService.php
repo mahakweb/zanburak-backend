@@ -13,7 +13,6 @@ class CertificateIssuanceService
     public function __construct(
         protected CertificateSerialService $serials,
         protected CertificateVerificationService $verification,
-        protected CertificatePdfService $pdf,
     ) {}
 
     public function issueForCourse(User $user, Course $course, ?float $grade = null): ?Certificate
@@ -59,12 +58,6 @@ class CertificateIssuanceService
         $certificate->verification_token = $this->verification->generateToken($certificate);
         $certificate->save();
 
-        try {
-            $this->pdf->storePdf($certificate, $template);
-        } catch (\Throwable) {
-            // PDF generation is best-effort; certificate record remains valid.
-        }
-
         return $certificate->fresh(['template', 'course']);
     }
 
@@ -107,11 +100,6 @@ class CertificateIssuanceService
         $certificate->verification_token = $this->verification->generateToken($certificate);
         $certificate->save();
 
-        try {
-            $this->pdf->storePdf($certificate, $template);
-        } catch (\Throwable) {
-        }
-
         return $certificate->fresh(['template', 'course']);
     }
 
@@ -144,12 +132,15 @@ class CertificateIssuanceService
 
         $certificate->update($updates);
 
-        if (! $certificate->pdf_path) {
-            try {
-                $this->pdf->storePdf($certificate->fresh(), $template);
-            } catch (\Throwable) {
-            }
-        }
+        return $certificate->fresh(['template', 'course']);
+    }
+
+    public function revoke(Certificate $certificate): Certificate
+    {
+        $certificate->update([
+            'status' => 'revoked',
+            'revoked_at' => now(),
+        ]);
 
         return $certificate->fresh(['template', 'course']);
     }
@@ -186,14 +177,6 @@ class CertificateIssuanceService
 
         if ($updates) {
             $certificate->update($updates);
-            $certificate->refresh();
-        }
-
-        if ($certificate->isIssued() && ! $certificate->pdf_path) {
-            try {
-                $this->pdf->storePdf($certificate, $template);
-            } catch (\Throwable) {
-            }
         }
 
         return $certificate->fresh(['template', 'course']);

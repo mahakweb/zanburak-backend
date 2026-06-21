@@ -41,7 +41,7 @@ class QuizPolicy
 
     public function take(User $user, Quiz $quiz): bool
     {
-        return $quiz->isAvailable();
+        return $quiz->userCanTake($user);
     }
 
     public function viewAttempt(User $user, QuizAttempt $attempt): bool

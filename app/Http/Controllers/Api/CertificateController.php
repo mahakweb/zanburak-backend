@@ -4,17 +4,17 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Certificate;
-use App\Services\Certificate\CertificatePdfService;
 use App\Services\Certificate\CertificateQrCodeService;
+use App\Services\Certificate\CertificateRenderService;
 use App\Services\Certificate\CertificateVerificationService;
+use App\Support\Certificate\CertificateAssetHelper;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 
 class CertificateController extends Controller
 {
     public function __construct(
         protected CertificateVerificationService $verification,
-        protected CertificatePdfService $pdf,
+        protected CertificateRenderService $render,
         protected CertificateQrCodeService $qr,
     ) {}
 
@@ -34,14 +34,33 @@ class CertificateController extends Controller
         ]);
     }
 
+    public function renderData($uuid)
+    {
+        $certificate = Certificate::with(['course.teacher', 'template'])
+            ->where('uuid', $uuid)
+            ->firstOrFail();
+
+        if (! $certificate->isIssued()) {
+            return response()->json(['message' => 'Certificate not available'], 404);
+        }
+
+        $payload = $this->render->buildPayload($certificate);
+
+        return response()->json([
+            'message' => 'Success',
+            'render' => $this->render->toFrontendPayload($payload),
+        ]);
+    }
+
     public function verify(Request $request)
     {
         $serial = trim((string) $request->input('serial', ''));
+        $token = $request->input('token');
         if ($serial === '') {
             return response()->json(['message' => 'Serial required', 'valid' => false], 422);
         }
 
-        $result = $this->verification->verifyBySerial($serial);
+        $result = $this->verification->verifyBySerial($serial, $token);
         if (! $result) {
             return response()->json([
                 'message' => 'Not found',
@@ -56,69 +75,35 @@ class CertificateController extends Controller
         ]);
     }
 
-    public function renderData($uuid)
-    {
-        $certificate = Certificate::with(['course.teacher', 'template'])
-            ->where('uuid', $uuid)
-            ->firstOrFail();
-
-        if (! $certificate->isIssued()) {
-            return response()->json(['message' => 'Certificate not available'], 404);
-        }
-
-        $payload = $this->pdf->buildPayload($certificate);
-
-        return response()->json([
-            'message' => 'Success',
-            'render' => [
-                'placeholders' => $payload['placeholders'],
-                'layout' => $payload['layout'],
-                'settings' => $payload['settings'],
-                'background_url' => $payload['background_url'],
-                'logo_url' => $payload['logo_url'],
-                'signature_url' => $payload['signature_url'],
-                'qr_data_uri' => $payload['qr_data_uri'],
-                'verify_url' => $payload['verify_url'],
-                'orientation' => $payload['template']?->orientation ?? 'landscape',
-            ],
-        ]);
-    }
-
-    public function downloadPdf($uuid)
-    {
-        $certificate = Certificate::with(['course.teacher', 'template'])
-            ->where('uuid', $uuid)
-            ->firstOrFail();
-
-        if (! $certificate->isIssued()) {
-            abort(404);
-        }
-
-        if ($certificate->pdf_path && Storage::disk('public')->exists($certificate->pdf_path)) {
-            return Storage::disk('public')->download(
-                $certificate->pdf_path,
-                'certificate-'.$certificate->serial_number.'.pdf'
-            );
-        }
-
-        $binary = $this->pdf->renderPdf($certificate);
-        $filename = 'certificate-'.($certificate->serial_number ?? $certificate->uuid).'.pdf';
-
-        return response($binary, 200, [
-            'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
-        ]);
-    }
-
     public function downloadQr($uuid)
     {
         $certificate = Certificate::where('uuid', $uuid)->firstOrFail();
         $serial = $certificate->serial_number ?? $certificate->uuid;
-        $binary = $this->qr->pngBinary($this->qr->verificationUrl($serial));
+        $binary = $this->qr->pngBinary(
+            $this->qr->verificationUrl($serial, $certificate->verification_token)
+        );
 
         return response($binary, 200, [
             'Content-Type' => 'image/png',
             'Content-Disposition' => 'inline; filename="qr-'.$serial.'.png"',
+        ]);
+    }
+
+    /** Serve template assets through API with CORS (for frontend canvas capture). */
+    public function asset(Request $request)
+    {
+        $path = (string) $request->query('path', '');
+        if ($path === '') {
+            abort(404);
+        }
+
+        $full = CertificateAssetHelper::absolutePath($path);
+        $mime = mime_content_type($full) ?: 'application/octet-stream';
+
+        return response()->file($full, [
+            'Content-Type' => $mime,
+            'Cache-Control' => 'public, max-age=86400',
+            'Cross-Origin-Resource-Policy' => 'cross-origin',
         ]);
     }
 
@@ -138,7 +123,7 @@ class CertificateController extends Controller
             'issued_at' => $certificate->issued_at,
             'status' => $certificate->status,
             'verification_token' => $certificate->verification_token,
-            'verify_url' => $this->qr->verificationUrl($serial),
+            'verify_url' => $this->qr->verificationUrl($serial, $certificate->verification_token),
             'user' => $certificate->user?->only('first_name', 'last_name', 'username', 'profile_pic'),
             'course' => array_merge(
                 $certificate->course?->only('title', 'english_title', 'slug', 'poster') ?? [],

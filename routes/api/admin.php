@@ -35,6 +35,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
         Route::post('/create', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'createCertificate'])->name('create');
         Route::post('/{uuid}/update', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'updateCertificate'])->name('update');
         Route::post('/{uuid}/issue', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'issueCertificate'])->name('issue');
+        Route::post('/{uuid}/revoke', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'revokeCertificate'])->name('revoke');
         Route::delete('/{uuid}/delete', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'deleteCertificate'])->name('delete');
         Route::get('/search', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'search'])->name('search');
         Route::get('/users', [\App\Http\Controllers\Api\Admin\CertificateController::class, 'getUsers'])->name('users');
@@ -50,6 +51,11 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
         Route::delete('/{template}', [\App\Http\Controllers\Api\Admin\CertificateTemplateController::class, 'destroy'])->name('delete');
         Route::post('/{template}/duplicate', [\App\Http\Controllers\Api\Admin\CertificateTemplateController::class, 'duplicate'])->name('duplicate');
         Route::post('/{template}/upload', [\App\Http\Controllers\Api\Admin\CertificateTemplateController::class, 'uploadAsset'])->name('upload');
+    });
+
+    Route::prefix('certificate-fonts')->as('certificate-fonts.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\CertificateFontController::class, 'index'])->name('index');
+        Route::post('/{font}/upload', [\App\Http\Controllers\Api\CertificateFontController::class, 'upload'])->name('upload');
     });
 
     // Dashboard

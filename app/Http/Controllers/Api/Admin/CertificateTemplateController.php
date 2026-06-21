@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CertificateTemplate;
 use App\Services\Certificate\CertificateTemplateService;
 use App\Support\Certificate\CertificateConstants;
+use App\Support\Certificate\CertificateAssetHelper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -24,6 +25,8 @@ class CertificateTemplateController extends Controller
             ->latest()
             ->paginate((int) $request->input('perPage', 20));
 
+        $items->getCollection()->transform(fn ($t) => $this->formatTemplate($t));
+
         return response()->json(['message' => 'Success', 'templates' => $items]);
     }
 
@@ -31,7 +34,7 @@ class CertificateTemplateController extends Controller
     {
         return response()->json([
             'message' => 'Success',
-            'template' => $template->loadCount('courses', 'certificates'),
+            'template' => $this->formatTemplate($template->loadCount('courses', 'certificates')),
             'placeholders' => CertificateConstants::PLACEHOLDERS,
             'default_layout' => CertificateConstants::DEFAULT_LAYOUT,
         ]);
@@ -42,14 +45,14 @@ class CertificateTemplateController extends Controller
         $data = $this->validated($request);
         $template = $this->templates->create($data, $request->user()->id);
 
-        return response()->json(['message' => 'Template created', 'template' => $template], 201);
+        return response()->json(['message' => 'Template created', 'template' => $this->formatTemplate($template)], 201);
     }
 
     public function update(Request $request, CertificateTemplate $template)
     {
         $template = $this->templates->update($template, $this->validated($request, $template));
 
-        return response()->json(['message' => 'Template updated', 'template' => $template]);
+        return response()->json(['message' => 'Template updated', 'template' => $this->formatTemplate($template)]);
     }
 
     public function destroy(CertificateTemplate $template)
@@ -97,9 +100,25 @@ class CertificateTemplateController extends Controller
 
         return response()->json([
             'message' => 'Asset uploaded',
-            'template' => $template->fresh(),
-            'url' => Storage::disk('public')->url($path),
+            'template' => $this->formatTemplate($template->fresh()),
+            'url' => $this->assetUrl($path),
         ]);
+    }
+
+    protected function formatTemplate(CertificateTemplate $template): array
+    {
+        $data = $template->toArray();
+
+        $data['background_image_url'] = $this->assetUrl($template->background_image);
+        $data['logo_image_url'] = $this->assetUrl($template->logo_image);
+        $data['signature_image_url'] = $this->assetUrl($template->signature_image);
+
+        return $data;
+    }
+
+    protected function assetUrl(?string $path): ?string
+    {
+        return CertificateAssetHelper::publicUrl($path);
     }
 
     protected function validated(Request $request, ?CertificateTemplate $template = null): array
@@ -109,6 +128,8 @@ class CertificateTemplateController extends Controller
             'slug' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'orientation' => ['nullable', 'in:landscape,portrait'],
+            'canvas_width' => ['nullable', 'integer', 'min:400', 'max:5000'],
+            'canvas_height' => ['nullable', 'integer', 'min:400', 'max:5000'],
             'layout' => ['nullable', 'array'],
             'settings' => ['nullable', 'array'],
             'is_default' => ['boolean'],

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin\Quiz;
 
 use App\Http\Controllers\Controller;
 use App\Models\Quiz\Quiz;
+use App\Models\Quiz\QuizAttempt;
 use App\Services\Quiz\QuizAdminService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -28,7 +29,18 @@ class QuizController extends Controller
 
         $quizzes = $query->latest()->paginate((int) $request->input('perPage', 20));
 
-        return response()->json(['message' => 'Success', 'quizzes' => $quizzes]);
+        $pendingReview = QuizAttempt::query()
+            ->where('status', 'grading')
+            ->where('requires_manual_review', true)
+            ->count();
+
+        return response()->json([
+            'message' => 'Success',
+            'quizzes' => $quizzes,
+            'stats' => [
+                'pending_review' => $pendingReview,
+            ],
+        ]);
     }
 
     public function show(Quiz $quiz)
@@ -95,6 +107,9 @@ class QuizController extends Controller
             'is_published' => ['boolean'],
             'question_ids' => ['nullable', 'array'],
             'question_ids.*' => ['integer', 'exists:quiz_questions,id'],
+            'questions' => ['nullable', 'array'],
+            'questions.*.id' => ['required', 'integer', 'exists:quiz_questions,id'],
+            'questions.*.score' => ['nullable', 'numeric', 'min:0'],
             'settings' => ['nullable', 'array'],
         ]);
     }

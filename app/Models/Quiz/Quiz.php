@@ -2,6 +2,9 @@
 
 namespace App\Models\Quiz;
 
+use App\Models\Course;
+use App\Models\Episode;
+use App\Models\Section;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -101,6 +104,92 @@ class Quiz extends Model
         }
 
         return true;
+    }
+
+    public function relatedCourse(): ?Course
+    {
+        $this->loadMissing('quizzable');
+
+        if (! $this->quizzable_type || ! $this->quizzable) {
+            return null;
+        }
+
+        return match ($this->quizzable_type) {
+            Course::class => $this->quizzable,
+            Section::class => $this->quizzable->course ?? null,
+            Episode::class => $this->quizzable->section?->course,
+            default => null,
+        };
+    }
+
+    public function userCanTake(User $user): bool
+    {
+        if (! $this->isAvailable()) {
+            return false;
+        }
+
+        $course = $this->relatedCourse();
+        if ($course === null) {
+            return true;
+        }
+
+        return (bool) $user->hasCourse($course);
+    }
+
+    public function resultsReleased(): bool
+    {
+        if ($this->result_display !== 'after_end') {
+            return true;
+        }
+
+        if (! $this->end_at) {
+            return true;
+        }
+
+        return $this->end_at->isPast();
+    }
+
+    public function canShowResultsForAttempt(QuizAttempt $attempt): bool
+    {
+        if (! in_array($attempt->status, ['submitted', 'grading', 'completed'], true)) {
+            return false;
+        }
+
+        if ($this->result_display === 'after_end' && ! $this->resultsReleased()) {
+            return false;
+        }
+
+        if ($this->result_display === 'after_review' && $attempt->status !== 'completed') {
+            return false;
+        }
+
+        return true;
+    }
+
+    public function canShowCorrectAnswersForAttempt(QuizAttempt $attempt): bool
+    {
+        if (! $this->show_correct_answers || ! $this->canShowResultsForAttempt($attempt)) {
+            return false;
+        }
+
+        if (in_array($this->result_display, ['after_review', 'after_end'], true)) {
+            return $attempt->status === 'completed';
+        }
+
+        return in_array($attempt->status, ['submitted', 'grading', 'completed'], true);
+    }
+
+    public function resultUnavailableMessage(): ?string
+    {
+        if ($this->result_display === 'after_end' && ! $this->resultsReleased()) {
+            return 'نتیجه پس از پایان مهلت آزمون نمایش داده می‌شود.';
+        }
+
+        if ($this->result_display === 'after_review') {
+            return 'نتیجه پس از تصحیح دستی نمایش داده می‌شود.';
+        }
+
+        return null;
     }
 
     public function hasUnlimitedAttempts(): bool

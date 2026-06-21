@@ -367,6 +367,25 @@ class CertificateController extends Controller
     }
 
     /**
+     * Revoke certificate (marks as invalid for verification)
+     */
+    public function revokeCertificate(Request $request, $uuid)
+    {
+        $certificate = Certificate::where('uuid', $uuid)->firstOrFail();
+
+        if ($certificate->isRevoked()) {
+            return response()->json(['message' => 'گواهینامه قبلاً لغو شده است'], 422);
+        }
+
+        $certificate = $this->issuance->revoke($certificate);
+
+        return response()->json([
+            'message' => 'گواهینامه با موفقیت لغو شد',
+            'certificate' => $certificate,
+        ], 200);
+    }
+
+    /**
      * Delete certificate
      */
     public function deleteCertificate(Request $request, $uuid)
@@ -383,13 +402,12 @@ class CertificateController extends Controller
             $certificate->delete();
             $message = 'گواهینامه به طور کامل حذف شد';
         } else {
-            // Soft delete - just remove issued_at
-            $certificate->update(['issued_at' => null]);
+            $this->issuance->revoke($certificate);
             $message = 'گواهینامه لغو شد';
         }
 
         return response()->json([
-            'message' => $message
+            'message' => $message,
         ], 200);
     }
 

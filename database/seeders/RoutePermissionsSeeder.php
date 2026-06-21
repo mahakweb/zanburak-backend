@@ -167,6 +167,7 @@ class RoutePermissionsSeeder extends Seeder
         $assign('api.admin.certificates.create', ['certificates.create']);
         $assign('api.admin.certificates.update', ['certificates.update']);
         $assign('api.admin.certificates.issue', ['certificates.create']);
+        $assign('api.admin.certificates.revoke', ['certificates.update']);
         $assign('api.admin.certificates.delete', ['certificates.delete']);
 
         // Certificate Templates

@@ -17,7 +17,9 @@ class QuizAdminService
     {
         return DB::transaction(function () use ($data) {
             $quiz = Quiz::create($this->mapQuizPayload($data));
-            if (! empty($data['question_ids'])) {
+            if (! empty($data['questions'])) {
+                $this->syncQuestionsFromPayload($quiz, $data['questions']);
+            } elseif (! empty($data['question_ids'])) {
                 $this->syncQuestions($quiz, $data['question_ids']);
             }
 
@@ -29,7 +31,9 @@ class QuizAdminService
     {
         return DB::transaction(function () use ($quiz, $data) {
             $quiz->update($this->mapQuizPayload($data, $quiz));
-            if (array_key_exists('question_ids', $data)) {
+            if (array_key_exists('questions', $data)) {
+                $this->syncQuestionsFromPayload($quiz, $data['questions'] ?? []);
+            } elseif (array_key_exists('question_ids', $data)) {
                 $this->syncQuestions($quiz, $data['question_ids'] ?? []);
             }
 
@@ -37,14 +41,36 @@ class QuizAdminService
         });
     }
 
-    public function syncQuestions(Quiz $quiz, array $questionIds): void
+    public function syncQuestions(Quiz $quiz, array $questionIds, array $scoresById = []): void
     {
         $sync = [];
         foreach (array_values($questionIds) as $position => $questionId) {
-            $sync[$questionId] = ['position' => $position + 1];
+            $entry = ['position' => $position + 1];
+            if (array_key_exists($questionId, $scoresById) && $scoresById[$questionId] !== null && $scoresById[$questionId] !== '') {
+                $entry['score'] = $scoresById[$questionId];
+            }
+            $sync[$questionId] = $entry;
         }
         $quiz->questions()->sync($sync);
         $quiz->recalculateTotals();
+    }
+
+    public function syncQuestionsFromPayload(Quiz $quiz, array $questions): void
+    {
+        $ids = [];
+        $scores = [];
+        foreach ($questions as $item) {
+            $id = (int) ($item['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $ids[] = $id;
+            if (array_key_exists('score', $item) && $item['score'] !== null && $item['score'] !== '') {
+                $scores[$id] = $item['score'];
+            }
+        }
+
+        $this->syncQuestions($quiz, $ids, $scores);
     }
 
     public function createQuestion(array $data): QuizQuestion

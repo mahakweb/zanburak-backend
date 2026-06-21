@@ -44,6 +44,7 @@ class QuizPermissionsSeeder extends Seeder
                 'quizzes.create',
                 'quizzes.update',
                 'quizzes.reports',
+                'quizzes.review',
                 'quiz_questions.view',
                 'quiz_questions.create',
                 'quiz_questions.update',

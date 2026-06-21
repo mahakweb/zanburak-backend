@@ -33,7 +33,7 @@ class CertificateVerificationService
         return hash_equals($certificate->verification_token ?? '', $token);
     }
 
-    public function verifyBySerial(string $serial): ?array
+    public function verifyBySerial(string $serial, ?string $token = null): ?array
     {
         $certificate = Certificate::with(['course:id,title,slug,poster', 'template'])
             ->where('serial_number', $serial)
@@ -43,13 +43,15 @@ class CertificateVerificationService
             return null;
         }
 
-        $valid = $this->validate($certificate);
+        $valid = $this->validate($certificate, $token);
 
         return [
             'valid' => $valid,
+            'forgery_check' => $token !== null ? hash_equals($certificate->verification_token ?? '', $token) : null,
             'certificate' => [
                 'serial_number' => $certificate->serial_number,
                 'uuid' => $certificate->uuid,
+                'certificate_id' => $certificate->id,
                 'student_name' => $certificate->user_name,
                 'course_name' => $certificate->course_title,
                 'instructor_name' => $certificate->instructor_name,

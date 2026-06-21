@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Models\Comment;
 use App\Models\Course;
+use App\Models\Episode;
 use App\Models\Quiz\Quiz;
+use App\Models\Section;
 use App\Models\Path;
 use App\Models\Status;
 use App\Models\VideoView;
@@ -117,41 +119,39 @@ class CourseController extends Controller
             ->findOrFail($course->id);
 
         $episode_number = 1;
-        // $course->section->each(fn($section) => $section->episode->each(fn($episode) => $episode->number = $episode_number++));
 
         foreach ($course->section as $section) {
             foreach ($section->episode as $episodeItem) {
-                // شماره گذاری اپیزود
                 $episodeItem->number = $episode_number++;
 
-                // اگر کاربر لاگین بود
                 if ($user) {
                     $progress = VideoView::getEpisodeProgressForUser($user->id, $episodeItem->id);
                     $episodeItem->progressPercentage = $progress['progress_percentage'] ?? 0;
-
                     $episodeItem->fullWatched = VideoView::hasUserWatchedEpisode($user->id, $episodeItem->id);
                 }
             }
         }
 
+        $sectionIds = $course->section->pluck('id');
+        $sectionQuizMap = Quiz::availableNow()
+            ->where('quizzable_type', Section::class)
+            ->whereIn('quizzable_id', $sectionIds)
+            ->get()
+            ->groupBy('quizzable_id');
+
+        foreach ($course->section as $section) {
+            $section->setAttribute(
+                'quizzes',
+                ($sectionQuizMap->get($section->id) ?? collect())
+                    ->map(fn (Quiz $quiz) => $quiz->toStudentSummary())
+                    ->values()
+                    ->all()
+            );
+        }
 
         $userCanSeeCourse = $user?->hasCourse($course) ?? false;
         // Login required for any download
         $canDownload = $user ? $user->canDownloadCourse($course) : false;
-
-
-        // اضافه کردن درصد مشاهده برای هر اپیزود توی سکشن‌ها
-        if ($user) {
-            foreach ($course->section as $section) {
-                foreach ($section->episode as $episodeItem) {
-                    $progress = VideoView::getEpisodeProgressForUser($user->id, $episodeItem->id);
-                    $episodeItem->progressPercentage = $progress['progress_percentage'] ?? 0;
-
-                    $episodeItem->fullWatched = VideoView::hasUserWatchedEpisode($user->id, $episodeItem->id);
-                }
-            }
-        }
-
 
         $certificate = $user?->certificates()->where('course_id', $course->id)->first();
         $userCompletedCourse = $certificate ? true : false;
@@ -237,7 +237,8 @@ class CourseController extends Controller
             'certificateUuid' => $certificateUuid,
             'relatedCourses' => $relatedCourses,
             'course' => $course,
-            'quizzes' => $this->quizzesFor(Course::class, $course->id),
+            'quizzes' => $this->allQuizzesForCourse($course),
+            'course_quizzes' => $this->quizzesFor(Course::class, $course->id),
             'can_download' => $canDownload,
             'comments_count' => $commentsCount,
             'likes_count' => $likesCount,
@@ -252,6 +253,33 @@ class CourseController extends Controller
         return Quiz::availableNow()
             ->where('quizzable_type', $type)
             ->where('quizzable_id', $id)
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Quiz $quiz) => $quiz->toStudentSummary())
+            ->values()
+            ->all();
+    }
+
+    protected function allQuizzesForCourse(Course $course): array
+    {
+        $sectionIds = $course->section()->pluck('id');
+        $episodeIds = Episode::query()
+            ->whereIn('section_id', $sectionIds)
+            ->pluck('id');
+
+        return Quiz::availableNow()
+            ->where(function ($query) use ($course, $sectionIds, $episodeIds) {
+                $query->where(function ($q) use ($course) {
+                    $q->where('quizzable_type', Course::class)
+                        ->where('quizzable_id', $course->id);
+                })->orWhere(function ($q) use ($sectionIds) {
+                    $q->where('quizzable_type', Section::class)
+                        ->whereIn('quizzable_id', $sectionIds);
+                })->orWhere(function ($q) use ($episodeIds) {
+                    $q->where('quizzable_type', Episode::class)
+                        ->whereIn('quizzable_id', $episodeIds);
+                });
+            })
             ->orderBy('id')
             ->get()
             ->map(fn (Quiz $quiz) => $quiz->toStudentSummary())

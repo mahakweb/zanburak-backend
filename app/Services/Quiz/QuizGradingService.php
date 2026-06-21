@@ -38,13 +38,23 @@ class QuizGradingService
 
         $isCorrect = match ($question->type) {
             'single_choice', 'true_false' => $this->gradeSingleChoice($question, $answerPayload),
-            'multiple_choice' => $this->gradeMultipleChoice($question, $answerPayload),
+            'multiple_choice' => null,
             'short_answer' => $this->gradeShortAnswer($question, $answerPayload),
             'fill_blank' => $this->gradeFillBlank($question, $answerPayload),
             'matching' => $this->gradeMatching($question, $answerPayload),
             'ordering' => $this->gradeOrdering($question, $answerPayload),
             default => false,
         };
+
+        if ($question->type === 'multiple_choice') {
+            return $this->gradeMultipleChoicePartial(
+                $question,
+                $answerPayload,
+                $maxScore,
+                $negativeScoring,
+                $negativeFactor
+            );
+        }
 
         if ($question->type === 'short_answer' && ($question->settings['manual_review'] ?? false)) {
             return [
@@ -62,7 +72,7 @@ class QuizGradingService
     {
         $attempt->load(['answers', 'quiz']);
 
-        $score = (float) $attempt->answers->sum('score');
+        $score = max(0, (float) $attempt->answers->sum('score'));
         $maxScore = (float) $attempt->answers->sum('max_score');
         $percentage = $maxScore > 0 ? round(($score / $maxScore) * 100, 2) : 0;
 
@@ -107,7 +117,7 @@ class QuizGradingService
             throw new \RuntimeException('All answers must be reviewed before completing.');
         }
 
-        $score = (float) $attempt->answers->sum('score');
+        $score = max(0, (float) $attempt->answers->sum('score'));
         $maxScore = (float) $attempt->answers->sum('max_score');
         $percentage = $maxScore > 0 ? round(($score / $maxScore) * 100, 2) : 0;
 
@@ -148,6 +158,44 @@ class QuizGradingService
         $correct = $question->options->where('is_correct', true)->pluck('id')->map(fn ($id) => (int) $id);
 
         return $correct->contains($selected->first());
+    }
+
+    protected function gradeMultipleChoicePartial(
+        QuizQuestion $question,
+        array $payload,
+        float $maxScore,
+        bool $negativeScoring,
+        float $negativeFactor
+    ): array {
+        $selected = collect($payload['option_ids'] ?? [])->map(fn ($id) => (int) $id)->unique()->values();
+        $correct = $question->options->where('is_correct', true)->pluck('id')->map(fn ($id) => (int) $id);
+        $incorrect = $question->options->where('is_correct', false)->pluck('id')->map(fn ($id) => (int) $id);
+
+        if ($selected->isEmpty() || $correct->isEmpty()) {
+            return $this->result(false, 0, $maxScore, $negativeScoring, $negativeFactor);
+        }
+
+        $correctSelected = $selected->intersect($correct)->count();
+        $incorrectSelected = $selected->intersect($incorrect)->count();
+        $totalCorrect = $correct->count();
+
+        if ($correctSelected === $totalCorrect && $incorrectSelected === 0) {
+            return $this->result(true, $maxScore, $maxScore, $negativeScoring, $negativeFactor);
+        }
+
+        $ratio = max(0, ($correctSelected - $incorrectSelected) / $totalCorrect);
+        $score = round($maxScore * min(1, $ratio), 2);
+
+        if ($incorrectSelected > 0 && $negativeScoring && $negativeFactor > 0) {
+            $score = max(0, $score - round($maxScore * $negativeFactor, 2));
+        }
+
+        return [
+            'is_correct' => $ratio >= 1 && $incorrectSelected === 0,
+            'score' => $score,
+            'max_score' => $maxScore,
+            'needs_manual_review' => false,
+        ];
     }
 
     protected function gradeMultipleChoice(QuizQuestion $question, array $payload): bool
