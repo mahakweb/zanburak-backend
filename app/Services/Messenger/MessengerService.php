@@ -348,8 +348,10 @@ class MessengerService
             ]);
 
             // Restore conversation for all participants who had deleted it
-            $conversation->users()->whereNotNull('conversation_user.deleted_at')
-                ->update(['conversation_user.deleted_at' => null]);
+            DB::table('conversation_user')
+                ->where('conversation_id', $conversation->id)
+                ->whereNotNull('deleted_at')
+                ->update(['deleted_at' => null, 'updated_at' => now()]);
 
             $message->load($this->messageRelations());
 
