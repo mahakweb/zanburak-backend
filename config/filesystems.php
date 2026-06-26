@@ -50,7 +50,7 @@ return [
             'driver' => 'ftp',
             'host' => '78.157.38.113',
             'username' => 'staticza',
-            'password' => 'nOFC0]+82e4sZY',
+            'password' => 'Milad@4970',
 
             // Optional FTP Settings...
             // 'port' => 21,

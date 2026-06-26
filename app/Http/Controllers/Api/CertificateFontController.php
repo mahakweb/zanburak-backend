@@ -17,6 +17,8 @@ class CertificateFontController extends Controller
     {
         $this->fonts->ensureDefaults();
 
+        $categories = collect(CertificateConstants::AVAILABLE_FONTS)->keyBy('slug');
+
         $items = CertificateFont::query()
             ->orderBy('name')
             ->get()
@@ -26,6 +28,7 @@ class CertificateFontController extends Controller
                 'css_family' => $font->cssFamily(),
                 'url' => $font->publicUrl(),
                 'available' => $font->file_path && Storage::disk('public')->exists($font->file_path),
+                'category' => $categories->get($font->slug)['category'] ?? 'fa',
             ]);
 
         return response()->json(['message' => 'Success', 'fonts' => $items]);
@@ -34,7 +37,10 @@ class CertificateFontController extends Controller
     public function upload(Request $request, CertificateFont $font)
     {
         $request->validate([
-            'file' => ['required', 'file', 'mimes:woff,woff2,ttf,otf', 'max:8192'],
+            'file' => ['required', 'file', 'extensions:woff,woff2,ttf,otf', 'max:8192'],
+        ], [
+            'file.extensions' => 'فرمت فونت باید woff، woff2، ttf یا otf باشد.',
+            'file.max' => 'حداکثر حجم فایل فونت ۸ مگابایت است.',
         ]);
 
         $ext = strtolower($request->file('file')->getClientOriginalExtension());
@@ -60,6 +66,7 @@ class CertificateFontController extends Controller
                 'css_family' => $font->cssFamily(),
                 'url' => $font->publicUrl(),
                 'available' => true,
+                'category' => collect(CertificateConstants::AVAILABLE_FONTS)->firstWhere('slug', $font->slug)['category'] ?? 'fa',
             ],
         ]);
     }

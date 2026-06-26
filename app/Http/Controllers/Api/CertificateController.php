@@ -104,6 +104,7 @@ class CertificateController extends Controller
             'Content-Type' => $mime,
             'Cache-Control' => 'public, max-age=86400',
             'Cross-Origin-Resource-Policy' => 'cross-origin',
+            'Access-Control-Allow-Origin' => '*',
         ]);
     }
 

@@ -57,15 +57,28 @@ class CertificateFontService
         }
 
         foreach (CertificateConstants::AVAILABLE_FONTS as $font) {
-            CertificateFont::updateOrCreate(
-                ['slug' => $font['slug']],
-                [
-                    'name' => $font['name'],
-                    'file_path' => $font['file_path'],
-                    'format' => $font['format'],
-                    'is_active' => Storage::disk('public')->exists($font['file_path']),
-                ]
-            );
+            $record = CertificateFont::query()->firstOrNew(['slug' => $font['slug']]);
+            $record->name = $font['name'];
+
+            $bundledExists = Storage::disk('public')->exists($font['file_path']);
+            $hasUploadedFile = $record->file_path
+                && Storage::disk('public')->exists($record->file_path);
+
+            if (! $record->exists) {
+                $record->file_path = $font['file_path'];
+                $record->format = $font['format'];
+                $record->is_active = $bundledExists;
+            } elseif (! $hasUploadedFile && $bundledExists) {
+                $record->file_path = $font['file_path'];
+                $record->format = $font['format'];
+                $record->is_active = true;
+            } elseif ($hasUploadedFile) {
+                $record->is_active = true;
+            } else {
+                $record->is_active = false;
+            }
+
+            $record->save();
         }
     }
 }

@@ -71,6 +71,7 @@ class CertificateController extends Controller
             $search = $request->search;
             $query->where(function($q) use ($search) {
                 $q->where('uuid', 'like', "%{$search}%")
+                  ->orWhere('serial_number', 'like', "%{$search}%")
                   ->orWhere('user_name', 'like', "%{$search}%")
                   ->orWhere('course_title', 'like', "%{$search}%")
                   ->orWhereHas('user', function($userQuery) use ($search) {
@@ -173,6 +174,7 @@ class CertificateController extends Controller
         $certificateData = [
             'id' => $certificate->id,
             'uuid' => $certificate->uuid,
+            'serial_number' => $certificate->serial_number,
             'user_name' => $certificate->user_name,
             'course_title' => $certificate->course_title,
             'time_completed' => $certificate->time_completed,
@@ -518,6 +520,7 @@ class CertificateController extends Controller
             $search = $request->search;
             $query->where(function($q) use ($search) {
                 $q->where('uuid', 'like', "%{$search}%")
+                  ->orWhere('serial_number', 'like', "%{$search}%")
                   ->orWhere('user_name', 'like', "%{$search}%")
                   ->orWhere('course_title', 'like', "%{$search}%")
                   ->orWhereHas('user', function($userQuery) use ($search) {

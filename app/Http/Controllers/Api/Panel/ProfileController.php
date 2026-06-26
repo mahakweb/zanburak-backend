@@ -353,53 +353,109 @@ class ProfileController extends Controller
 
     public function changeProfilePic(Request $request)
     {
-        $user = auth('api')->user();
-        $validData = Validator::make($request->all(), [
-            'profilePic' => ['required', 'image', 'max:10240'],
-        ]);
-        if (!$validData->passes()) {
-            return response()->json(['message' => 'Error', 'errors' => $validData->errors()->toArray()], 422);
-        } else {
-            // $prev_pic = parse_url($user->profile_pic)['path'];
-            $default_pic = "https://static.zanburak.ir/images/avatar/default.png";
-            $prev_pic = $user->profile_pic;
-            $prev_pic_parsed = parse_url($user->profile_pic);
-            $storagePath = Storage::disk('static')->url('');
-            $path = Storage::disk('static')->put('/images/avatar/' . now()->year . '/' . now()->month . '/' . now()->day, $request->profilePic);
-            $new_pic = $storagePath . $path;
-            if ($prev_pic != $default_pic && Storage::disk('static')->exists($prev_pic_parsed['path'])) {
-                Storage::disk('static')->delete($prev_pic_parsed['path']);
-            }
-            $updateData = $user->update([
-                'profile_pic' => $new_pic,
-            ]);
-            return response()->json(['message' => 'Success: Profile picture has been updated.', 'profilePic' => $new_pic], 200);
-        }
+        return $this->uploadPanelImage(
+            $request,
+            'profilePic',
+            'images/avatar',
+            'profile_pic',
+            'https://static.zanburak.ir/images/avatar/default.png',
+            'Success: Profile picture has been updated.',
+            'profilePic'
+        );
     }
+
     public function changeCoverPic(Request $request)
     {
+        return $this->uploadPanelImage(
+            $request,
+            'coverPic',
+            'images/cover',
+            'cover_pic',
+            'https://static.zanburak.ir/images/cover/default.png',
+            'Success: Cover picture has been updated.',
+            'coverPic'
+        );
+    }
+
+    private function uploadPanelImage(
+        Request $request,
+        string $field,
+        string $folder,
+        string $userColumn,
+        string $defaultPic,
+        string $successMessage,
+        string $responseKey
+    ) {
         $user = auth('api')->user();
+
         $validData = Validator::make($request->all(), [
-            'coverPic' => ['required', 'image', 'max:10240'],
+            $field => ['required', 'file', 'image', 'mimes:jpeg,jpg,png,gif,webp,bmp', 'max:10240'],
         ]);
+
         if (!$validData->passes()) {
-            return response()->json(['message' => 'Error', 'errors' => $validData->errors()->toArray()], 422);
-        } else {
-            // $prev_pic = parse_url($user->cover_pic)['path'];
-            $default_pic = "https://static.zanburak.ir/images/cover/default.png";
-            $prev_pic = $user->cover_pic;
-            $prev_pic_parsed = parse_url($user->cover_pic);
-            $storagePath = Storage::disk('static')->url('');
-            $path = Storage::disk('static')->put('/images/cover/' . now()->year . '/' . now()->month . '/' . now()->day, $request->coverPic);
-            $new_pic = $storagePath . $path;
-            if ($prev_pic != $default_pic && Storage::disk('static')->exists($prev_pic_parsed['path'])) {
-                Storage::disk('static')->delete($prev_pic_parsed['path']);
-            }
-            $updateData = $user->update([
-                'cover_pic' => $new_pic,
-            ]);
-            return response()->json(['message' => 'Success: Cover picture has been updated.', 'coverPic' => $new_pic], 200);
+            return response()->json([
+                'message' => 'Validation error',
+                'errors' => $validData->errors()->toArray(),
+            ], 422);
         }
+
+        try {
+            $directory = trim($folder, '/') . '/' . now()->year . '/' . now()->month . '/' . now()->day;
+            $path = Storage::disk('static')->putFile($directory, $request->file($field));
+
+            if (!$path || !is_string($path)) {
+                return response()->json([
+                    'message' => 'خطا در ذخیره‌سازی تصویر روی سرور استاتیک.',
+                ], 500);
+            }
+
+            $newPic = $this->staticPublicUrl($path);
+            $prevPic = $user->{$userColumn};
+
+            if ($prevPic && $prevPic !== $defaultPic) {
+                $relativePath = $this->staticRelativePathFromUrl($prevPic);
+                if ($relativePath && Storage::disk('static')->exists($relativePath)) {
+                    Storage::disk('static')->delete($relativePath);
+                }
+            }
+
+            $user->update([$userColumn => $newPic]);
+
+            return response()->json([
+                'message' => $successMessage,
+                $responseKey => $newPic,
+            ], 200);
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json([
+                'message' => 'خطا در آپلود تصویر. اتصال FTP یا تنظیمات static را بررسی کنید.',
+            ], 500);
+        }
+    }
+
+    private function staticPublicUrl(string $path): string
+    {
+        $baseUrl = rtrim((string) config('filesystems.disks.static.url', 'https://static.zanburak.ir'), '/');
+
+        return $baseUrl . '/' . ltrim($path, '/');
+    }
+
+    private function staticRelativePathFromUrl(?string $url): ?string
+    {
+        if (!$url) {
+            return null;
+        }
+
+        $baseUrl = rtrim((string) config('filesystems.disks.static.url', 'https://static.zanburak.ir'), '/');
+
+        if (str_starts_with($url, $baseUrl)) {
+            return ltrim(substr($url, strlen($baseUrl)), '/');
+        }
+
+        $parsed = parse_url($url);
+
+        return isset($parsed['path']) ? ltrim($parsed['path'], '/') : null;
     }
 
     public function getUserPreferences()
