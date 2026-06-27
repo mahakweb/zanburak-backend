@@ -8,7 +8,6 @@ use App\Services\Certificate\CertificateTemplateService;
 use App\Support\Certificate\CertificateConstants;
 use App\Support\Certificate\CertificateAssetHelper;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class CertificateTemplateController extends Controller
@@ -88,12 +87,12 @@ class CertificateTemplateController extends Controller
         };
 
         if ($template->{$field}) {
-            Storage::disk('public')->delete($template->{$field});
+            CertificateAssetHelper::delete($template->{$field});
         }
 
-        $path = $request->file('file')->store(
-            'certificates/templates/'.$template->id,
-            'public'
+        $path = CertificateAssetHelper::uploadFile(
+            $request->file('file'),
+            'certificates/templates/'.$template->id
         );
 
         $template->update([$field => $path]);

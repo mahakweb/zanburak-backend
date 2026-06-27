@@ -4,7 +4,6 @@ namespace App\Support\Certificate;
 
 use App\Models\CertificateFont;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Storage;
 
 class CertificateFontService
 {
@@ -51,24 +50,21 @@ class CertificateFontService
 
     public function ensureDefaults(): void
     {
-        $dir = storage_path('app/public/certificates/fonts');
-        if (! is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-
         foreach (CertificateConstants::AVAILABLE_FONTS as $font) {
+            CertificateAssetHelper::syncBundledToStatic($font['file_path']);
+
             $record = CertificateFont::query()->firstOrNew(['slug' => $font['slug']]);
             $record->name = $font['name'];
 
-            $bundledExists = Storage::disk('public')->exists($font['file_path']);
+            $onStatic = CertificateAssetHelper::exists($font['file_path']);
             $hasUploadedFile = $record->file_path
-                && Storage::disk('public')->exists($record->file_path);
+                && CertificateAssetHelper::exists($record->file_path);
 
             if (! $record->exists) {
                 $record->file_path = $font['file_path'];
                 $record->format = $font['format'];
-                $record->is_active = $bundledExists;
-            } elseif (! $hasUploadedFile && $bundledExists) {
+                $record->is_active = $onStatic;
+            } elseif (! $hasUploadedFile && $onStatic) {
                 $record->file_path = $font['file_path'];
                 $record->format = $font['format'];
                 $record->is_active = true;

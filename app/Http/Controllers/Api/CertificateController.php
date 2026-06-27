@@ -89,7 +89,7 @@ class CertificateController extends Controller
         ]);
     }
 
-    /** Serve template assets through API with CORS (for frontend canvas capture). */
+    /** Legacy proxy for old local assets; new uploads are served from static.zanburak.ir. */
     public function asset(Request $request)
     {
         $path = (string) $request->query('path', '');
@@ -97,7 +97,16 @@ class CertificateController extends Controller
             abort(404);
         }
 
-        $full = CertificateAssetHelper::absolutePath($path);
+        $relativePath = CertificateAssetHelper::relativePath($path) ?? CertificateAssetHelper::validateRelativePath($path);
+
+        if (CertificateAssetHelper::disk()->exists($relativePath)) {
+            return redirect(CertificateAssetHelper::publicUrl($relativePath), 302, [
+                'Cache-Control' => 'public, max-age=86400',
+                'Access-Control-Allow-Origin' => '*',
+            ]);
+        }
+
+        $full = CertificateAssetHelper::absolutePath($relativePath);
         $mime = mime_content_type($full) ?: 'application/octet-stream';
 
         return response()->file($full, [

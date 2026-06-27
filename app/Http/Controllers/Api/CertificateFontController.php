@@ -4,10 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\CertificateFont;
+use App\Support\Certificate\CertificateAssetHelper;
 use App\Support\Certificate\CertificateConstants;
 use App\Support\Certificate\CertificateFontService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 
 class CertificateFontController extends Controller
 {
@@ -27,7 +27,7 @@ class CertificateFontController extends Controller
                 'name' => $font->name,
                 'css_family' => $font->cssFamily(),
                 'url' => $font->publicUrl(),
-                'available' => $font->file_path && Storage::disk('public')->exists($font->file_path),
+                'available' => $font->file_path && CertificateAssetHelper::exists($font->file_path),
                 'category' => $categories->get($font->slug)['category'] ?? 'fa',
             ]);
 
@@ -47,10 +47,10 @@ class CertificateFontController extends Controller
         $path = 'certificates/fonts/'.$font->slug.'.'.$ext;
 
         if ($font->file_path && $font->file_path !== $path) {
-            Storage::disk('public')->delete($font->file_path);
+            CertificateAssetHelper::delete($font->file_path);
         }
 
-        Storage::disk('public')->put($path, file_get_contents($request->file('file')->getRealPath()));
+        CertificateAssetHelper::put($path, file_get_contents($request->file('file')->getRealPath()));
 
         $font->update([
             'file_path' => $path,
