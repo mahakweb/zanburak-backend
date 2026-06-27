@@ -13,6 +13,7 @@ use App\Models\Path;
 use App\Models\Status;
 use App\Models\VideoView;
 use App\Models\View;
+use App\Services\Course\CourseAvailabilityService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -21,7 +22,7 @@ class CourseController extends Controller
     public function filters()
     {
         $categories = Category::all();
-        $statuses = Status::all();
+        $statuses = Status::where('english_title', '!=', 'archive')->get();
         $numberOfFreeCourse = Course::where('type', 'free')->where('publish', 1)->count();
         $numberOfCashCourse = Course::where('type', 'cash')->where('publish', 1)->count();
         $numberOfCashvipCourse = Course::where('type', 'cash-vip')->where('publish', 1)->count();
@@ -33,20 +34,27 @@ class CourseController extends Controller
         $user = auth('api')->user();
         $cat = $request->input('cat', []);
         $type = $request->input('type', []);
+        $status = $request->input('status', []);
         $order = $request->input('order', 'newest');
 
         $query = Course::where('publish', '1')
+            ->notArchived()
+            ->with('status:id,title,english_title,slug')
             ->cat($cat)
             ->type($type)
+            ->status($status)
             ->order($order);
+
+        $availability = app(CourseAvailabilityService::class);
 
         $allCourses = $query->get();
 
-        $courses = $allCourses->map(function ($course) use ($user) {
+        $courses = $allCourses->map(function ($course) use ($user, $availability) {
             $teacher = $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic');
             $totalTime = $course->totalTime();
             $likesCount = $course->likes()->count();
             $userHasLiked = $user ? $user->hasLiked($course) : false;
+            $listMeta = $availability->listItemMeta($course);
 
             return [
                 'id' => $course->id,
@@ -61,7 +69,14 @@ class CourseController extends Controller
                 'total_time' => $totalTime,
                 'likes_count' => $likesCount,
                 'user_has_liked' => $userHasLiked,
-                'teacher' => $teacher
+                'teacher' => $teacher,
+                'is_presale' => $listMeta['is_presale'],
+                'is_archive' => $listMeta['is_archive'],
+                'is_purchasable' => $listMeta['is_purchasable'],
+                'can_watch_videos' => $listMeta['can_watch_videos'],
+                'start_date' => $listMeta['start_date'],
+                'status' => $listMeta['status'],
+                'last_content_update' => $listMeta['last_content_update'],
             ];
         });
 
@@ -105,6 +120,7 @@ class CourseController extends Controller
             ->flatMap(fn($category) => $category->course)
             ->where('id', '!=', $course->id)
             ->where('publish', 1)
+            ->filter(fn ($c) => $c->status?->english_title !== 'archive')
             ->unique('id')
             ->map->only(['id', 'slug', 'title', 'english_title']);
 
@@ -149,12 +165,18 @@ class CourseController extends Controller
             );
         }
 
-        $userCanSeeCourse = $user?->hasCourse($course) ?? false;
+        $userCanSeeCourse = app(CourseAvailabilityService::class)->userHasCourseAccess($user, $course);
+        $availabilityService = app(CourseAvailabilityService::class);
         // Login required for any download
-        $canDownload = $user ? $user->canDownloadCourse($course) : false;
+        $canDownload = $user && $availabilityService->userHasCourseAccess($user, $course)
+            ? $user->canDownloadCourse($course)
+            : false;
 
-        $certificate = $user?->certificates()->where('course_id', $course->id)->first();
-        $userCompletedCourse = $certificate ? true : false;
+        $certificate = $user?->certificates()
+            ->where('course_id', $course->id)
+            ->where('status', 'issued')
+            ->first();
+        $userCompletedCourse = (bool) $certificate;
         $certificateUuid = $certificate?->uuid ?? null;
 
         $commentsCount = $course->comments()->where('approved', '1')->count();
@@ -230,11 +252,20 @@ class CourseController extends Controller
         }
 
 
+        $userFullyWatchedCourse = $user
+            ? ($course->hasStoredCompletionForUser($user->id) || $course->isCompletedByUser($user->id))
+            : false;
+
+        app(CourseAvailabilityService::class)->enrichCourseTree($course);
+        $courseAvailability = $course->availability;
+
         return response()->json([
             'message' => 'Success',
             'userCanSeeCourse' => $userCanSeeCourse,
             'userCompletedCourse' => $userCompletedCourse,
+            'userFullyWatchedCourse' => $userFullyWatchedCourse,
             'certificateUuid' => $certificateUuid,
+            'course_availability' => $courseAvailability,
             'relatedCourses' => $relatedCourses,
             'course' => $course,
             'quizzes' => $this->allQuizzesForCourse($course),

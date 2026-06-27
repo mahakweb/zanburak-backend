@@ -8,6 +8,7 @@ use App\Models\Answer;
 use App\Models\Like;
 use App\Models\Question;
 use App\Models\QuestionCategory;
+use App\Models\Tag;
 use App\Models\User;
 use App\Models\View;
 use Illuminate\Support\Facades\Validator;
@@ -59,14 +60,7 @@ class DiscussController extends Controller
                     'user' => $answerUser
                 ];
             }
-            $tags = $question->tags->map(function ($tag) {
-                return [
-                    'id' => $tag->tag_id,
-                    'name' => $tag->name,
-                    'normalized' => $tag->normalized,
-                ];
-            });
-
+            $tags = $this->formatQuestionTags($question->tags, $user);
             $isBookmarked = $user ? $user->hasBookmarked($question) : false;
 
             return [
@@ -138,13 +132,7 @@ class DiscussController extends Controller
                 'user' => $answerUser
             ];
         }
-        $tags = $question->tags->map(function ($tag) {
-            return [
-                'id' => $tag->tag_id,
-                'name' => $tag->name,
-                'normalized' => $tag->normalized,
-            ];
-        });
+        $tags = $this->formatQuestionTags($question->tags, $user);
 
         $isBookmarked = $user ? $user->hasBookmarked($question) : false;
         $isEditable = $question->isEditableBy($user);
@@ -372,14 +360,45 @@ class DiscussController extends Controller
         $initData = collect();
         $categories = QuestionCategory::select('id', 'title', 'english_title', 'slug')->where('status', '1')->get();
         $initData->put('categories', $categories);
-        $popularTags = Question::popularTagsNormalized(20);
-        $tags = collect($popularTags)->map(function ($count, $name) {
-            return [
-                'name' => $name,
-                'count' => $count
-            ];
-        })->values();
-        $initData->put('popularTags', $tags);
+        $popularTags = Tag::whereHas('questions', fn ($q) => $q->where('publish', 1))
+            ->withCount([
+                'questions as questions_count' => fn ($q) => $q->where('publish', 1),
+            ])
+            ->orderByDesc('questions_count')
+            ->limit(20)
+            ->get()
+            ->map(fn (Tag $tag) => [
+                'id' => $tag->tag_id,
+                'name' => $tag->name,
+                'slug' => $tag->normalized,
+                'count' => $tag->questions_count,
+            ])
+            ->values();
+        $initData->put('popularTags', $popularTags);
+
+        $user = auth('api')->user();
+        $myTags = collect();
+        if ($user) {
+            $myTags = $user->followings()
+                ->where('followable_type', Tag::class)
+                ->whereNotNull('accepted_at')
+                ->with('followable')
+                ->get()
+                ->map(function ($follow) {
+                    $tag = $follow->followable;
+                    if (!$tag) {
+                        return null;
+                    }
+                    return [
+                        'id' => $tag->tag_id,
+                        'name' => $tag->name,
+                        'slug' => $tag->normalized,
+                    ];
+                })
+                ->filter()
+                ->values();
+        }
+        $initData->put('myTags', $myTags);
         $topUsers = User::leftJoin('scores', 'users.id', '=', 'scores.user_id')
             ->selectRaw('users.first_name, users.last_name, users.username, users.profile_pic, sum(scores.score) AS sum_score')
             ->where('scores.created_at', '>', now()->subDays(30)->endOfDay())
@@ -388,7 +407,6 @@ class DiscussController extends Controller
             ->take(20)
             ->get();
         $initData->put('topUsers', $topUsers);
-        // TODO add my tags
         return response()->json(['message' => 'Success', 'initData' => $initData], 200);
     }
 
@@ -819,5 +837,28 @@ class DiscussController extends Controller
             }
         }
         return frontendUrl();
+    }
+
+    private function formatQuestionTags($tags, ?User $user = null): \Illuminate\Support\Collection
+    {
+        $followingIds = [];
+        if ($user) {
+            $followingIds = $user->followings()
+                ->where('followable_type', Tag::class)
+                ->whereNotNull('accepted_at')
+                ->pluck('followable_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+        }
+
+        return $tags->map(function ($tag) use ($followingIds) {
+            return [
+                'id' => $tag->tag_id,
+                'name' => $tag->name,
+                'slug' => $tag->normalized,
+                'normalized' => $tag->normalized,
+                'is_following' => in_array($tag->tag_id, $followingIds, true),
+            ];
+        });
     }
 }

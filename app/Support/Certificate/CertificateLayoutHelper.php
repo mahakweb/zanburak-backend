@@ -36,8 +36,31 @@ final class CertificateLayoutHelper
         if (! empty($pos['color'])) {
             $styles[] = 'color:'.$pos['color'];
         }
-        if (! empty($pos['font_weight'])) {
+        if (! empty($pos['font_weight']) && $pos['font_weight'] !== 'normal') {
             $styles[] = 'font-weight:'.$pos['font_weight'];
+        }
+        if (! empty($pos['line_height'])) {
+            $styles[] = 'line-height:'.$pos['line_height'];
+        }
+        if (! empty($pos['width'])) {
+            $styles[] = 'width:'.((int) $pos['width']).'px';
+            $styles[] = 'white-space:normal';
+            $styles[] = 'overflow-wrap:break-word';
+            $styles[] = 'word-break:break-word';
+            $styles[] = 'box-sizing:border-box';
+        }
+        if (! empty($pos['height'])) {
+            $styles[] = 'height:'.((int) $pos['height']).'px';
+            $styles[] = 'display:flex';
+            $alignItems = 'center';
+            $justify = 'center';
+            if ($align === 'left') {
+                $justify = 'flex-start';
+            } elseif ($align === 'right') {
+                $justify = 'flex-end';
+            }
+            $styles[] = 'align-items:'.$alignItems;
+            $styles[] = 'justify-content:'.$justify;
         }
         if ($align === 'center') {
             $styles[] = 'text-align:center';
@@ -125,8 +148,24 @@ final class CertificateLayoutHelper
         if (! empty($pos['color'])) {
             $style['color'] = $pos['color'];
         }
-        if (! empty($pos['font_weight'])) {
+        if (! empty($pos['font_weight']) && $pos['font_weight'] !== 'normal') {
             $style['fontWeight'] = $pos['font_weight'];
+        }
+        if (! empty($pos['line_height'])) {
+            $style['lineHeight'] = (string) $pos['line_height'];
+        }
+        if (! empty($pos['width'])) {
+            $style['width'] = ((int) $pos['width']).'px';
+            $style['whiteSpace'] = 'normal';
+            $style['overflowWrap'] = 'break-word';
+            $style['wordBreak'] = 'break-word';
+            $style['boxSizing'] = 'border-box';
+        }
+        if (! empty($pos['height'])) {
+            $style['height'] = ((int) $pos['height']).'px';
+            $style['display'] = 'flex';
+            $style['alignItems'] = 'center';
+            $style['justifyContent'] = $align === 'left' ? 'flex-start' : ($align === 'right' ? 'flex-end' : 'center');
         }
 
         return $style;

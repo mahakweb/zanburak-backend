@@ -52,14 +52,17 @@ return [
      * to get a collection of all the Posts that are tagged "Apple".
      */
 
-    'taggedModels' => [],
+    'taggedModels' => [
+        'questions' => \App\Models\Question::class,
+        'courses' => \App\Models\Course::class,
+    ],
 
     /**
      * The model used to store the tags in the database.  You can
      * create your own class that extends the package's Tag model,
      * then update the configuration below.
      */
-    'model'  => \Cviebrock\EloquentTaggable\Models\Tag::class,
+    'model'  => \App\Models\Tag::class,
 
 
     /**

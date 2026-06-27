@@ -671,6 +671,7 @@ class PanelController extends Controller
             'user' => 'App\Models\User',
             'question' => 'App\Models\Question',
             'course' => 'App\Models\Course',
+            'tag' => 'App\Models\Tag',
             // 'article' => 'App\Models\Article',
             default => 'App\Models\User',
         };
@@ -719,6 +720,16 @@ class PanelController extends Controller
                     'subject' => $followable->subject,
                     'slug' => $followable->slug,
                     'question' => $followable->question,
+                ],
+                'App\Models\Tag' => [
+                    'id' => $followable->tag_id,
+                    'name' => $followable->name,
+                    'slug' => $followable->normalized,
+                    'questions_count' => $followable->questions()->where('publish', 1)->count(),
+                    'courses_count' => $followable->courses()->count(),
+                    'articles_count' => 0,
+                    'followers_count' => $followable->followers()->count(),
+                    'is_following' => true,
                 ],
                 default => [],
             };

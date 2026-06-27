@@ -146,16 +146,7 @@ class Course extends Model implements Likeable
     {
         return match ($value) {
             'oldest' => $query->orderBy('created_at', 'asc'),
-            'newest' => $query->orderBy('created_at', 'desc'),
-            default => $query->whereHas('status', function ($query) use ($value) {
-                $statusIds = Status::where('english_title', $value)->pluck('id');
-
-                if ($statusIds->isEmpty()) {
-                    $query->whereRaw('1 = 0');
-                } else {
-                    $query->whereIn('id', $statusIds)->orderBy('created_at', 'desc');
-                }
-            }),
+            default => $query->orderBy('created_at', 'desc'),
         };
     }
 
@@ -233,7 +224,9 @@ class Course extends Model implements Likeable
 
         $slugs = is_array($category) ? $category : [$category];
 
-        $categoryIds = Category::whereIn('slug', $slugs)->pluck('id');
+        $categoryIds = Category::where(function ($q) use ($slugs) {
+            $q->whereIn('slug', $slugs)->orWhereIn('title', $slugs);
+        })->pluck('id');
 
         if ($categoryIds->isEmpty()) {
             return $query->whereRaw('1 = 0');
@@ -280,7 +273,11 @@ class Course extends Model implements Likeable
 
         $slugs = is_array($status) ? $status : [$status];
 
-        $statusIds = Status::whereIn('slug', $slugs)->pluck('id');
+        $statusIds = Status::where(function ($q) use ($slugs) {
+            $q->whereIn('slug', $slugs)
+                ->orWhereIn('english_title', $slugs)
+                ->orWhereIn('title', $slugs);
+        })->pluck('id');
 
         if ($statusIds->isEmpty()) {
             return $query->whereRaw('1 = 0');
@@ -354,6 +351,14 @@ class Course extends Model implements Likeable
     public function status()
     {
         return $this->belongsTo(Status::class);
+    }
+
+    public function scopeNotArchived($query)
+    {
+        return $query->where(function ($q) {
+            $q->whereDoesntHave('status')
+                ->orWhereHas('status', fn ($s) => $s->where('english_title', '!=', 'archive'));
+        });
     }
 
     public function comments()
@@ -490,22 +495,36 @@ class Course extends Model implements Likeable
         return $totalTime;
     }
 
+    public function isRecordingComplete(): bool
+    {
+        $this->loadMissing('status');
+
+        return $this->status?->english_title === 'completed';
+    }
+
+    /** Stored completion (course_user.completed_at). */
+    public function hasStoredCompletionForUser(int $userId): bool
+    {
+        return $this->users()
+            ->where('user_id', $userId)
+            ->whereNotNull('completed_at')
+            ->exists();
+    }
+
     public function isCompletedByUser($userId)
     {
-        //if number of episodes equal to zero return false
         if ($this->numberOfEpisode() == 0) {
             return false;
         }
 
         return $this->section->every(function ($section) use ($userId) {
             return $section->episode->where('publish', 1)->every(function ($episode) use ($userId) {
-                return $episode->videos->where('type', 'stream')->every(function ($video) use ($userId) {
-                    $view = VideoView::where('user_id', $userId)
-                        ->where('video_id', $video->id)
-                        ->latest()
-                        ->first();
-                    return $view && $view->watched;
-                });
+                $streamVideo = $episode->videos->where('type', 'stream')->first();
+                if (! $streamVideo) {
+                    return false;
+                }
+
+                return VideoView::hasUserWatchedEpisode($userId, $episode->id);
             });
         });
     }

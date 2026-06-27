@@ -243,6 +243,9 @@ class PaymentService
 
             switch ($item->payable_type) {
                 case Course::class:
+                    if (! app(\App\Services\Course\CourseAvailabilityService::class)->isPurchasable($payable)) {
+                        break;
+                    }
                     // Find the corresponding payment item for this course
                     $itemFinalPrice = $item->final_price ?? $item->price ?? 0;
                     $user->courses()->syncWithoutDetaching([
@@ -260,7 +263,10 @@ class PaymentService
                     $userCourseIds = $user->courses->pluck('id')->toArray();
 
                     $availableCourses = $payable->courses->where('publish', true)->filter(function ($course) use ($userCourseIds, $courseIdsInPaymentItems) {
-                        return $course->type !== 'free' && !in_array($course->id, $userCourseIds) && !in_array($course->id, $courseIdsInPaymentItems);
+                        return $course->type !== 'free'
+                            && ! in_array($course->id, $userCourseIds)
+                            && ! in_array($course->id, $courseIdsInPaymentItems)
+                            && app(\App\Services\Course\CourseAvailabilityService::class)->isPurchasable($course);
                     });
 
                     foreach ($availableCourses as $course) {

@@ -11,6 +11,7 @@ use App\Models\Path;
 use App\Models\Plan;
 use App\Models\Question;
 use App\Models\View;
+use App\Services\Course\CourseAvailabilityService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -35,19 +36,23 @@ class IndexController extends Controller
     {
         $user = auth('api')->user();
         $limit = $request->input('limit', 10);
-        $rawCourses = Course::where('publish', '1');
+        $availability = app(CourseAvailabilityService::class);
+        $rawCourses = Course::where('publish', '1')
+            ->notArchived()
+            ->with('status:id,title,english_title,slug');
         if ($limit) {
             $rawCourses = $rawCourses->limit($limit);
         }
         $rawCourses = $rawCourses->orderBy('id', 'desc')->get();
 
-        $courses = $rawCourses->map(function ($course) use ($user) {
+        $courses = $rawCourses->map(function ($course) use ($user, $availability) {
             $teacher = $course->teacher
                 ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
                 : null;
             $totalTime = $course->totalTime();
             $likesCount = $course->likes()->count();
             $userHasLiked = $user ? $user->hasLiked($course) : false;
+            $listMeta = $availability->listItemMeta($course);
 
             return [
                 'id' => $course->id,
@@ -62,7 +67,8 @@ class IndexController extends Controller
                 'total_time' => $totalTime,
                 'likes_count' => $likesCount,
                 'user_has_liked' => $userHasLiked,
-                'teacher' => $teacher
+                'teacher' => $teacher,
+                'status' => $listMeta['status'],
             ];
         });
         return response()->json(['message' => 'success', 'courses' => $courses], 200);
@@ -72,19 +78,24 @@ class IndexController extends Controller
     {
         $user = auth('api')->user();
         $limit = $request->input('limit', 10);
-        $rawCourses = Course::where('publish', '1')->where('type', 'free');
+        $availability = app(CourseAvailabilityService::class);
+        $rawCourses = Course::where('publish', '1')
+            ->where('type', 'free')
+            ->notArchived()
+            ->with('status:id,title,english_title,slug');
         if ($limit) {
             $rawCourses = $rawCourses->limit($limit);
         }
         $rawCourses = $rawCourses->orderBy('id', 'desc')->get();
 
-        $courses = $rawCourses->map(function ($course) use ($user) {
+        $courses = $rawCourses->map(function ($course) use ($user, $availability) {
             $teacher = $course->teacher
                 ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
                 : null;
             $totalTime = $course->totalTime();
             $likesCount = $course->likes()->count();
             $userHasLiked = $user ? $user->hasLiked($course) : false;
+            $listMeta = $availability->listItemMeta($course);
 
             return [
                 'id' => $course->id,
@@ -99,7 +110,8 @@ class IndexController extends Controller
                 'total_time' => $totalTime,
                 'likes_count' => $likesCount,
                 'user_has_liked' => $userHasLiked,
-                'teacher' => $teacher
+                'teacher' => $teacher,
+                'status' => $listMeta['status'],
             ];
         });
         return response()->json(['message' => 'success', 'courses' => $courses], 200);

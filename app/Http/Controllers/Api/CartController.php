@@ -136,6 +136,10 @@ class CartController extends Controller
                     return response()->json(['error' => 'دوره وجود ندارد یا غیرفعال است.'], 422);
                 }
 
+                if (!app(\App\Services\Course\CourseAvailabilityService::class)->isPurchasable($item)) {
+                    return response()->json(['error' => 'این دوره آرشیو شده است و امکان خرید وجود ندارد.'], 422);
+                }
+
                 $user->carts()->create([
                     'cartable_type' => get_class($item),
                     'cartable_id' => $item->id,
@@ -146,6 +150,7 @@ class CartController extends Controller
             case 'path':
                 $total = $item->courses()
                     ->where('courses.publish', true)
+                    ->notArchived()
                     ->where('courses.price', '>', 0)
                     ->where('courses.type', '!=', 'free')
                     ->whereNotIn('courses.id', $user->courses->pluck('id')->toArray())

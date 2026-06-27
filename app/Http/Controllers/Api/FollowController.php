@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Events\FollowUser;
 use App\Http\Controllers\Controller;
+use App\Models\Tag;
 use App\Models\User;
 use Illuminate\Http\Request;
 
@@ -27,6 +28,13 @@ class FollowController extends Controller
                 if ($className == 'App\Models\User') {
                     event(new FollowUser($obj));
                     return response()->json(['Message' => 'Success', 'hasFlollow' => $hasFlollow, 'numberOfFollowers' => $obj->followers->count(), 'numberOfFollowings' => $obj->followings->count()], 200);
+                }
+                if ($className == Tag::class) {
+                    return response()->json([
+                        'Message' => 'Success',
+                        'hasFlollow' => $hasFlollow,
+                        'numberOfFollowers' => $obj->followers()->count(),
+                    ], 200);
                 }
                 return response()->json(['Message' => 'Success', 'hasFlollow' => $hasFlollow], 200);
             }

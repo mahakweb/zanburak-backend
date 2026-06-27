@@ -8,6 +8,7 @@ use App\Models\Episode;
 use App\Models\Quiz\Quiz;
 use App\Models\VideoView;
 use App\Models\View;
+use App\Services\Course\CourseAvailabilityService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -18,15 +19,52 @@ class EpisodeController extends Controller
 {
     public function getEpisode($course, $episode)
     {
-        $user = auth('api')->user();
-
         if (!$course || $course->publish == 0 || !$episode || $episode->publish == 0 || $course->id != $episode->section->course->id) {
             return response()->json(['error' => 'Not found'], 404);
         }
 
+        $user = auth('api')->user();
+        $availabilityService = app(CourseAvailabilityService::class);
+        $playBlock = $availabilityService->assertEpisodeViewable($episode, $user);
+
+        if ($playBlock) {
+            $courseBrief = Course::with([
+                'status',
+                'teacher' => fn ($q) => $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic')->with('info'),
+                'section.episode' => fn ($q) => $q->where('publish', 1),
+            ])->find($course->id);
+            $availabilityService->enrichCourseTree($courseBrief);
+
+            $episode->load('attachs');
+            $episodePayload = $episode->only([
+                'id',
+                'title',
+                'slug',
+                'english_title',
+                'description',
+                'section_id',
+                'total_time',
+                'created_at',
+                'updated_at',
+            ]);
+            $episodePayload['attachs'] = $episode->attachs;
+
+            return response()->json([
+                'error' => $playBlock['error'],
+                'code' => $playBlock['code'],
+                'message' => $playBlock['message'],
+                'available_at' => $playBlock['available_at'],
+                'course' => $courseBrief,
+                'episode' => $episodePayload,
+                'course_availability' => $courseBrief->availability,
+            ], 403);
+        }
+
+        $user = auth('api')->user();
+
         $userCanSeeCourse = false;
         if ($user) {
-            $userCanSeeCourse = $user->hasCourse($course);
+            $userCanSeeCourse = app(CourseAvailabilityService::class)->userHasCourseAccess($user, $course);
         }
 
         $course = Course::where('id', $course->id)
@@ -189,9 +227,15 @@ class EpisodeController extends Controller
         }
 
         // اطلاعات گواهی و لایک و بوکمارک و ...
-        $certificate = $user?->certificates()->where('course_id', $course->id)->first();
-        $userCompletedCourse = $certificate ? true : false;
+        $certificate = $user?->certificates()
+            ->where('course_id', $course->id)
+            ->where('status', 'issued')
+            ->first();
+        $userCompletedCourse = (bool) $certificate;
         $certificateUuid = $certificate?->uuid ?? null;
+        $userFullyWatchedCourse = $user
+            ? ($course->hasStoredCompletionForUser($user->id) || $course->isCompletedByUser($user->id))
+            : false;
         $likesCount = $episode->likes()->count();
         $userHasLiked = $user ? $user->hasLiked($episode) : false;
         $commentsCount = $episode->comments()->where('approved', '1')->count();
@@ -212,11 +256,18 @@ class EpisodeController extends Controller
         ];
         $course->ratings = $ratings;
 
+        app(CourseAvailabilityService::class)->enrichCourseTree($course);
+        $episodeAvailability = app(CourseAvailabilityService::class)->episodeAvailability($episode);
+        $episode->setAttribute('availability', $episodeAvailability);
+        $episode->setAttribute('is_playable', $episodeAvailability['is_playable']);
+
         return response()->json([
             'message' => 'Success',
             'userCanSeeCourse' => $userCanSeeCourse,
             'userCompletedCourse' => $userCompletedCourse,
+            'userFullyWatchedCourse' => $userFullyWatchedCourse,
             'certificateUuid' => $certificateUuid,
+            'course_availability' => $course->availability,
             'course' => $course,
             'episode' => $episode,
             'quizzes' => $this->quizzesFor(Episode::class, $episode->id),
@@ -240,6 +291,15 @@ class EpisodeController extends Controller
             }
 
             $course = $episode->section->course;
+            $playBlock = app(CourseAvailabilityService::class)->assertEpisodePlayable($episode);
+            if ($playBlock) {
+                return response()->json([
+                    'message' => $playBlock['message'],
+                    'code' => $playBlock['code'],
+                    'available_at' => $playBlock['available_at'],
+                ], 403);
+            }
+
             $user = auth('api')->user();
             if (!$user || !$user->canDownloadCourse($course)) {
                 return response()->json(['message' => 'You do not have access to download this file'], 403);

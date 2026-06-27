@@ -23,9 +23,13 @@ class CoursesSectionsEpisodesSeeder extends Seeder
         $advancedLevelId = DB::table('levels')->where('english_title', 'advanced')->value('id');
         $completedStatusId = DB::table('statuses')->where('english_title', 'completed')->value('id');
         $ongoingStatusId = DB::table('statuses')->where('english_title', 'ongoing')->value('id');
+        $presaleStatusId = DB::table('statuses')->where('english_title', 'presale')->value('id');
+        $upcomingStatusId = DB::table('statuses')->where('english_title', 'upcoming')->value('id');
+        $archiveStatusId = DB::table('statuses')->where('english_title', 'archive')->value('id');
 
         // دریافت دسته‌بندی‌ها
         $reactCategoryId = DB::table('categories')->where('slug', 'react')->value('id');
+        $vueCategoryId = DB::table('categories')->where('slug', 'vuejs')->value('id');
         $laravelCategoryId = DB::table('categories')->where('slug', 'laravel')->value('id');
         $javascriptCategoryId = DB::table('categories')->where('slug', 'javascript')->value('id');
         $nodejsCategoryId = DB::table('categories')->where('slug', 'nodejs')->value('id');
@@ -384,6 +388,197 @@ class CoursesSectionsEpisodesSeeder extends Seeder
         ];
 
         foreach (array_merge($episodes4_1, $episodes4_2) as $episode) {
+            $episode['created_at'] = $now;
+            $episode['updated_at'] = $now;
+            DB::table('episodes')->insert($episode);
+        }
+
+        $presaleStart = $now->copy()->addDays(14);
+        $sectionFutureStart = $now->copy()->addDays(21);
+        $episodeFuturePublish = $now->copy()->addDays(28);
+        $upcomingStart = $now->copy()->addDays(30);
+        $archiveStart = $now->copy()->subMonths(6);
+        $archiveEnd = $now->copy()->subMonth();
+
+        // دوره 5: پیش‌فروش Vue.js (status_id = presale)
+        $course5Id = DB::table('courses')->insertGetId([
+            'teacher_id' => $teacherId,
+            'title' => 'آموزش Vue.js 3',
+            'english_title' => 'vuejs-3-presale-course',
+            'slug' => 'vuejs-3-presale-course',
+            'short_description' => 'دوره Vue.js 3 در مرحله پیش‌فروش؛ خرید باز، محتوا از تاریخ شروع',
+            'description' => 'این دوره نمونه پیش‌فروش است. می‌توانید همین حالا خرید کنید؛ ویدیوها پس از رسیدن تاریخ شروع دوره و زمان‌بندی هر فصل/جلسه باز می‌شوند.',
+            'total_time' => '900',
+            'start_date' => $presaleStart,
+            'end_date' => null,
+            'price' => 449000,
+            'publish' => true,
+            'status_id' => $presaleStatusId,
+            'level_id' => $beginnerLevelId,
+            'type' => 'cash',
+            'poster' => 'https://static.zanburak.ir/poster/no-image.png',
+            'trailer' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        if ($vueCategoryId) {
+            DB::table('category_course')->insert([
+                'category_id' => $vueCategoryId,
+                'course_id' => $course5Id,
+            ]);
+        }
+        if ($frontendCategoryId) {
+            DB::table('category_course')->insert([
+                'category_id' => $frontendCategoryId,
+                'course_id' => $course5Id,
+            ]);
+        }
+
+        $section5_1Id = DB::table('sections')->insertGetId([
+            'course_id' => $course5Id,
+            'title' => 'مقدمات Vue 3',
+            'english_title' => 'vue3-basics',
+            'slug' => 'vue3-basics',
+            'description' => 'فصل اول — هم‌زمان با شروع دوره باز می‌شود',
+            'total_time' => '120',
+            'start_date' => $presaleStart,
+            'publish' => true,
+            'status' => true,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        $section5_2Id = DB::table('sections')->insertGetId([
+            'course_id' => $course5Id,
+            'title' => 'Composition API',
+            'english_title' => 'vue3-composition-api',
+            'slug' => 'vue3-composition-api',
+            'description' => 'فصل دوم — با تأخیر نسبت به شروع دوره',
+            'total_time' => '180',
+            'start_date' => $sectionFutureStart,
+            'publish' => true,
+            'status' => true,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        $episodes5 = [
+            ['section_id' => $section5_1Id, 'order' => 1, 'title' => 'معرفی Vue 3', 'english_title' => 'vue3-intro', 'slug' => 'vue3-intro', 'description' => 'هم‌زمان با شروع دوره', 'total_time' => '20', 'publish' => true, 'lock' => false, 'publish_date' => $presaleStart],
+            ['section_id' => $section5_1Id, 'order' => 2, 'title' => 'نصب و راه‌اندازی', 'english_title' => 'vue3-setup', 'slug' => 'vue3-setup', 'description' => 'جلسه دوم فصل اول', 'total_time' => '25', 'publish' => true, 'lock' => false, 'publish_date' => $presaleStart->copy()->addDay()],
+            ['section_id' => $section5_2Id, 'order' => 1, 'title' => 'ref و reactive', 'english_title' => 'vue3-ref-reactive', 'slug' => 'vue3-ref-reactive', 'description' => 'منتشر پس از باز شدن فصل دوم', 'total_time' => '30', 'publish' => true, 'lock' => false, 'publish_date' => $sectionFutureStart],
+            ['section_id' => $section5_2Id, 'order' => 2, 'title' => 'Composable Functions', 'english_title' => 'vue3-composables', 'slug' => 'vue3-composables', 'description' => 'جلسه زمان‌بندی‌شده', 'total_time' => '35', 'publish' => true, 'lock' => false, 'publish_date' => $episodeFuturePublish],
+        ];
+
+        foreach ($episodes5 as $episode) {
+            $episode['created_at'] = $now;
+            $episode['updated_at'] = $now;
+            DB::table('episodes')->insert($episode);
+        }
+
+        // دوره 6: به‌زودی (status_id = upcoming)
+        $course6Id = DB::table('courses')->insertGetId([
+            'teacher_id' => $teacherId,
+            'title' => 'آموزش TypeScript',
+            'english_title' => 'typescript-upcoming-course',
+            'slug' => 'typescript-upcoming-course',
+            'short_description' => 'دوره TypeScript به‌زودی منتشر می‌شود',
+            'description' => 'نمونه دوره با وضعیت «به‌زودی». تاریخ شروع در آینده است و محتوا هنوز باز نشده.',
+            'total_time' => '600',
+            'start_date' => $upcomingStart,
+            'end_date' => null,
+            'price' => 379000,
+            'publish' => true,
+            'status_id' => $upcomingStatusId,
+            'level_id' => $intermediateLevelId,
+            'type' => 'cash',
+            'poster' => 'https://static.zanburak.ir/poster/no-image.png',
+            'trailer' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        if ($javascriptCategoryId) {
+            DB::table('category_course')->insert([
+                'category_id' => $javascriptCategoryId,
+                'course_id' => $course6Id,
+            ]);
+        }
+
+        $section6_1Id = DB::table('sections')->insertGetId([
+            'course_id' => $course6Id,
+            'title' => 'مقدمات TypeScript',
+            'english_title' => 'typescript-basics',
+            'slug' => 'typescript-basics',
+            'description' => 'فصل اول دوره به‌زودی',
+            'total_time' => '150',
+            'start_date' => $upcomingStart,
+            'publish' => true,
+            'status' => true,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        $episodes6 = [
+            ['section_id' => $section6_1Id, 'order' => 1, 'title' => 'چرا TypeScript؟', 'english_title' => 'why-typescript', 'slug' => 'why-typescript', 'description' => 'معرفی', 'total_time' => '20', 'publish' => true, 'lock' => false, 'publish_date' => $upcomingStart],
+            ['section_id' => $section6_1Id, 'order' => 2, 'title' => 'انواع پایه', 'english_title' => 'typescript-basic-types', 'slug' => 'typescript-basic-types', 'description' => 'Types', 'total_time' => '30', 'publish' => true, 'lock' => false, 'publish_date' => $upcomingStart->copy()->addDays(3)],
+        ];
+
+        foreach ($episodes6 as $episode) {
+            $episode['created_at'] = $now;
+            $episode['updated_at'] = $now;
+            DB::table('episodes')->insert($episode);
+        }
+
+        // دوره 7: آرشیو (status_id = archive) — end_date گذشته، دسترسی همچنان باز
+        $course7Id = DB::table('courses')->insertGetId([
+            'teacher_id' => $teacherId,
+            'title' => 'آموزش jQuery',
+            'english_title' => 'jquery-archive-course',
+            'slug' => 'jquery-archive-course',
+            'short_description' => 'دوره آرشیوی با end_date گذشته (دسترسی بسته نمی‌شود)',
+            'description' => 'نمونه دوره آرشیو. تاریخ پایان گذشته است اما طبق قوانین سیستم، پس از end_date محدودیت دسترسی اعمال نمی‌شود.',
+            'total_time' => '480',
+            'start_date' => $archiveStart,
+            'end_date' => $archiveEnd,
+            'price' => 199000,
+            'publish' => true,
+            'status_id' => $archiveStatusId,
+            'level_id' => $beginnerLevelId,
+            'type' => 'cash',
+            'poster' => 'https://static.zanburak.ir/poster/no-image.png',
+            'trailer' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        if ($frontendCategoryId) {
+            DB::table('category_course')->insert([
+                'category_id' => $frontendCategoryId,
+                'course_id' => $course7Id,
+            ]);
+        }
+
+        $section7_1Id = DB::table('sections')->insertGetId([
+            'course_id' => $course7Id,
+            'title' => 'مقدمات jQuery',
+            'english_title' => 'jquery-basics',
+            'slug' => 'jquery-basics',
+            'description' => 'فصل آرشیوی',
+            'total_time' => '120',
+            'start_date' => $archiveStart,
+            'publish' => true,
+            'status' => true,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        $episodes7 = [
+            ['section_id' => $section7_1Id, 'order' => 1, 'title' => 'آشنایی با jQuery', 'english_title' => 'jquery-intro', 'slug' => 'jquery-intro', 'description' => 'جلسه آرشیوی', 'total_time' => '25', 'publish' => true, 'lock' => false, 'publish_date' => $archiveStart],
+            ['section_id' => $section7_1Id, 'order' => 2, 'title' => 'Selector ها', 'english_title' => 'jquery-selectors', 'slug' => 'jquery-selectors', 'description' => 'جلسه دوم', 'total_time' => '30', 'publish' => true, 'lock' => false, 'publish_date' => $archiveStart->copy()->addWeek()],
+        ];
+
+        foreach ($episodes7 as $episode) {
             $episode['created_at'] = $now;
             $episode['updated_at'] = $now;
             DB::table('episodes')->insert($episode);
