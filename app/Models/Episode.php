@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Contracts\Likeable;
+use App\Services\Search\SearchTermExtractor;
 use App\Models\Concerns\Likes;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -52,19 +53,37 @@ class Episode extends Model implements Likeable
      */
     public function toSearchableArray(): array
     {
-        // $array = $this->toArray();
+        $this->loadMissing('section.course');
+        $course = $this->section?->course;
+        $extractor = app(SearchTermExtractor::class);
 
-        // unset($array['updated_at']);
+        $searchTerms = $extractor->fromDocument(
+            title: $this->title,
+            englishTitle: $this->english_title,
+            metaKeywords: $this->meta_keywords,
+            tags: [],
+            categories: array_filter([$course?->title, $course?->english_title]),
+        );
 
-        // return $array;
         return [
             'id' => $this->id,
             'title' => $this->title,
             'english_title' => $this->english_title,
             'slug' => $this->slug,
             'description' => $this->description,
-            'publish' => $this->publish,
+            'meta_keywords' => $this->meta_keywords,
+            'search_terms' => implode(' ', $searchTerms),
+            'course_title' => $course?->title,
+            'course_english_title' => $course?->english_title,
+            'course_slug' => $course?->slug,
+            'view_count' => $this->viewCount(),
+            'publish' => (bool) $this->publish,
         ];
+    }
+
+    public function shouldBeSearchable(): bool
+    {
+        return (bool) $this->publish;
     }
 
 

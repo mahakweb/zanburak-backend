@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Contracts\Likeable;
+use App\Services\Search\SearchTermExtractor;
 use App\Models\Concerns\Likes;
 use Cviebrock\EloquentSluggable\Sluggable;
 use Cviebrock\EloquentTaggable\Taggable;
@@ -42,17 +43,38 @@ class Question extends Model implements Likeable
      */
     public function toSearchableArray(): array
     {
-        // $array = $this->toArray();
+        $this->loadMissing(['tags', 'category']);
+        $extractor = app(SearchTermExtractor::class);
 
-        // unset($array['updated_at']);
+        $searchTerms = $extractor->fromDocument(
+            title: $this->subject,
+            englishTitle: null,
+            metaKeywords: $this->meta_keywords,
+            tags: $this->tags->pluck('name')->all(),
+            categories: array_filter([$this->category?->title]),
+        );
+        $searchTerms = $extractor->uniqueTerms([
+            ...$searchTerms,
+            ...$extractor->extractFromText($this->question),
+        ]);
 
-        // return $array;
         return [
             'id' => $this->id,
             'subject' => $this->subject,
             'question' => $this->question,
-            'publish' => $this->publish,
+            'slug' => $this->slug,
+            'meta_keywords' => $this->meta_keywords,
+            'search_terms' => implode(' ', $searchTerms),
+            'tags_text' => $this->tags->pluck('name')->join(' '),
+            'category_title' => $this->category?->title,
+            'answers_count' => $this->answers()->count(),
+            'publish' => (bool) $this->publish,
         ];
+    }
+
+    public function shouldBeSearchable(): bool
+    {
+        return (bool) $this->publish;
     }
 
     public function sluggable(): array

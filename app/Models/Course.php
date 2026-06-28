@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Contracts\Likeable;
+use App\Services\Search\SearchTermExtractor;
 use App\Models\Cart;
 use App\Models\Concerns\Likes;
 use App\Models\Status;
@@ -108,11 +109,17 @@ class Course extends Model implements Likeable
      */
     public function toSearchableArray(): array
     {
-        // $array = $this->toArray();
+        $this->loadMissing(['tags', 'category', 'level', 'teacher']);
+        $extractor = app(SearchTermExtractor::class);
 
-        // unset($array['updated_at']);
+        $searchTerms = $extractor->fromDocument(
+            title: $this->title,
+            englishTitle: $this->english_title,
+            metaKeywords: $this->meta_keywords,
+            tags: $this->tags->pluck('name')->all(),
+            categories: $this->category->pluck('title')->all(),
+        );
 
-        // return $array;
         return [
             'id' => $this->id,
             'title' => $this->title,
@@ -120,8 +127,26 @@ class Course extends Model implements Likeable
             'slug' => $this->slug,
             'description' => $this->description,
             'short_description' => $this->short_description,
-            'publish' => $this->publish,
+            'meta_keywords' => $this->meta_keywords,
+            'search_terms' => implode(' ', $searchTerms),
+            'tags_text' => $this->tags->pluck('name')->join(' '),
+            'categories_text' => $this->category->pluck('title')->join(' '),
+            'category_slug' => $this->category->pluck('slug')->first(),
+            'level_title' => $this->level?->title,
+            'level_slug' => $this->level?->slug,
+            'teacher_name' => trim(collect([
+                $this->teacher?->first_name,
+                $this->teacher?->last_name,
+                $this->teacher?->username,
+            ])->filter()->join(' ')),
+            'view_count' => $this->views()->count(),
+            'publish' => (bool) $this->publish,
         ];
+    }
+
+    public function shouldBeSearchable(): bool
+    {
+        return (bool) $this->publish;
     }
 
     public function sluggable(): array

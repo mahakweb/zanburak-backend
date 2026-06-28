@@ -120,62 +120,79 @@ return [
     |--------------------------------------------------------------------------
     | Meilisearch Configuration
     |--------------------------------------------------------------------------
-    |
-    | Here you may configure your Meilisearch settings. Meilisearch is an open
-    | source search engine with minimal configuration. Below, you can state
-    | the host and key information for your own Meilisearch installation.
-    |
-    | See: https://docs.meilisearch.com/guides/advanced_guides/configuration.html
-    |
     */
 
     'meilisearch' => [
         'host' => env('MEILISEARCH_HOST', 'http://localhost:7700'),
         'key' => env('MEILISEARCH_KEY'),
         'index-settings' => [
-            /*
-             * تنظیمات اختصاصی ایندکس‌ها برای Meilisearch.
-             *
-             * نام ایندکس به صورت پیش‌فرض نام جدول/مدل به شکل جمع است؛
-             * برای مدل‌های شما:
-             *  - App\Models\Course   => 'courses'
-             *  - App\Models\Episode  => 'episodes'
-             *  - App\Models\Question => 'questions'
-             *
-             * چون در متد سرچ از where('publish', 1) استفاده می‌کنیم،
-             * باید فیلد 'publish' به عنوان filterableAttributes روی این ایندکس‌ها تنظیم شود.
-             */
             'courses' => [
-                'filterableAttributes' => ['publish'],
-                'sortableAttributes'   => ['id'],
-                // ترتیب اهمیت فیلدها در جستجو: اول عنوان انگلیسی، بعد عنوان، بعد توضیح کوتاه
+                'filterableAttributes' => ['publish', 'level_slug', 'category_slug'],
+                'sortableAttributes' => ['id', 'view_count'],
                 'searchableAttributes' => [
                     'title',
                     'english_title',
                     'short_description',
+                    'meta_keywords',
+                    'search_terms',
+                    'tags_text',
+                    'categories_text',
+                    'level_title',
+                    'teacher_name',
                     'description',
                 ],
-                // کلمات خیلی عمومی که بهتر است در جستجو نادیده گرفته شوند
-                'stopWords' => ['آموزش', 'دوره'],
+                'rankingRules' => [
+                    'words',
+                    'typo',
+                    'proximity',
+                    'attribute',
+                    'sort',
+                    'exactness',
+                ],
+                'stopWords' => ['آموزش', 'دوره', 'course', 'courses'],
             ],
             'episodes' => [
-                'filterableAttributes' => ['publish'],
-                'sortableAttributes'   => ['id'],
+                'filterableAttributes' => ['publish', 'course_slug'],
+                'sortableAttributes' => ['id', 'view_count'],
                 'searchableAttributes' => [
                     'title',
                     'english_title',
+                    'meta_keywords',
+                    'search_terms',
+                    'course_title',
+                    'course_english_title',
                     'description',
                 ],
-                'stopWords' => ['آموزش', 'دوره'],
+                'rankingRules' => [
+                    'words',
+                    'typo',
+                    'proximity',
+                    'attribute',
+                    'sort',
+                    'exactness',
+                ],
+                'stopWords' => ['آموزش', 'دوره', 'course', 'courses'],
             ],
             'questions' => [
                 'filterableAttributes' => ['publish'],
-                'sortableAttributes'   => ['id'],
+                'sortableAttributes' => ['id', 'answers_count'],
                 'searchableAttributes' => [
                     'subject',
+                    'meta_keywords',
+                    'search_terms',
+                    'tags_text',
+                    'category_title',
                     'question',
                 ],
-                'stopWords' => ['آموزش', 'دوره'],
+                'rankingRules' => [
+                    'words',
+                    'typo',
+                    'proximity',
+                    'attribute',
+                    'sort',
+                    'exactness',
+                ],
+                'stopWords' => ['آموزش', 'دوره', 'course', 'courses'],
             ],
         ],
     ],

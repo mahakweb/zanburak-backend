@@ -110,27 +110,35 @@ class TagController extends Controller
         $page = max(1, (int) $request->input('page', 1));
         $perPage = (int) $request->input('perPage', 10);
         $search = trim((string) $request->input('search', ''));
+        $timeFilter = $request->input('timeFilter', 'newest');
+        $displayFilter = $request->input('displayFilter', 'all');
         $user = auth('api')->user();
 
         return match ($type) {
-            'courses' => $this->coursesContent($tag, $page, $perPage, $search),
+            'courses' => $this->coursesContent($tag, $page, $perPage, $search, $timeFilter, $displayFilter),
             'articles' => response()->json([
                 'message' => 'Success',
                 'items' => [],
                 'pagination' => $this->emptyPagination($page, $perPage),
                 'coming_soon' => true,
             ]),
-            default => $this->questionsContent($tag, $user, $page, $perPage, $search),
+            default => $this->questionsContent($tag, $user, $page, $perPage, $search, $timeFilter, $displayFilter),
         };
     }
 
-    private function questionsContent(Tag $tag, ?User $user, int $page, int $perPage, string $search = '')
-    {
+    private function questionsContent(
+        Tag $tag,
+        ?User $user,
+        int $page,
+        int $perPage,
+        string $search = '',
+        string $timeFilter = 'newest',
+        string $displayFilter = 'all',
+    ) {
         $query = $tag->questions()
             ->where('publish', 1)
             ->with(['user:id,first_name,last_name,username,profile_pic'])
-            ->withCount('answers')
-            ->orderByDesc('created_at');
+            ->withCount(['answers', 'views as views_count']);
 
         if ($search !== '') {
             $query->where(function ($q) use ($search) {
@@ -138,6 +146,9 @@ class TagController extends Controller
                     ->orWhere('question', 'like', "%{$search}%");
             });
         }
+
+        $this->applyTimeFilter($query, $timeFilter);
+        $this->applyQuestionDisplayFilter($query, $displayFilter, $timeFilter);
 
         $total = $query->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
@@ -178,11 +189,17 @@ class TagController extends Controller
         ]);
     }
 
-    private function coursesContent(Tag $tag, int $page, int $perPage, string $search = '')
-    {
+    private function coursesContent(
+        Tag $tag,
+        int $page,
+        int $perPage,
+        string $search = '',
+        string $timeFilter = 'newest',
+        string $displayFilter = 'all',
+    ) {
         $query = $tag->courses()
             ->select('courses.*')
-            ->orderByDesc('courses.created_at');
+            ->withCount(['views as views_count', 'subscribers as subscribers_count']);
 
         if ($search !== '') {
             $query->where(function ($q) use ($search) {
@@ -191,6 +208,9 @@ class TagController extends Controller
                     ->orWhere('description', 'like', "%{$search}%");
             });
         }
+
+        $this->applyTimeFilter($query, $timeFilter, 'courses.created_at');
+        $this->applyCourseDisplayFilter($query, $displayFilter, $timeFilter);
 
         $total = $query->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
@@ -228,6 +248,58 @@ class TagController extends Controller
             'per_page' => $perPage,
             'last_page' => 1,
         ];
+    }
+
+    private function applyTimeFilter($query, string $timeFilter, string $column = 'created_at'): void
+    {
+        match ($timeFilter) {
+            'week' => $query->where($column, '>=', now()->subWeek()),
+            'month' => $query->where($column, '>=', now()->subMonth()),
+            'year' => $query->where($column, '>=', now()->subYear()),
+            default => null,
+        };
+    }
+
+    private function applyQuestionDisplayFilter($query, string $displayFilter, string $timeFilter): void
+    {
+        if ($displayFilter === 'popular') {
+            $query->orderByDesc('answers_count')->orderByDesc('created_at');
+
+            return;
+        }
+
+        if ($displayFilter === 'most_viewed') {
+            $query->orderByDesc('views_count')->orderByDesc('created_at');
+
+            return;
+        }
+
+        if ($timeFilter === 'oldest') {
+            $query->orderBy('created_at');
+        } else {
+            $query->orderByDesc('created_at');
+        }
+    }
+
+    private function applyCourseDisplayFilter($query, string $displayFilter, string $timeFilter): void
+    {
+        if ($displayFilter === 'popular') {
+            $query->orderByDesc('subscribers_count')->orderByDesc('courses.created_at');
+
+            return;
+        }
+
+        if ($displayFilter === 'most_viewed') {
+            $query->orderByDesc('views_count')->orderByDesc('courses.created_at');
+
+            return;
+        }
+
+        if ($timeFilter === 'oldest') {
+            $query->orderBy('courses.created_at');
+        } else {
+            $query->orderByDesc('courses.created_at');
+        }
     }
 
     private function followingTagIds(?User $user): array

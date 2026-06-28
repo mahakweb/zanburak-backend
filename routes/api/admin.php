@@ -275,6 +275,21 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/question-category/{category}/update', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'update'])->name('question-category.update');
     Route::delete('/question-category/{category}', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'delete'])->name('question-category.delete');
 
+    // Tags
+    Route::get('/tags/stats', [\App\Http\Controllers\Api\Admin\TagController::class, 'stats'])->name('tags.stats');
+    Route::post('/tags', [\App\Http\Controllers\Api\Admin\TagController::class, 'index'])->name('tags.index');
+    Route::get('/tags/search', [\App\Http\Controllers\Api\Admin\TagController::class, 'search'])->name('tags.search');
+    Route::post('/tag/create', [\App\Http\Controllers\Api\Admin\TagController::class, 'create'])->name('tag.create');
+    Route::post('/tags/bulk-delete', [\App\Http\Controllers\Api\Admin\TagController::class, 'bulkDelete'])->name('tags.bulk-delete');
+    Route::post('/tag/merge', [\App\Http\Controllers\Api\Admin\TagController::class, 'merge'])->name('tag.merge');
+    Route::get('/tag/{tag:tag_id}', [\App\Http\Controllers\Api\Admin\TagController::class, 'show'])->name('tag.show');
+    Route::post('/tag/{tag:tag_id}/update', [\App\Http\Controllers\Api\Admin\TagController::class, 'update'])->name('tag.update');
+    Route::delete('/tag/{tag:tag_id}', [\App\Http\Controllers\Api\Admin\TagController::class, 'delete'])->name('tag.delete');
+    Route::post('/tag/{tag:tag_id}/questions', [\App\Http\Controllers\Api\Admin\TagController::class, 'questions'])->name('tag.questions');
+    Route::post('/tag/{tag:tag_id}/courses', [\App\Http\Controllers\Api\Admin\TagController::class, 'courses'])->name('tag.courses');
+    Route::post('/tag/{tag:tag_id}/followers', [\App\Http\Controllers\Api\Admin\TagController::class, 'followers'])->name('tag.followers');
+    Route::get('/tag/{tag:tag_id}/analytics', [\App\Http\Controllers\Api\Admin\TagController::class, 'analytics'])->name('tag.analytics');
+
     // Reports
     Route::post('/reports', [\App\Http\Controllers\Api\Admin\ReportController::class, 'reports'])->name('reports.index');
     Route::get('/reports/stats', [\App\Http\Controllers\Api\Admin\ReportController::class, 'stats'])->name('reports.stats');

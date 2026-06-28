@@ -427,6 +427,27 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.question-category.delete',
         ], $discussWrite);
 
+        // Tags
+        $tagsRead = ['tags.view'];
+        $tagsWrite = ['tags.create', 'tags.update', 'tags.delete'];
+        $assign([
+            'api.admin.tags.stats',
+            'api.admin.tags.index',
+            'api.admin.tags.search',
+            'api.admin.tag.show',
+            'api.admin.tag.questions',
+            'api.admin.tag.courses',
+            'api.admin.tag.followers',
+            'api.admin.tag.analytics',
+        ], $tagsRead);
+        $assign([
+            'api.admin.tag.create',
+            'api.admin.tag.update',
+            'api.admin.tag.delete',
+            'api.admin.tags.bulk-delete',
+        ], $tagsWrite);
+        $assign('api.admin.tag.merge', ['tags.merge']);
+
         // Reports & analytics
         $assign([
             'api.admin.reports.index',

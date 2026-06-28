@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             PermissionsAndRolesSeeder::class,
             QuizPermissionsSeeder::class,
             CertificatePermissionsSeeder::class,
+            TagPermissionsSeeder::class,
             RoutePermissionsSeeder::class,
             LevelsTableSeeder::class,
             StatusesTableSeeder::class,
@@ -37,6 +38,7 @@ class DatabaseSeeder extends Seeder
             // مرحله 4: داده‌های وابسته به چندین جدول
             CoursesSectionsEpisodesSeeder::class, // نیاز به Users, Levels, Statuses, Categories دارد
             QuestionsAndAnswersSeeder::class, // نیاز به Users و QuestionCategories دارد
+            TagsTableSeeder::class, // تگ‌های محبوب (بعد از پرسش‌ها و دوره‌ها برای اتصال تگ)
 
             // مرحله 5: سیستم آزمون (نیاز به Courses, Episodes, Users دارد)
             QuizSeeder::class,

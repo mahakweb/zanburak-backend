@@ -8,7 +8,12 @@ use Illuminate\Support\Facades\Request;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use App\Models\Score;
+use App\Models\Course;
+use App\Models\Episode;
+use App\Models\Question;
 use App\Observers\ScoreObserver;
+use App\Observers\SearchSynonymRefreshObserver;
+use App\Services\Search\SearchSynonymRegistry;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -44,6 +49,9 @@ class AppServiceProvider extends ServiceProvider
         
         // Register observers
         Score::observe(ScoreObserver::class);
+        Course::observe(SearchSynonymRefreshObserver::class);
+        Episode::observe(SearchSynonymRefreshObserver::class);
+        Question::observe(SearchSynonymRefreshObserver::class);
 
         // Use https links instead http links
         if (Request::server('HTTP_X_FORWARDED_PROTO') == 'https') {
@@ -91,5 +99,19 @@ class AppServiceProvider extends ServiceProvider
             // 'Certificate' => \App\Models\Certificate::class,
             // 'Report' => \App\Models\Report::class,
         ]);
+
+        $this->configureMeilisearchSynonyms();
+    }
+
+    private function configureMeilisearchSynonyms(): void
+    {
+        $synonyms = app(SearchSynonymRegistry::class)->all();
+        $indexSettings = config('scout.meilisearch.index-settings', []);
+
+        foreach (array_keys($indexSettings) as $index) {
+            $indexSettings[$index]['synonyms'] = $synonyms;
+        }
+
+        config(['scout.meilisearch.index-settings' => $indexSettings]);
     }
 }

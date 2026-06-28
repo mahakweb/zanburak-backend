@@ -10,6 +10,7 @@ use App\Models\Question;
 use App\Models\QuestionCategory;
 use App\Models\Tag;
 use App\Models\User;
+use App\Rules\ValidTagName;
 use App\Models\View;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Http\Request;
@@ -360,18 +361,30 @@ class DiscussController extends Controller
         $initData = collect();
         $categories = QuestionCategory::select('id', 'title', 'english_title', 'slug')->where('status', '1')->get();
         $initData->put('categories', $categories);
-        $popularTags = Tag::whereHas('questions', fn ($q) => $q->where('publish', 1))
+        $popularTags = Tag::query()
             ->withCount([
                 'questions as questions_count' => fn ($q) => $q->where('publish', 1),
+                'courses as courses_count',
+                'followers as followers_count',
             ])
+            ->where(function ($q) {
+                $q->whereHas('questions', fn ($q) => $q->where('publish', 1))
+                    ->orWhereHas('courses')
+                    ->orWhereHas('followers');
+            })
             ->orderByDesc('questions_count')
-            ->limit(20)
+            ->orderByDesc('followers_count')
+            ->orderByDesc('courses_count')
+            ->limit(50)
             ->get()
             ->map(fn (Tag $tag) => [
                 'id' => $tag->tag_id,
                 'name' => $tag->name,
                 'slug' => $tag->normalized,
                 'count' => $tag->questions_count,
+                'questions_count' => $tag->questions_count,
+                'courses_count' => $tag->courses_count,
+                'followers_count' => $tag->followers_count,
             ])
             ->values();
         $initData->put('popularTags', $popularTags);
@@ -444,7 +457,7 @@ class DiscussController extends Controller
                 },
             ],
             'tags' => 'nullable|array|max:3',
-            'tags.*' => 'string|max:20',
+            'tags.*' => ['string', 'max:20', new ValidTagName()],
             'is_private' => 'required|boolean',
             'mention_users' => 'nullable|array',
             'mention_users.*' => 'string|exists:users,username',
@@ -609,7 +622,7 @@ class DiscussController extends Controller
                 },
             ],
             'tags' => 'nullable|array|max:3',
-            'tags.*' => 'string|max:20',
+            'tags.*' => ['string', 'max:20', new ValidTagName()],
             'is_private' => 'required|boolean',
             'mention_users' => 'nullable|array',
             'mention_users.*' => 'string|exists:users,username',
@@ -837,6 +850,54 @@ class DiscussController extends Controller
             }
         }
         return frontendUrl();
+    }
+
+    public function addTagsToQuestion(Request $request, $question)
+    {
+        if ($question->publish == 0) {
+            return response()->json(['message' => '!Error Question not found.'], 404);
+        }
+
+        $user = auth('api')->user();
+
+        if (!$user || $question->user_id !== $user->id) {
+            return response()->json(['message' => 'Error! Question Not Found.'], 404);
+        }
+
+        $validData = Validator::make($request->all(), [
+            'tags' => 'present|array|max:3',
+            'tags.*' => ['required', 'string', 'max:20', new ValidTagName()],
+        ]);
+
+        if (!$validData->passes()) {
+            $errors = $validData->errors()->toArray();
+            foreach ($errors as $key => &$messages) {
+                if (strpos($key, 'tags.') === 0) {
+                    $index = explode('.', $key)[1];
+                    $replacement = $request->tags[$index] ?? $key;
+                    foreach ($messages as &$message) {
+                        $message = str_replace("tags.$index", $replacement, $message);
+                    }
+                }
+            }
+
+            return response()->json(['message' => 'Error', 'errors' => $errors], 422);
+        }
+
+        $tags = collect($request->tags)
+            ->map(fn ($tag) => trim($tag))
+            ->filter()
+            ->unique(fn ($tag) => mb_strtolower($tag))
+            ->values()
+            ->all();
+
+        $question->retag($tags);
+        $question->load('tags');
+
+        return response()->json([
+            'message' => 'Success',
+            'tags' => $this->formatQuestionTags($question->tags, $user),
+        ]);
     }
 
     private function formatQuestionTags($tags, ?User $user = null): \Illuminate\Support\Collection

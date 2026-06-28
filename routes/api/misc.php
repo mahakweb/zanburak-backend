@@ -4,7 +4,7 @@ use Illuminate\Support\Facades\Route;
 
 // General public endpoints
 Route::post('get-plans-list', [\App\Http\Controllers\Api\IndexController::class, 'plansList'])->name('api.plans.list');
-Route::post('/search', [\App\Http\Controllers\Api\IndexController::class, 'search'])->name('api.search');
+Route::post('/search', [\App\Http\Controllers\Api\SearchController::class, 'search'])->name('api.search');
 
 // Editor upload
 Route::middleware('auth:sanctum')->post('/editor/uploadImage', [\App\Http\Controllers\Api\IndexController::class, 'editorUploadImage'])->name('api.editor.upload-image');
