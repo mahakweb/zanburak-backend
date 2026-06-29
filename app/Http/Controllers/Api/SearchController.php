@@ -20,7 +20,7 @@ class SearchController extends Controller
             'limit' => ['nullable', 'integer', 'min:1', 'max:50'],
             'page' => ['nullable', 'integer', 'min:1', 'max:100'],
             'types' => ['nullable', 'array'],
-            'types.*' => ['string', 'in:course,episode,question'],
+            'types.*' => ['string', 'in:course,episode,question,article'],
             'sort' => ['nullable', 'string', 'in:relevance,newest,popular'],
             'level' => ['nullable', 'string', 'max:100'],
             'category' => ['nullable', 'string', 'max:100'],

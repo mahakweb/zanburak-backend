@@ -133,6 +133,32 @@ class SearchQueryNormalizer
     }
 
     /**
+     * Strict alias list for a single user token (manual map only).
+     *
+     * @return list<string>
+     */
+    public function matchTermsForToken(string $token): array
+    {
+        $normalizedToken = mb_strtolower($this->normalize($token));
+        $aliases = config('search.term_aliases.'.$normalizedToken, []);
+
+        return array_values(array_unique([$token, ...$aliases]));
+    }
+
+    /**
+     * One alias group per user token — used for precise DB matching.
+     *
+     * @return list<list<string>>
+     */
+    public function matchGroups(string $query): array
+    {
+        return array_map(
+            fn (string $token) => $this->matchTermsForToken($token),
+            $this->specificTokens($query)
+        );
+    }
+
+    /**
      * @return list<string>
      */
     public function synonymsForToken(string $token): array

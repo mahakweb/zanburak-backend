@@ -38,6 +38,8 @@ class TagController extends Controller
             $query->whereHas('questions', fn ($q) => $q->where('publish', 1));
         } elseif ($filter === 'with_courses') {
             $query->whereHas('courses');
+        } elseif ($filter === 'with_articles') {
+            $query->whereHas('articles', fn ($q) => $q->where('publish', 1)->where('status', 'published'));
         }
 
         $query->withCount([
@@ -117,7 +119,7 @@ class TagController extends Controller
         $user = auth('api')->user();
 
         return match ($type) {
-            'courses' => $this->coursesContent($tag, $page, $perPage, $search, $timeFilter, $displayFilter),
+            'courses' => $this->coursesContent($tag, $user, $page, $perPage, $search, $timeFilter, $displayFilter),
             'articles' => $this->articlesContent($tag, $user, $page, $perPage, $search, $timeFilter, $displayFilter),
             default => $this->questionsContent($tag, $user, $page, $perPage, $search, $timeFilter, $displayFilter),
         };
@@ -188,6 +190,7 @@ class TagController extends Controller
 
     private function coursesContent(
         Tag $tag,
+        ?User $user,
         int $page,
         int $perPage,
         string $search = '',
@@ -196,7 +199,8 @@ class TagController extends Controller
     ) {
         $query = $tag->courses()
             ->select('courses.*')
-            ->withCount(['views as views_count', 'subscribers as subscribers_count']);
+            ->with(['teacher:id,first_name,last_name,username,profile_pic', 'status:id,title,english_title,slug'])
+            ->withCount(['views as views_count', 'subscribers as subscribers_count', 'likes as likes_count']);
 
         if ($search !== '') {
             $query->where(function ($q) use ($search) {
@@ -213,7 +217,11 @@ class TagController extends Controller
         $lastPage = max(1, (int) ceil($total / $perPage));
         $courses = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
 
-        $items = $courses->map(function (Course $course) {
+        $items = $courses->map(function (Course $course) use ($user) {
+            $teacher = $course->teacher
+                ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                : null;
+
             return [
                 'id' => $course->id,
                 'title' => $course->title,
@@ -221,7 +229,13 @@ class TagController extends Controller
                 'slug' => $course->slug,
                 'poster' => $course->poster,
                 'description' => $course->description,
-                'status' => $course->status ?? null,
+                'status' => $course->status,
+                'price' => $course->price,
+                'avgRating' => $course->averageRating(),
+                'total_time' => $course->totalTime(),
+                'likes_count' => $course->likes_count ?? 0,
+                'user_has_liked' => $user ? $user->hasLiked($course) : false,
+                'teacher' => $teacher,
             ];
         });
 

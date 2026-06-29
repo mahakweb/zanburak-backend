@@ -517,7 +517,7 @@ class ArticleController extends Controller
         $total = $query->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
 
-        $articles = $query->with(['category:id,title,slug'])
+        $articles = $query->with(['user:id,first_name,last_name,username,profile_pic', 'category:id,title,slug'])
             ->withCount(['likes as likes_count'])
             ->orderByDesc('published_at')
             ->skip(($page - 1) * $perPage)
