@@ -7,6 +7,7 @@ use App\Models\Report;
 use App\Models\Question;
 use App\Models\Answer;
 use App\Models\Comment;
+use App\Models\Article;
 use App\Models\Course;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -180,6 +181,35 @@ class ReportController extends Controller
                                       });
                       });
                   })
+                  // Search in Article content and author
+                  ->orWhere(function($subQuery) use ($search) {
+                      $subQuery->where(function($typeQuery) {
+                          $typeQuery->where('reportable_type', 'article')
+                                    ->orWhere('reportable_type', 'App\\Models\\Article');
+                      })
+                      ->whereExists(function($existsQuery) use ($search) {
+                          $existsQuery->select(DB::raw(1))
+                                      ->from('articles')
+                                      ->whereColumn('articles.id', 'reports.reportable_id')
+                                      ->where(function($contentQuery) use ($search) {
+                                          $contentQuery->where('title', 'like', "%{$search}%")
+                                                      ->orWhere('excerpt', 'like', "%{$search}%")
+                                                      ->orWhere('slug', 'like', "%{$search}%")
+                                                      ->orWhere('id', 'like', "%{$search}%")
+                                                      ->orWhereExists(function($userExistsQuery) use ($search) {
+                                                          $userExistsQuery->select(DB::raw(1))
+                                                                          ->from('users')
+                                                                          ->whereColumn('users.id', 'articles.user_id')
+                                                                          ->where(function($userQuery) use ($search) {
+                                                                              $userQuery->where('first_name', 'like', "%{$search}%")
+                                                                                       ->orWhere('last_name', 'like', "%{$search}%")
+                                                                                       ->orWhere('username', 'like', "%{$search}%")
+                                                                                       ->orWhere('email', 'like', "%{$search}%");
+                                                                          });
+                                                      });
+                                      });
+                      });
+                  })
                   // Search in Episode content
                   ->orWhere(function($subQuery) use ($search) {
                       $subQuery->where(function($typeQuery) {
@@ -313,6 +343,20 @@ class ReportController extends Controller
                             ] : null,
                         ];
                         break;
+                    case 'article':
+                        $reportableData = [
+                            'id' => $reportable->id,
+                            'title' => $reportable->title,
+                            'excerpt' => $reportable->excerpt,
+                            'slug' => $reportable->slug ?? null,
+                            'publish' => $reportable->publish,
+                            'user' => $reportable->user ? [
+                                'id' => $reportable->user->id,
+                                'name' => $reportable->user->first_name . ' ' . $reportable->user->last_name,
+                                'username' => $reportable->user->username,
+                            ] : null,
+                        ];
+                        break;
                 }
             }
 
@@ -373,6 +417,10 @@ class ReportController extends Controller
                 'course' => Report::where(function($q) {
                     $q->where('reportable_type', 'course')
                       ->orWhere('reportable_type', 'App\\Models\\Course');
+                })->count(),
+                'article' => Report::where(function($q) {
+                    $q->where('reportable_type', 'article')
+                      ->orWhere('reportable_type', 'App\\Models\\Article');
                 })->count(),
             ],
         ];
@@ -513,6 +561,13 @@ class ReportController extends Controller
                 case 'course':
                     if (isset($reportable->publish)) {
                         $reportable->publish = false;
+                        $reportable->save();
+                    }
+                    break;
+                case 'article':
+                    if (isset($reportable->publish)) {
+                        $reportable->publish = false;
+                        $reportable->status = 'draft';
                         $reportable->save();
                     }
                     break;
@@ -658,6 +713,13 @@ class ReportController extends Controller
                         $reportable->save();
                     }
                     break;
+                case 'article':
+                    if (isset($reportable->publish)) {
+                        $reportable->publish = true;
+                        $reportable->status = 'published';
+                        $reportable->save();
+                    }
+                    break;
             }
 
             DB::commit();
@@ -702,6 +764,8 @@ class ReportController extends Controller
                     return "دیدگاه: " . (substr($reportable->comment ?? '', 0, 50) . '...' ?? "گزارش #{$report->id}");
                 case 'course':
                     return $reportable->title ?? "گزارش #{$report->id}";
+                case 'article':
+                    return $reportable->title ?? "گزارش #{$report->id}";
                 default:
                     return "گزارش #{$report->id}";
             }
@@ -726,6 +790,8 @@ class ReportController extends Controller
                 return $action === 'deactivated' ? 'دیدگاه غیرفعال شد' : 'دیدگاه دوباره فعال شد';
             case 'course':
                 return $action === 'deactivated' ? 'دوره غیرفعال شد' : 'دوره دوباره فعال شد';
+            case 'article':
+                return $action === 'deactivated' ? 'مقاله غیرفعال شد' : 'مقاله دوباره فعال شد';
             default:
                 return $action === 'deactivated' ? 'محتوا غیرفعال شد' : 'محتوا دوباره فعال شد';
         }

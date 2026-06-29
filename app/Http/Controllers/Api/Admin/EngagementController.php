@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Answer;
+use App\Models\Article;
 use App\Models\Comment;
 use App\Models\Course;
 use App\Models\Episode;
@@ -40,6 +41,12 @@ class EngagementController extends Controller
             'title_field' => 'subject',
             'slug_field' => 'slug',
         ],
+        Article::class => [
+            'label' => 'مقاله',
+            'short' => 'Article',
+            'title_field' => 'title',
+            'slug_field' => 'slug',
+        ],
         Answer::class => [
             'label' => 'پاسخ',
             'short' => 'Answer',
@@ -73,12 +80,19 @@ class EngagementController extends Controller
             'title_field' => 'subject',
             'slug_field' => 'slug',
         ],
+        Article::class => [
+            'label' => 'مقاله',
+            'short' => 'Article',
+            'title_field' => 'title',
+            'slug_field' => 'slug',
+        ],
     ];
 
     private const OVERVIEW_CONTENT_TYPES = [
         Course::class => ['label' => 'دوره', 'short' => 'Course'],
         Episode::class => ['label' => 'قسمت', 'short' => 'Episode'],
         Question::class => ['label' => 'پرسش', 'short' => 'Question'],
+        Article::class => ['label' => 'مقاله', 'short' => 'Article'],
     ];
 
     public function overviewStats(Request $request)

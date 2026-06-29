@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\Episode;
 use App\Models\Path;
+use App\Models\Article;
 use App\Models\Question;
 use App\Models\User;
 use App\Models\Category;
@@ -48,6 +49,9 @@ class SeoController extends Controller
 
         // Questions List
         $xml .= $this->generateUrl($siteUrl . '/discuss', '0.9', 'daily', now());
+
+        // Articles List
+        $xml .= $this->generateUrl($siteUrl . '/articles', '0.9', 'daily', now());
 
         // Static Pages
         $xml .= $this->generateUrl($siteUrl . '/about', '0.8', 'monthly', now());
@@ -133,6 +137,23 @@ class SeoController extends Controller
                 '0.7',
                 'daily',
                 $question->updated_at
+            );
+        }
+
+        // Articles - Only include published articles in sitemap
+        $articles = Article::where('publish', true)
+            ->where('status', 'published')
+            ->select('slug', 'updated_at')
+            ->orderBy('updated_at', 'desc')
+            ->limit(1000)
+            ->get();
+
+        foreach ($articles as $article) {
+            $xml .= $this->generateUrl(
+                $siteUrl . '/article/' . $article->slug,
+                '0.7',
+                'weekly',
+                $article->updated_at
             );
         }
 
@@ -472,6 +493,24 @@ class SeoController extends Controller
             $xml .= '    <image:image>' . "\n";
             $xml .= '      <image:loc>' . htmlspecialchars($path->poster) . '</image:loc>' . "\n";
             $xml .= '      <image:title>' . htmlspecialchars($path->title) . '</image:title>' . "\n";
+            $xml .= '    </image:image>' . "\n";
+            $xml .= '  </url>' . "\n";
+        }
+
+        // Article cover images
+        $articles = Article::where('publish', true)
+            ->where('status', 'published')
+            ->whereNotNull('cover_image')
+            ->select('slug', 'cover_image', 'title')
+            ->limit(1000)
+            ->get();
+
+        foreach ($articles as $article) {
+            $xml .= '  <url>' . "\n";
+            $xml .= '    <loc>' . htmlspecialchars($this->siteUrl . '/article/' . $article->slug) . '</loc>' . "\n";
+            $xml .= '    <image:image>' . "\n";
+            $xml .= '      <image:loc>' . htmlspecialchars($article->cover_image) . '</image:loc>' . "\n";
+            $xml .= '      <image:title>' . htmlspecialchars($article->title) . '</image:title>' . "\n";
             $xml .= '    </image:image>' . "\n";
             $xml .= '  </url>' . "\n";
         }

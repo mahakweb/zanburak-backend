@@ -167,6 +167,21 @@ class Course extends Model implements Likeable
         return $query;
     }
 
+    public function scopeWhereHasTagIds($query, array $tagIds)
+    {
+        if (empty($tagIds)) {
+            return $query;
+        }
+
+        return $query->whereExists(function ($sub) use ($tagIds) {
+            $sub->select(DB::raw(1))
+                ->from('taggable_taggables')
+                ->whereColumn('taggable_taggables.taggable_id', 'courses.id')
+                ->where('taggable_taggables.taggable_type', static::class)
+                ->whereIn('taggable_taggables.tag_id', $tagIds);
+        });
+    }
+
     public function scopeOrder($query, $value)
     {
         return match ($value) {

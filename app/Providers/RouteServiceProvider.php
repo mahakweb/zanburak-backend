@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Models\Article;
 use App\Models\Course;
 use App\Models\Episode;
 use App\Models\Path;
@@ -41,6 +42,8 @@ class RouteServiceProvider extends ServiceProvider
                     require base_path('routes/api/auth.php');
                     require base_path('routes/api/profile.php');
                     require base_path('routes/api/discuss.php');
+                    require base_path('routes/api/articles.php');
+                    require base_path('routes/api/article.php');
                     require base_path('routes/api/tags.php');
                     require base_path('routes/api/cart.php');
                     require base_path('routes/api/messenger.php');
@@ -81,6 +84,10 @@ class RouteServiceProvider extends ServiceProvider
 
         Route::bind('questionSlug', function ($value) {
             return Question::where('slug', $value)->firstOrFail();
+        });
+
+        Route::bind('articleSlug', function ($value) {
+            return Article::withTrashed()->where('slug', $value)->firstOrFail();
         });
 
         Route::bind('pathSlug', function ($value) {

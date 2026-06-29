@@ -275,6 +275,26 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/question-category/{category}/update', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'update'])->name('question-category.update');
     Route::delete('/question-category/{category}', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'delete'])->name('question-category.delete');
 
+    // Articles
+    Route::get('/articles/stats', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'stats'])->name('articles.stats');
+    Route::post('/articles', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'index'])->name('articles.index');
+    Route::get('/article/{article}', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'show'])->name('article.show');
+    Route::post('/article/create', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'create'])->name('article.create');
+    Route::post('/article/{article}/update', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'update'])->name('article.update');
+    Route::delete('/article/{article}', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'delete'])->name('article.delete');
+    Route::post('/article/{id}/restore', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'restore'])->name('article.restore');
+    Route::delete('/article/{id}/force', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'forceDelete'])->name('article.force-delete');
+    Route::post('/article/{article}/toggle-publish', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'togglePublish'])->name('article.toggle-publish');
+    Route::post('/article/uploadCover', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'uploadCover'])->name('article.upload-cover');
+    Route::delete('/article/{article}/cover', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'removeCover'])->name('article.remove-cover');
+    Route::post('/articles/bulk', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'bulkAction'])->name('articles.bulk');
+
+    // Article Categories
+    Route::post('/article-categories', [\App\Http\Controllers\Api\Admin\ArticleCategoryController::class, 'index'])->name('article-categories.index');
+    Route::post('/article-category/create', [\App\Http\Controllers\Api\Admin\ArticleCategoryController::class, 'create'])->name('article-category.create');
+    Route::post('/article-category/{category}/update', [\App\Http\Controllers\Api\Admin\ArticleCategoryController::class, 'update'])->name('article-category.update');
+    Route::delete('/article-category/{category}', [\App\Http\Controllers\Api\Admin\ArticleCategoryController::class, 'delete'])->name('article-category.delete');
+
     // Tags
     Route::get('/tags/stats', [\App\Http\Controllers\Api\Admin\TagController::class, 'stats'])->name('tags.stats');
     Route::post('/tags', [\App\Http\Controllers\Api\Admin\TagController::class, 'index'])->name('tags.index');

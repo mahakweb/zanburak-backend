@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Comment;
+use App\Models\Article;
 use App\Models\Course;
 use App\Models\Episode;
 use App\Models\Path;
@@ -169,35 +170,31 @@ class CommentController extends Controller
 
         $comment = $model->comments()->create($validData + ['user_id' => $user->id]);
 
-        // ارسال اطلاع‌رسانی در صورت پاسخ به کامنت
-        // if ($validData['parent_id'] > 0) {
-        //     $parentComment = Comment::find($validData['parent_id']);
-        //     if ($parentComment && $parentComment->user && $parentComment->user_id != $user->id) {
-        //         $commentableTitle = $this->getCommentableTitle($parentComment);
-        //         $commentableUrl = $this->getCommentableUrl($parentComment);
-                
-        //         event(new \App\Events\Comment\ReplyToComment($parentComment, $user, $commentableTitle, $commentableUrl));
-        //     }
-        // }
-        
-        // ارسال اطلاع‌رسانی ثبت دیدگاه در مقالات/محتوا (اگر صاحب محتوا با کامنت‌کننده متفاوت باشد)
-        // if ($validData['parent_id'] == 0) {
-        //     $commentable = $comment->commentable;
-        //     if ($commentable && isset($commentable->user_id) && $commentable->user_id != $user->id) {
-        //         $commentableTitle = $this->getCommentableTitle($comment);
-        //         $commentableUrl = $this->getCommentableUrl($comment);
-                
-        //         event(new \App\Events\Comment\CommentOnArticle($comment, $user, $commentableTitle, $commentableUrl));
-        //     }
-            
-        //     // Fire event for points if commentable is Episode
-        //     if ($commentable instanceof \App\Models\Episode) {
-        //         event(new \App\Events\Score\Comment\CommentOnEpisode($user, $comment));
-        //     }
-            
-        //     // Fire Mission Community Activity Event
-        //     event(new \App\Events\Mission\CommunityActivityEvent($user, 'comment', $comment));
-        // }
+        // ارسال اطلاع‌رسانی
+        if ($validData['parent_id'] > 0) {
+            $parentComment = Comment::find($validData['parent_id']);
+            if ($parentComment && $parentComment->user && $parentComment->user_id != $user->id) {
+                $commentableTitle = $this->getCommentableTitle($parentComment);
+                $commentableUrl = $this->getCommentableUrl($parentComment);
+
+                event(new \App\Events\Comment\ReplyToComment($parentComment, $user, $commentableTitle, $commentableUrl));
+            }
+        } elseif ($validData['parent_id'] == 0) {
+            $commentable = $comment->commentable;
+
+            if ($commentable instanceof Article && isset($commentable->user_id) && $commentable->user_id != $user->id) {
+                $commentableTitle = $this->getCommentableTitle($comment);
+                $commentableUrl = $this->getCommentableUrl($comment);
+
+                event(new \App\Events\Comment\CommentOnArticle($comment, $user, $commentableTitle, $commentableUrl));
+            }
+
+            if ($commentable instanceof \App\Models\Episode) {
+                event(new \App\Events\Score\Comment\CommentOnEpisode($user, $comment));
+            }
+
+            event(new \App\Events\Mission\CommunityActivityEvent($user, 'comment', $comment));
+        }
 
         $comment->load([
             'user' => function ($query) {
@@ -213,6 +210,7 @@ class CommentController extends Controller
     private function getModelInstance($type, $id)
     {
         $modelClass = [
+            'article' => Article::class,
             'course' => Course::class,
             'episode' => Episode::class,
             'path' => Path::class,
@@ -258,6 +256,8 @@ class CommentController extends Controller
         // تعیین URL بر اساس نوع commentable
         if ($commentable instanceof Course) {
             return frontendUrl("course/{$slug}");
+        } elseif ($commentable instanceof Article) {
+            return frontendUrl("articles/{$slug}");
         } elseif ($commentable instanceof Episode) {
             return frontendUrl("course/{$commentable->section->course->slug}/episode/{$slug}");
         } elseif ($commentable instanceof Path) {

@@ -67,6 +67,8 @@ class LikeController extends Controller
             return $likeable->question->subject ?? 'پاسخ شما';
         } elseif ($likeable instanceof \App\Models\Question) {
             return $likeable->subject;
+        } elseif ($likeable instanceof \App\Models\Article) {
+            return $likeable->title;
         } elseif ($likeable instanceof \App\Models\Comment) {
             $commentable = $likeable->commentable;
             return $commentable->title ?? $commentable->subject ?? 'دیدگاه شما';
@@ -80,6 +82,8 @@ class LikeController extends Controller
             return frontendUrl("discuss/{$likeable->question->slug}");
         } elseif ($likeable instanceof \App\Models\Question) {
             return frontendUrl("discuss/{$likeable->slug}");
+        } elseif ($likeable instanceof \App\Models\Article) {
+            return frontendUrl("articles/{$likeable->slug}");
         } elseif ($likeable instanceof \App\Models\Comment) {
             $commentable = $likeable->commentable;
             if (!$commentable) {
@@ -91,6 +95,8 @@ class LikeController extends Controller
             }
             if ($commentable instanceof \App\Models\Course) {
                 return frontendUrl("course/{$slug}");
+            } elseif ($commentable instanceof \App\Models\Article) {
+                return frontendUrl("articles/{$slug}");
             } elseif ($commentable instanceof \App\Models\Episode) {
                 return frontendUrl("course/{$commentable->section->course->slug}/episode/{$slug}");
             } elseif ($commentable instanceof \App\Models\Path) {

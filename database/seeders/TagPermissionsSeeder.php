@@ -60,7 +60,7 @@ class TagPermissionsSeeder extends Seeder
         }
 
         if ($rows !== []) {
-            DB::table('role_permissions')->upsert(
+            DB::table('permission_role')->upsert(
                 $rows,
                 ['role_id', 'permission_id'],
                 ['updated_at']

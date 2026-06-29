@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Answer;
+use App\Models\Article;
 use App\Models\Certificate;
 use App\Models\User;
 use App\Models\Comment;
@@ -594,6 +595,7 @@ class DashboardController extends Controller
         $videoViewsCount = (int) VideoView::whereBetween('updated_at', [$start, $end])->count();
         $questionsCount = (int) Question::whereBetween('created_at', [$start, $end])->count();
         $answersCount = (int) Answer::whereBetween('created_at', [$start, $end])->count();
+        $articlesCount = (int) Article::whereBetween('created_at', [$start, $end])->count();
         $certificatesCount = (int) Certificate::whereBetween('issued_at', [$start, $end])->count();
 
         $prevLogins = (int) UserLogin::whereBetween('logged_in_at', [$prevStart, $prevEnd])->count();
@@ -601,6 +603,7 @@ class DashboardController extends Controller
         $prevVideoViews = (int) VideoView::whereBetween('updated_at', [$prevStart, $prevEnd])->count();
         $prevQuestions = (int) Question::whereBetween('created_at', [$prevStart, $prevEnd])->count();
         $prevAnswers = (int) Answer::whereBetween('created_at', [$prevStart, $prevEnd])->count();
+        $prevArticles = (int) Article::whereBetween('created_at', [$prevStart, $prevEnd])->count();
 
         $viewsDailyRaw = (clone $viewQuery)
             ->select(DB::raw($groupExpr('created_at').' as grp'), DB::raw('COUNT(*) as count'))
@@ -647,6 +650,7 @@ class DashboardController extends Controller
             Course::class => 'دوره',
             Episode::class => 'قسمت',
             Question::class => 'پرسش',
+            Article::class => 'مقاله',
             Path::class => 'مسیر',
             User::class => 'پروفایل',
         ];
@@ -669,7 +673,7 @@ class DashboardController extends Controller
 
         $periodComments = (int) Comment::whereBetween('created_at', [$start, $end])->count();
 
-        $typeComparison = collect([Course::class, Episode::class, Question::class])->map(function ($class) use ($viewQuery, $likeQuery, $typeMap, $start, $end) {
+        $typeComparison = collect([Course::class, Episode::class, Question::class, Article::class])->map(function ($class) use ($viewQuery, $likeQuery, $typeMap, $start, $end) {
             $short = class_basename($class);
             $views = (int) (clone $viewQuery)->where('viewable_type', $class)->count();
             $likes = (int) (clone $likeQuery)->where('likeable_type', $class)->count();
@@ -714,7 +718,7 @@ class DashboardController extends Controller
         $inactiveAccounts = (int) User::where('active', false)->count();
 
         $activityDistribution = [
-            'labels' => ['بازدید', 'لایک', 'کامنت', 'بوکمارک', 'لاگین', 'تماشای ویدیو', 'سوال', 'پاسخ'],
+            'labels' => ['بازدید', 'لایک', 'کامنت', 'بوکمارک', 'لاگین', 'تماشای ویدیو', 'سوال', 'پاسخ', 'مقاله'],
             'values' => [
                 $viewsTotal,
                 $likesTotal,
@@ -724,8 +728,9 @@ class DashboardController extends Controller
                 $videoViewsCount,
                 $questionsCount,
                 $answersCount,
+                $articlesCount,
             ],
-            'colors' => ['#3b82f6', '#f43f5e', '#06b6d4', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#6366f1'],
+            'colors' => ['#3b82f6', '#f43f5e', '#06b6d4', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#6366f1', '#eab308'],
         ];
 
         return [
@@ -738,6 +743,7 @@ class DashboardController extends Controller
                 'logins' => $this->compareMetric($loginsCount, $prevLogins),
                 'questions' => $this->compareMetric($questionsCount, $prevQuestions),
                 'answers' => $this->compareMetric($answersCount, $prevAnswers),
+                'articles' => $this->compareMetric($articlesCount, $prevArticles),
             ],
             'daily' => [
                 'views' => $viewsDaily,
@@ -754,6 +760,7 @@ class DashboardController extends Controller
                     'paths' => Path::count(),
                     'episodes' => Episode::count(),
                     'questions' => Question::count(),
+                    'articles' => Article::count(),
                     'plans' => Plan::count(),
                     'certificates' => Certificate::count(),
                 ],
@@ -776,6 +783,7 @@ class DashboardController extends Controller
                     'video_views' => $videoViewsCount,
                     'questions' => $questionsCount,
                     'answers' => $answersCount,
+                    'articles' => $articlesCount,
                     'certificates' => $certificatesCount,
                     'today' => [
                         'logins' => (int) UserLogin::whereDate('logged_in_at', today())->count(),
@@ -817,6 +825,9 @@ class DashboardController extends Controller
         } elseif ($type === Question::class) {
             $title = Question::find($id)?->subject;
             $typeLabel = 'پرسش';
+        } elseif ($type === Article::class) {
+            $title = Article::find($id)?->title;
+            $typeLabel = 'مقاله';
         } elseif ($type === Path::class) {
             $title = Path::find($id)?->title;
             $typeLabel = 'مسیر';

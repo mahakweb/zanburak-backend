@@ -2,6 +2,7 @@
 
 namespace App\Services\Search;
 
+use App\Models\Article;
 use App\Models\Course;
 use App\Models\Episode;
 use App\Models\Question;
@@ -11,7 +12,7 @@ use Illuminate\Support\Collection;
 class SearchService
 {
     /** @var list<string> */
-    private const VALID_TYPES = ['course', 'episode', 'question'];
+    private const VALID_TYPES = ['course', 'episode', 'question', 'article'];
 
     public function __construct(
         private readonly SearchQueryNormalizer $normalizer,
@@ -133,6 +134,7 @@ class SearchService
             'course' => $this->searchCourses($query, $tokenGroups, $take, $sort, $level, $category),
             'episode' => $this->searchEpisodes($query, $tokenGroups, $take, $sort),
             'question' => $this->searchQuestions($query, $tokenGroups, $take, $sort),
+            'article' => $this->searchArticles($query, $tokenGroups, $take, $sort),
             default => [],
         };
     }
@@ -331,6 +333,76 @@ class SearchService
                     'subject' => $question->subject,
                     'slug' => $question->slug,
                     'number_of_answers' => (int) $question->answers_count,
+                    '_highlight' => $highlight,
+                ],
+            ];
+        }
+
+        return $hits;
+    }
+
+    /**
+     * @param  list<list<string>>  $tokenGroups
+     * @return list<array<string, mixed>>
+     */
+    private function searchArticles(
+        string $query,
+        array $tokenGroups,
+        int $take,
+        string $sort,
+    ): array {
+        $config = config('search.types.article');
+        $raw = $this->scoutRawSearch(
+            modelClass: Article::class,
+            query: $query,
+            take: $take,
+            tokenGroups: $tokenGroups,
+            dbColumns: $config['db_columns'],
+            scoutColumns: $config['scout_columns'],
+        );
+
+        if ($raw['ids']->isEmpty()) {
+            return [];
+        }
+
+        $articles = Article::query()
+            ->whereIn('id', $raw['ids'])
+            ->with(['user:id,first_name,last_name,username', 'category:id,title,slug'])
+            ->get()
+            ->keyBy('id');
+
+        $hits = [];
+
+        foreach ($raw['ids'] as $index => $id) {
+            $article = $articles->get($id);
+            if (! $article || ! $article->publish || $article->status !== 'published') {
+                continue;
+            }
+
+            $highlight = $raw['highlights'][$id] ?? [];
+
+            $hits[] = [
+                'type' => 'article',
+                'score' => $raw['scores'][$id] ?? (1000 - $index),
+                'sort_id' => $article->id,
+                'popularity' => $article->viewCount(),
+                'payload' => [
+                    'type' => 'article',
+                    'id' => $article->id,
+                    'title' => $article->title,
+                    'slug' => $article->slug,
+                    'excerpt' => $article->excerpt,
+                    'cover_image' => $article->cover_image,
+                    'reading_time_minutes' => $article->reading_time_minutes,
+                    'author' => $article->user ? [
+                        'first_name' => $article->user->first_name,
+                        'last_name' => $article->user->last_name,
+                        'username' => $article->user->username,
+                    ] : null,
+                    'category' => $article->category ? [
+                        'title' => $article->category->title,
+                        'slug' => $article->category->slug,
+                    ] : null,
                     '_highlight' => $highlight,
                 ],
             ];

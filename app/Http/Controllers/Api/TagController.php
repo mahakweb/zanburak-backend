@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Article;
 use App\Models\Course;
 use App\Models\Question;
 use App\Models\Tag;
@@ -43,6 +44,7 @@ class TagController extends Controller
             'followers',
             'questions as questions_count' => fn ($q) => $q->where('publish', 1),
             'courses as courses_count',
+            'articles as articles_count' => fn ($q) => $q->where('publish', 1)->where('status', 'published'),
         ]);
 
         $query = match ($sort) {
@@ -64,7 +66,7 @@ class TagController extends Controller
                 'slug' => $tag->normalized,
                 'questions_count' => $tag->questions_count ?? 0,
                 'courses_count' => $tag->courses_count ?? 0,
-                'articles_count' => 0,
+                'articles_count' => $tag->articles_count ?? 0,
                 'followers_count' => $tag->followers_count ?? 0,
                 'is_following' => in_array($tag->tag_id, $followingIds, true),
             ];
@@ -116,12 +118,7 @@ class TagController extends Controller
 
         return match ($type) {
             'courses' => $this->coursesContent($tag, $page, $perPage, $search, $timeFilter, $displayFilter),
-            'articles' => response()->json([
-                'message' => 'Success',
-                'items' => [],
-                'pagination' => $this->emptyPagination($page, $perPage),
-                'coming_soon' => true,
-            ]),
+            'articles' => $this->articlesContent($tag, $user, $page, $perPage, $search, $timeFilter, $displayFilter),
             default => $this->questionsContent($tag, $user, $page, $perPage, $search, $timeFilter, $displayFilter),
         };
     }
@@ -238,6 +235,86 @@ class TagController extends Controller
                 'last_page' => $lastPage,
             ],
         ]);
+    }
+
+    private function articlesContent(
+        Tag $tag,
+        ?User $user,
+        int $page,
+        int $perPage,
+        string $search = '',
+        string $timeFilter = 'newest',
+        string $displayFilter = 'all',
+    ) {
+        $query = $tag->articles()
+            ->where('publish', 1)
+            ->where('status', 'published')
+            ->with(['user:id,first_name,last_name,username,profile_pic', 'category:id,title,slug'])
+            ->withCount(['likes as likes_count', 'views as views_count']);
+
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                    ->orWhere('excerpt', 'like', "%{$search}%");
+            });
+        }
+
+        $this->applyTimeFilter($query, $timeFilter, 'articles.published_at');
+        $this->applyArticleDisplayFilter($query, $displayFilter, $timeFilter);
+
+        $total = $query->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $articles = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
+
+        $items = $articles->map(function (Article $article) use ($user) {
+            return [
+                'id' => $article->id,
+                'title' => $article->title,
+                'slug' => $article->slug,
+                'excerpt' => $article->excerpt,
+                'cover_image' => $article->cover_image,
+                'reading_time_minutes' => $article->reading_time_minutes,
+                'views_count' => $article->viewCount(),
+                'likes_count' => $article->likes_count ?? 0,
+                'published_at' => $article->published_at,
+                'created_at' => $article->created_at,
+                'user' => $article->user,
+                'category' => $article->category,
+                'bookmarked' => $user ? $user->hasBookmarked($article) : false,
+            ];
+        });
+
+        return response()->json([
+            'message' => 'Success',
+            'items' => $items,
+            'pagination' => [
+                'total' => $total,
+                'current_page' => $page,
+                'per_page' => $perPage,
+                'last_page' => $lastPage,
+            ],
+        ]);
+    }
+
+    private function applyArticleDisplayFilter($query, string $displayFilter, string $timeFilter): void
+    {
+        if ($displayFilter === 'popular') {
+            $query->orderByDesc('likes_count')->orderByDesc('published_at');
+
+            return;
+        }
+
+        if ($displayFilter === 'most_viewed') {
+            $query->orderByDesc('views_count')->orderByDesc('published_at');
+
+            return;
+        }
+
+        if ($timeFilter === 'oldest') {
+            $query->orderBy('published_at');
+        } else {
+            $query->orderByDesc('published_at');
+        }
     }
 
     private function emptyPagination(int $page, int $perPage): array

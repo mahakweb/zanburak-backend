@@ -427,6 +427,37 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.question-category.delete',
         ], $discussWrite);
 
+        // Articles
+        $articlesCreate = ['articles.create'];
+        $articlesUpdate = ['articles.update', 'articles.update.own', 'articles.update.any'];
+        $articlesDelete = ['articles.delete', 'articles.delete.own', 'articles.delete.any'];
+        $articlesPublish = ['articles.publish', 'articles.publish.any', 'articles.publish.own', 'articles.unpublish'];
+
+        $assign([
+            'api.admin.articles.stats',
+            'api.admin.articles.index',
+            'api.admin.article.show',
+            'api.admin.article-categories.index',
+        ], $articlesRead);
+        $assign('api.admin.article.create', $articlesCreate);
+        $assign([
+            'api.admin.article.update',
+            'api.admin.article.restore',
+            'api.admin.article.upload-cover',
+            'api.admin.article.remove-cover',
+        ], $articlesUpdate);
+        $assign([
+            'api.admin.article.delete',
+            'api.admin.article.force-delete',
+        ], $articlesDelete);
+        $assign('api.admin.article.toggle-publish', $articlesPublish);
+        $assign('api.admin.articles.bulk', array_merge($articlesWrite, $articlesPublish));
+        $assign([
+            'api.admin.article-category.create',
+            'api.admin.article-category.update',
+            'api.admin.article-category.delete',
+        ], $articlesWrite);
+
         // Tags
         $tagsRead = ['tags.view'];
         $tagsWrite = ['tags.create', 'tags.update', 'tags.delete'];

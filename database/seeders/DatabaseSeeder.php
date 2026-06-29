@@ -40,6 +40,9 @@ class DatabaseSeeder extends Seeder
             QuestionsAndAnswersSeeder::class, // نیاز به Users و QuestionCategories دارد
             TagsTableSeeder::class, // تگ‌های محبوب (بعد از پرسش‌ها و دوره‌ها برای اتصال تگ)
 
+            // مرحله ۷: مقالات (نیاز به Users و ArticleCategories دارد)
+            ArticlesTableSeeder::class,
+
             // مرحله 5: سیستم آزمون (نیاز به Courses, Episodes, Users دارد)
             QuizSeeder::class,
 

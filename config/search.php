@@ -73,6 +73,11 @@ return [
             'db_columns' => ['subject', 'question', 'meta_keywords'],
             'scout_columns' => ['subject', 'question', 'meta_keywords', 'search_terms', 'tags_text', 'category_title'],
         ],
+        'article' => [
+            'model' => App\Models\Article::class,
+            'db_columns' => ['title', 'excerpt', 'content', 'meta_keywords'],
+            'scout_columns' => ['title', 'excerpt', 'content', 'meta_keywords', 'search_terms', 'tags_text', 'category_title', 'author_name'],
+        ],
     ],
 
     'default_limit' => 20,

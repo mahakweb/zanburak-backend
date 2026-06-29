@@ -25,6 +25,11 @@ class Tag extends BaseTag
         return $this->taggedModels(Course::class);
     }
 
+    public function articles(): MorphToMany
+    {
+        return $this->taggedModels(Article::class);
+    }
+
     public function getSlugAttribute(): string
     {
         return $this->normalized;
@@ -39,6 +44,7 @@ class Tag extends BaseTag
     {
         $questionsCount = $this->questions()->where('publish', 1)->count();
         $coursesCount = $this->courses()->count();
+        $articlesCount = $this->articles()->where('publish', 1)->where('status', 'published')->count();
 
         return [
             'id' => $this->tag_id,
@@ -46,7 +52,7 @@ class Tag extends BaseTag
             'slug' => $this->normalized,
             'questions_count' => $questionsCount,
             'courses_count' => $coursesCount,
-            'articles_count' => 0,
+            'articles_count' => $articlesCount,
             'followers_count' => $this->followers()->count(),
             'is_following' => $user ? $user->isFollowing($this) : false,
         ];

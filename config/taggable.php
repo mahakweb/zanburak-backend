@@ -55,6 +55,7 @@ return [
     'taggedModels' => [
         'questions' => \App\Models\Question::class,
         'courses' => \App\Models\Course::class,
+        'articles' => \App\Models\Article::class,
     ],
 
     /**

@@ -28,6 +28,8 @@ return new class extends Migration
             $table->timestamp('end_date')->nullable();
             $table->integer('price')->default(0);
             $table->boolean('publish')->default(0);
+            $table->boolean('certificate_enabled')->default(false);
+            $table->unsignedBigInteger('certificate_template_id')->nullable();
             $table->unsignedBigInteger('status_id')->nullable();
             $table->foreign('status_id')->references('id')->on('statuses')->onUpdate('cascade');
             $table->unsignedBigInteger('level_id')->nullable();

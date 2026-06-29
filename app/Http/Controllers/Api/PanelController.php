@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Answer;
+use App\Models\Article;
 use App\Models\Course;
 use App\Models\Path;
 use App\Models\Mission;
@@ -20,6 +21,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use App\Rules\ValidGateway;
+use LaravelInteraction\Bookmark\Bookmark;
 
 class PanelController extends Controller
 {
@@ -667,16 +669,69 @@ class PanelController extends Controller
     public function followed(Request $request)
     {
         $filter = $request->input('filter', 'user');
+        $user = auth('api')->user();
+
+        if ($filter === 'article') {
+            $followedPerPage = (int) $request->input('perPage', 6);
+            $currentPage = max(1, (int) $request->input('page', 1));
+
+            $bookmarkIds = Bookmark::query()
+                ->where('user_id', $user->id)
+                ->where('bookmarkable_type', Article::class)
+                ->latest()
+                ->pluck('bookmarkable_id');
+
+            $query = Article::published()->whereIn('id', $bookmarkIds);
+            $total = $query->count();
+            $lastPage = max(1, (int) ceil($total / $followedPerPage));
+            $prevPage = $currentPage > 1 ? $currentPage - 1 : null;
+            $nextPage = $currentPage < $lastPage ? $currentPage + 1 : null;
+
+            $articles = $query
+                ->with(['user:id,first_name,last_name,username,profile_pic', 'category:id,title,english_title,slug'])
+                ->withCount(['likes as likes_count', 'comments as comments_count'])
+                ->orderByDesc('published_at')
+                ->skip(($currentPage - 1) * $followedPerPage)
+                ->take($followedPerPage)
+                ->get();
+
+            $result = $articles->map(fn (Article $article) => [
+                'id' => $article->id,
+                'title' => $article->title,
+                'slug' => $article->slug,
+                'excerpt' => $article->excerpt,
+                'cover_image' => $article->cover_image,
+                'reading_time_minutes' => $article->reading_time_minutes,
+                'likes_count' => (int) $article->likes_count,
+                'comments_count' => (int) $article->comments_count,
+                'published_at' => $article->published_at,
+                'user' => $article->user,
+                'category' => $article->category,
+                'bookmarked' => true,
+            ]);
+
+            return response()->json([
+                'message' => 'Success',
+                'filter' => $filter,
+                'followeds' => $result,
+                'pagination' => [
+                    'total' => $total,
+                    'current_page' => $currentPage,
+                    'per_page' => $followedPerPage,
+                    'last_page' => $lastPage,
+                    'prev_page' => $prevPage,
+                    'next_page' => $nextPage,
+                ],
+            ], 200);
+        }
+
         $followable_type = match ($filter) {
             'user' => 'App\Models\User',
             'question' => 'App\Models\Question',
             'course' => 'App\Models\Course',
             'tag' => 'App\Models\Tag',
-            // 'article' => 'App\Models\Article',
             default => 'App\Models\User',
         };
-
-        $user = auth('api')->user();
 
         $followed = $user->followings()->where('followable_type', $followable_type)->get();
 
@@ -727,7 +782,7 @@ class PanelController extends Controller
                     'slug' => $followable->normalized,
                     'questions_count' => $followable->questions()->where('publish', 1)->count(),
                     'courses_count' => $followable->courses()->count(),
-                    'articles_count' => 0,
+                    'articles_count' => $followable->articles()->where('publish', 1)->where('status', 'published')->count(),
                     'followers_count' => $followable->followers()->count(),
                     'is_following' => true,
                 ],
@@ -754,7 +809,7 @@ class PanelController extends Controller
     {
         $filter = $request->input('filter', 'course');
         $commentable_type = match ($filter) {
-            // 'article' => 'App\Models\Article',
+            'article' => 'App\Models\Article',
             'course' => 'App\Models\Course',
             'episode' => 'App\Models\Episode',
             'path' => 'App\Models\Path',
@@ -805,12 +860,12 @@ class PanelController extends Controller
                 'created_at' => $item->created_at,
                 'updated_at' => $item->updated_at,
                 'commentable' => match ($commentable_type) {
-                    // 'App\Models\Article' => [
-                    //     'id' => $commentable->id,
-                    //     'title' => $commentable->title,
-                    //     'slug' => $commentable->slug,
-                    //     'content' => $commentable->content,
-                    // ],
+                    'App\Models\Article' => [
+                        'id' => $commentable->id,
+                        'title' => $commentable->title,
+                        'slug' => $commentable->slug,
+                        'cover_image' => $commentable->cover_image,
+                    ],
                     'App\Models\Course' => [
                         'id' => $commentable->id,
                         'title' => $commentable->title,

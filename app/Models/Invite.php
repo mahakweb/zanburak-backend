@@ -10,6 +10,12 @@ class Invite extends Model
     use HasFactory;
 
     protected $table = 'invites';
+
+    protected $primaryKey = 'invitee_id';
+
+    public $incrementing = false;
+
+    protected $keyType = 'int';
     
     protected $fillable = [
         'invitee_id',
