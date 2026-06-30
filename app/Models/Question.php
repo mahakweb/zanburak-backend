@@ -9,6 +9,7 @@ use Cviebrock\EloquentSluggable\Sluggable;
 use Cviebrock\EloquentTaggable\Taggable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use LaravelInteraction\Bookmark\Concerns\Bookmarkable;
 use Laravel\Scout\Searchable;
 use Mehradsadeghi\FilterQueryString\FilterQueryString;
@@ -174,6 +175,21 @@ class Question extends Model implements Likeable
     public function reports()
     {
         return $this->morphMany(Report::class, 'reportable');
+    }
+
+    public function scopeWhereHasTagIds($query, array $tagIds)
+    {
+        if (empty($tagIds)) {
+            return $query;
+        }
+
+        return $query->whereExists(function ($sub) use ($tagIds) {
+            $sub->select(DB::raw(1))
+                ->from('taggable_taggables')
+                ->whereColumn('taggable_taggables.taggable_id', 'questions.id')
+                ->where('taggable_taggables.taggable_type', static::class)
+                ->whereIn('taggable_taggables.tag_id', $tagIds);
+        });
     }
 
 }

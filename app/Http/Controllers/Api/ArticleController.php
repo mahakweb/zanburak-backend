@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Article;
 use App\Models\ArticleCategory;
 use App\Models\Course;
+use App\Models\Question;
 use App\Models\Tag;
 use App\Models\User;
 use App\Models\View;
@@ -242,7 +243,7 @@ class ArticleController extends Controller
     public function related(Request $request, Article $articleSlug)
     {
         $article = $articleSlug;
-        $limit = min(12, max(1, (int) $request->input('limit', 6)));
+        $limit = min(20, max(1, (int) $request->input('limit', 6)));
         $user = auth('api')->user();
 
         $article->loadMissing('tags');
@@ -260,6 +261,7 @@ class ArticleController extends Controller
             ->get();
 
         $relatedCourses = collect();
+        $relatedQuestions = collect();
         if (! empty($tagIds)) {
             $relatedCourses = Course::query()
                 ->where('publish', 1)
@@ -268,6 +270,16 @@ class ArticleController extends Controller
                 ->orderByDesc('created_at')
                 ->take($limit)
                 ->get(['id', 'title', 'english_title', 'slug', 'poster', 'description', 'teacher_id']);
+
+            $relatedQuestions = Question::query()
+                ->where('publish', 1)
+                ->where('is_private', false)
+                ->whereHasTagIds($tagIds)
+                ->with(['user:id,first_name,last_name,username,profile_pic'])
+                ->withCount('answers')
+                ->orderByDesc('created_at')
+                ->take($limit)
+                ->get(['id', 'subject', 'slug', 'user_id', 'created_at']);
         }
 
         return response()->json([
@@ -281,6 +293,14 @@ class ArticleController extends Controller
                 'poster' => $course->poster,
                 'description' => $course->description,
                 'teacher' => $course->teacher,
+            ]),
+            'questions' => $relatedQuestions->map(fn (Question $question) => [
+                'id' => $question->id,
+                'subject' => $question->subject,
+                'slug' => $question->slug,
+                'answers_count' => (int) $question->answers_count,
+                'user' => $question->user,
+                'created_at' => $question->created_at,
             ]),
         ]);
     }
