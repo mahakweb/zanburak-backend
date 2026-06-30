@@ -8,6 +8,8 @@ Route::post('/search', [\App\Http\Controllers\Api\SearchController::class, 'sear
 
 // Editor upload
 Route::middleware('auth:sanctum')->post('/editor/uploadImage', [\App\Http\Controllers\Api\IndexController::class, 'editorUploadImage'])->name('api.editor.upload-image');
+Route::middleware('auth:sanctum')->post('/editor/uploadFile', [\App\Http\Controllers\Api\IndexController::class, 'editorUploadFile'])->name('api.editor.upload-file');
+Route::middleware('auth:sanctum')->post('/editor/uploadVideo', [\App\Http\Controllers\Api\IndexController::class, 'editorUploadVideo'])->name('api.editor.upload-video');
 
 // Request project
 Route::middleware('auth:sanctum')->prefix('request-project')->as('api.request-project.')->group(function () {

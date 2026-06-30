@@ -277,6 +277,8 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
 
     // Articles
     Route::get('/articles/stats', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'stats'])->name('articles.stats');
+    Route::get('/articles/analytics', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'analytics'])->name('articles.analytics');
+    Route::get('/article/{article}/analytics', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'articleAnalytics'])->name('article.analytics');
     Route::post('/articles', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'index'])->name('articles.index');
     Route::get('/article/{article}', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'show'])->name('article.show');
     Route::post('/article/create', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'create'])->name('article.create');
@@ -286,6 +288,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::delete('/article/{id}/force', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'forceDelete'])->name('article.force-delete');
     Route::post('/article/{article}/toggle-publish', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'togglePublish'])->name('article.toggle-publish');
     Route::post('/article/uploadCover', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'uploadCover'])->name('article.upload-cover');
+    Route::post('/article/{article}/cover', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'storeCover'])->name('article.store-cover');
     Route::delete('/article/{article}/cover', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'removeCover'])->name('article.remove-cover');
     Route::post('/articles/bulk', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'bulkAction'])->name('articles.bulk');
 

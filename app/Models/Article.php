@@ -61,7 +61,9 @@ class Article extends Model implements Likeable
     protected static function booted(): void
     {
         static::saving(function (Article $article) {
-            $article->reading_time_minutes = self::calculateReadingTime($article->content ?? '');
+            if ($article->reading_time_minutes === null) {
+                $article->reading_time_minutes = self::calculateReadingTime($article->content ?? '');
+            }
 
             if ($article->publish && ! $article->published_at) {
                 $article->published_at = now();

@@ -227,7 +227,7 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.user.security',
             'api.admin.user.comments',
             'api.admin.user.courses',
-        ], $usersView);
+        ], array_merge($usersView, ['admin.search_user', 'articles.update.any', 'courses.assign_user', 'courses.assign_user.any']));
         $assign('api.admin.user.create', ['users.create']);
         $assign('api.admin.user.delete', ['users.delete']);
         $assign([
@@ -432,18 +432,25 @@ class RoutePermissionsSeeder extends Seeder
         $articlesUpdate = ['articles.update', 'articles.update.own', 'articles.update.any'];
         $articlesDelete = ['articles.delete', 'articles.delete.own', 'articles.delete.any'];
         $articlesPublish = ['articles.publish', 'articles.publish.any', 'articles.publish.own', 'articles.unpublish'];
+        $articlesStats = ['articles.stats.view', 'articles.list.any', 'articles.view.any'];
+        $articlesCategoriesManage = ['articles.categories.manage', 'articles.update.any'];
 
         $assign([
-            'api.admin.articles.stats',
             'api.admin.articles.index',
             'api.admin.article.show',
             'api.admin.article-categories.index',
         ], $articlesRead);
+        $assign([
+            'api.admin.articles.stats',
+            'api.admin.articles.analytics',
+            'api.admin.article.analytics',
+        ], $articlesStats);
         $assign('api.admin.article.create', $articlesCreate);
         $assign([
             'api.admin.article.update',
             'api.admin.article.restore',
             'api.admin.article.upload-cover',
+            'api.admin.article.store-cover',
             'api.admin.article.remove-cover',
         ], $articlesUpdate);
         $assign([
@@ -456,7 +463,7 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.article-category.create',
             'api.admin.article-category.update',
             'api.admin.article-category.delete',
-        ], $articlesWrite);
+        ], $articlesCategoriesManage);
 
         // Tags
         $tagsRead = ['tags.view'];

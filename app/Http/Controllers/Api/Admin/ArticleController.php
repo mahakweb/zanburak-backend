@@ -5,13 +5,21 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Article;
 use App\Models\ArticleCategory;
+use App\Models\Comment;
+use App\Models\Like;
+use App\Models\Rating;
 use App\Models\User;
 use App\Models\View;
 use App\Services\UploadTokenService;
+use App\Support\SqlDialect;
+use Carbon\Carbon;
+use Carbon\CarbonPeriod;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use LaravelInteraction\Bookmark\Bookmark;
 
 class ArticleController extends Controller
 {
@@ -28,7 +36,13 @@ class ArticleController extends Controller
         $query = Article::with([
             'user:id,first_name,last_name,username,profile_pic',
             'category:id,title,english_title,slug',
-        ])->withCount(['likes as likes_count', 'bookmarkers as bookmarks_count', 'views as views_count']);
+        ])->withCount([
+            'likes as likes_count' => fn ($q) => $q->where('type', 'like'),
+            'bookmarkers as bookmarks_count',
+            'comments as comments_count',
+            'views as views_count',
+            'ratings as ratings_count',
+        ])->withAvg('ratings as average_rating', 'rating');
 
         if ($trashed) {
             $query->onlyTrashed();
@@ -58,9 +72,36 @@ class ArticleController extends Controller
             $query->where('is_featured', filter_var($isFeatured, FILTER_VALIDATE_BOOLEAN));
         }
 
-        $articles = $query->orderByDesc('id')->paginate($perPage);
+        $sort = $request->input('sort', 'newest');
+        match ($sort) {
+            'oldest' => $query->orderBy('created_at')->orderBy('id'),
+            'updated' => $query->orderByDesc('updated_at')->orderByDesc('id'),
+            'most_views' => $query->orderByDesc('views_count')->orderByDesc('id'),
+            'most_likes' => $query->orderByDesc('likes_count')->orderByDesc('id'),
+            'most_bookmarks' => $query->orderByDesc('bookmarks_count')->orderByDesc('id'),
+            'most_comments' => $query->orderByDesc('comments_count')->orderByDesc('id'),
+            'most_rating' => $query
+                ->orderByDesc(
+                    Rating::query()
+                        ->selectRaw('coalesce(avg(rating), 0)')
+                        ->whereColumn('rateable_id', 'articles.id')
+                        ->where('rateable_type', Article::class)
+                )
+                ->orderByDesc(
+                    Rating::query()
+                        ->selectRaw('count(*)')
+                        ->whereColumn('rateable_id', 'articles.id')
+                        ->where('rateable_type', Article::class)
+                )
+                ->orderByDesc('id'),
+            default => $query->orderByDesc('created_at')->orderByDesc('id'),
+        };
+
+        $articles = $query->paginate($perPage);
 
         $articles->getCollection()->transform(function (Article $article) {
+            $views = $article->viewCount();
+
             return [
                 'id' => $article->id,
                 'title' => $article->title,
@@ -68,9 +109,12 @@ class ArticleController extends Controller
                 'excerpt' => $article->excerpt,
                 'cover_image' => $article->cover_image,
                 'reading_time_minutes' => $article->reading_time_minutes,
-                'views_count' => $article->viewCount(),
+                'views_count' => $views,
                 'likes_count' => $article->likes_count,
                 'bookmarks_count' => $article->bookmarks_count,
+                'comments_count' => $article->comments_count,
+                'average_rating' => round((float) ($article->average_rating ?? 0), 2),
+                'ratings_count' => (int) ($article->ratings_count ?? 0),
                 'publish' => $article->publish,
                 'status' => $article->status,
                 'is_featured' => $article->is_featured,
@@ -135,6 +179,7 @@ class ArticleController extends Controller
             'status' => 'nullable|in:draft,pending,published,archived',
             'is_featured' => 'nullable|boolean',
             'scheduled_at' => 'nullable|date',
+            'reading_time_minutes' => 'nullable|integer|min:1|max:999',
             'tags' => 'nullable|array|max:5',
             'tags.*' => 'string|max:30',
         ]);
@@ -163,6 +208,9 @@ class ArticleController extends Controller
             'status' => $status,
             'is_featured' => (bool) ($request->is_featured ?? false),
             'scheduled_at' => $request->scheduled_at,
+            'reading_time_minutes' => $request->filled('reading_time_minutes')
+                ? (int) $request->reading_time_minutes
+                : null,
             'published_at' => $publish ? now() : null,
         ]);
 
@@ -194,6 +242,7 @@ class ArticleController extends Controller
             'status' => 'nullable|in:draft,pending,published,archived',
             'is_featured' => 'nullable|boolean',
             'scheduled_at' => 'nullable|date',
+            'reading_time_minutes' => 'nullable|integer|min:1|max:999',
             'tags' => 'nullable|array|max:5',
             'tags.*' => 'string|max:30',
         ]);
@@ -205,13 +254,15 @@ class ArticleController extends Controller
         $fields = [
             'user_id', 'category_id', 'title', 'english_title', 'excerpt', 'content', 'cover_image',
             'meta_keywords', 'seo_title', 'seo_description', 'canonical_url', 'og_image',
-            'publish', 'status', 'is_featured', 'scheduled_at',
+            'publish', 'status', 'is_featured', 'scheduled_at', 'reading_time_minutes',
         ];
 
         $updateData = [];
         foreach ($fields as $field) {
             if ($request->has($field)) {
-                $updateData[$field] = $request->input($field);
+                $updateData[$field] = $field === 'reading_time_minutes'
+                    ? ($request->filled('reading_time_minutes') ? (int) $request->reading_time_minutes : null)
+                    : $request->input($field);
             }
         }
 
@@ -275,7 +326,7 @@ class ArticleController extends Controller
         $validator = Validator::make($request->all(), [
             'ids' => 'required|array|min:1',
             'ids.*' => 'integer|exists:articles,id',
-            'action' => 'required|in:publish,unpublish,delete,restore,archive,feature,unfeature',
+            'action' => 'required|in:publish,unpublish,delete,restore,archive,feature,unfeature,force_delete',
         ]);
 
         if ($validator->fails()) {
@@ -298,6 +349,12 @@ class ArticleController extends Controller
             'unfeature' => $count = Article::whereIn('id', $ids)->update(['is_featured' => false]),
             'delete' => $count = Article::whereIn('id', $ids)->delete(),
             'restore' => $count = Article::onlyTrashed()->whereIn('id', $ids)->restore(),
+            'force_delete' => $count = tap(Article::onlyTrashed()->whereIn('id', $ids)->get(), function ($articles) {
+                foreach ($articles as $article) {
+                    $article->detag();
+                    $article->forceDelete();
+                }
+            })->count(),
             default => null,
         };
 
@@ -306,6 +363,14 @@ class ArticleController extends Controller
 
     public function stats()
     {
+        $articleMorph = fn ($q, string $col) => $q->where(function ($inner) use ($col) {
+            $inner->where($col, Article::class)->orWhere($col, 'like', '%\\Article');
+        });
+
+        $totalLikes = Like::query()->where(fn ($q) => $articleMorph($q, 'likeable_type'))->where('type', 'like')->count();
+        $totalBookmarks = Bookmark::query()->where(fn ($q) => $articleMorph($q, 'bookmarkable_type'))->count();
+        $totalComments = Comment::query()->where(fn ($q) => $articleMorph($q, 'commentable_type'))->count();
+
         return response()->json([
             'message' => 'Success',
             'stats' => [
@@ -316,10 +381,334 @@ class ArticleController extends Controller
                 'archived' => Article::where('status', 'archived')->count(),
                 'trash' => Article::onlyTrashed()->count(),
                 'featured' => Article::where('is_featured', true)->where('publish', true)->count(),
-                'total_views' => (int) View::where('viewable_type', Article::class)->count(),
+                'total_views' => (int) View::query()->where(fn ($q) => $articleMorph($q, 'viewable_type'))->count(),
+                'total_likes' => $totalLikes,
+                'total_bookmarks' => $totalBookmarks,
+                'total_comments' => $totalComments,
                 'avg_reading_time' => round((float) Article::avg('reading_time_minutes'), 1),
+                'new_this_month' => Article::where('created_at', '>=', now()->startOfMonth())->count(),
             ],
         ]);
+    }
+
+    public function analytics(Request $request)
+    {
+        [$dateFrom, $dateTo, $periodDays, $previousFrom, $previousTo] = $this->resolveAnalyticsDateRange($request);
+
+        $articleMorph = fn ($q, string $col) => $q->where(function ($inner) use ($col) {
+            $inner->where($col, Article::class)->orWhere($col, 'like', '%\\Article');
+        });
+
+        $period = CarbonPeriod::create($dateFrom, $dateTo);
+
+        $viewsDaily = View::query()
+            ->where(fn ($q) => $articleMorph($q, 'viewable_type'))
+            ->whereDate('created_at', '>=', $dateFrom)
+            ->whereDate('created_at', '<=', $dateTo)
+            ->select(DB::raw(SqlDialect::date('created_at').' as date'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')
+            ->pluck('count', 'date');
+
+        $likesDaily = Like::query()
+            ->where(fn ($q) => $articleMorph($q, 'likeable_type'))
+            ->where('type', 'like')
+            ->whereDate('created_at', '>=', $dateFrom)
+            ->whereDate('created_at', '<=', $dateTo)
+            ->select(DB::raw(SqlDialect::date('created_at').' as date'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')
+            ->pluck('count', 'date');
+
+        $commentsDaily = Comment::query()
+            ->where(fn ($q) => $articleMorph($q, 'commentable_type'))
+            ->whereDate('created_at', '>=', $dateFrom)
+            ->whereDate('created_at', '<=', $dateTo)
+            ->select(DB::raw(SqlDialect::date('created_at').' as date'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')
+            ->pluck('count', 'date');
+
+        $bookmarksDaily = Bookmark::query()
+            ->where(fn ($q) => $articleMorph($q, 'bookmarkable_type'))
+            ->whereDate('created_at', '>=', $dateFrom)
+            ->whereDate('created_at', '<=', $dateTo)
+            ->select(DB::raw(SqlDialect::date('created_at').' as date'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')
+            ->pluck('count', 'date');
+
+        $articlesDaily = Article::query()
+            ->whereDate('created_at', '>=', $dateFrom)
+            ->whereDate('created_at', '<=', $dateTo)
+            ->select(DB::raw(SqlDialect::date('created_at').' as date'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')
+            ->pluck('count', 'date');
+
+        $dailyTrend = collect($period)->map(function ($date) use ($viewsDaily, $likesDaily, $commentsDaily, $bookmarksDaily, $articlesDaily) {
+            $key = $date->toDateString();
+
+            return [
+                'date' => $key,
+                'views' => (int) ($viewsDaily[$key] ?? 0),
+                'likes' => (int) ($likesDaily[$key] ?? 0),
+                'comments' => (int) ($commentsDaily[$key] ?? 0),
+                'bookmarks' => (int) ($bookmarksDaily[$key] ?? 0),
+                'new_articles' => (int) ($articlesDaily[$key] ?? 0),
+            ];
+        })->values();
+
+        $periodViews = (int) $dailyTrend->sum('views');
+        $periodLikes = (int) $dailyTrend->sum('likes');
+        $periodComments = (int) $dailyTrend->sum('comments');
+        $periodBookmarks = (int) $dailyTrend->sum('bookmarks');
+
+        $previousViews = View::query()
+            ->where(fn ($q) => $articleMorph($q, 'viewable_type'))
+            ->whereDate('created_at', '>=', $previousFrom)
+            ->whereDate('created_at', '<=', $previousTo)
+            ->count();
+
+        $previousLikes = Like::query()
+            ->where(fn ($q) => $articleMorph($q, 'likeable_type'))
+            ->where('type', 'like')
+            ->whereDate('created_at', '>=', $previousFrom)
+            ->whereDate('created_at', '<=', $previousTo)
+            ->count();
+
+        $statusDistribution = [
+            'labels' => ['منتشر شده', 'پیش‌نویس', 'در انتظار', 'بایگانی', 'سطل زباله'],
+            'data' => [
+                Article::where('publish', true)->where('status', 'published')->count(),
+                Article::where('status', 'draft')->count(),
+                Article::where('status', 'pending')->count(),
+                Article::where('status', 'archived')->count(),
+                Article::onlyTrashed()->count(),
+            ],
+            'colors' => ['#34d399', '#9ca3af', '#fbbf24', '#64748b', '#f87171'],
+        ];
+
+        $categoryDistribution = ArticleCategory::query()
+            ->withCount(['articles' => fn ($q) => $q->where('publish', true)])
+            ->orderByDesc('articles_count')
+            ->limit(10)
+            ->get()
+            ->pipe(fn ($cats) => [
+                'labels' => $cats->pluck('title')->all(),
+                'data' => $cats->pluck('articles_count')->map(fn ($c) => (int) $c)->all(),
+                'colors' => ['#fbbf24', '#60a5fa', '#34d399', '#a78bfa', '#f472b6', '#fb923c', '#22d3ee', '#818cf8', '#4ade80', '#e879f9'],
+            ]);
+
+        $engagementMix = [
+            'labels' => ['بازدید', 'لایک', 'نظر', 'بوکمارک'],
+            'data' => [$periodViews, $periodLikes, $periodComments, $periodBookmarks],
+            'colors' => ['#60a5fa', '#f472b6', '#22d3ee', '#a78bfa'],
+        ];
+
+        $formatTopArticles = function (string $orderColumn, int $limit = 10) {
+            $query = Article::query()
+                ->with(['category:id,title', 'user:id,first_name,last_name,username'])
+                ->withCount([
+                    'likes as likes_count' => fn ($q) => $q->where('type', 'like'),
+                    'bookmarkers as bookmarks_count',
+                    'comments as comments_count',
+                    'views as views_count',
+                ])
+                ->whereNull('deleted_at');
+
+            if ($orderColumn === 'engagement_score') {
+                return $query->get()
+                    ->sortByDesc(fn (Article $a) => $a->viewCount() > 0
+                        ? (($a->likes_count + $a->comments_count) / $a->viewCount()) * 100
+                        : 0)
+                    ->take($limit)
+                    ->values()
+                    ->map(fn (Article $a) => $this->formatTopArticleRow($a))
+                    ->values();
+            }
+
+            return $query->orderByDesc($orderColumn)
+                ->limit($limit)
+                ->get()
+                ->map(fn (Article $a) => $this->formatTopArticleRow($a))
+                ->values();
+        };
+
+        $hourlyViews = View::query()
+            ->where(fn ($q) => $articleMorph($q, 'viewable_type'))
+            ->whereDate('created_at', '>=', $dateFrom)
+            ->whereDate('created_at', '<=', $dateTo)
+            ->select(DB::raw(SqlDialect::hour('created_at').' as hour'), DB::raw('COUNT(*) as count'))
+            ->groupBy('hour')
+            ->orderBy('hour')
+            ->pluck('count', 'hour');
+
+        $hourlyChart = collect(range(0, 23))->map(fn ($h) => [
+            'hour' => $h,
+            'label' => sprintf('%02d:00', $h),
+            'count' => (int) ($hourlyViews[$h] ?? 0),
+        ])->values();
+
+        return response()->json([
+            'message' => 'Success',
+            'analytics' => [
+                'period' => [
+                    'from' => $dateFrom,
+                    'to' => $dateTo,
+                    'days' => $periodDays,
+                ],
+                'summary' => [
+                    'views' => $periodViews,
+                    'likes' => $periodLikes,
+                    'comments' => $periodComments,
+                    'bookmarks' => $periodBookmarks,
+                    'new_articles' => (int) $dailyTrend->sum('new_articles'),
+                ],
+                'trends' => [
+                    'views' => $this->compareMetric($periodViews, $previousViews),
+                    'likes' => $this->compareMetric($periodLikes, $previousLikes),
+                ],
+                'daily_trend' => $dailyTrend,
+                'status_distribution' => $statusDistribution,
+                'category_distribution' => $categoryDistribution,
+                'engagement_mix' => $engagementMix,
+                'hourly_views' => $hourlyChart,
+                'top_by_views' => $formatTopArticles('views_count'),
+                'top_by_likes' => $formatTopArticles('likes_count'),
+                'top_by_bookmarks' => $formatTopArticles('bookmarks_count'),
+                'top_by_comments' => $formatTopArticles('comments_count'),
+                'top_by_engagement' => $formatTopArticles('engagement_score'),
+            ],
+        ]);
+    }
+
+    private function formatTopArticleRow(Article $a): array
+    {
+        $views = $a->viewCount();
+
+        return [
+            'id' => $a->id,
+            'title' => $a->title,
+            'slug' => $a->slug,
+            'category' => $a->category?->title,
+            'user' => $a->user ? $a->user->first_name.' '.$a->user->last_name : null,
+            'views_count' => $views,
+            'likes_count' => (int) $a->likes_count,
+            'bookmarks_count' => (int) $a->bookmarks_count,
+            'comments_count' => (int) $a->comments_count,
+            'engagement_score' => $views > 0
+                ? round((($a->likes_count + $a->comments_count) / $views) * 100, 2)
+                : 0,
+        ];
+    }
+
+    public function articleAnalytics(Article $article, Request $request)
+    {
+        [$dateFrom, $dateTo] = array_slice($this->resolveAnalyticsDateRange($request), 0, 2);
+        $period = CarbonPeriod::create($dateFrom, $dateTo);
+
+        $article->loadCount([
+            'likes as likes_count' => fn ($q) => $q->where('type', 'like'),
+            'bookmarkers as bookmarks_count',
+            'comments as comments_count',
+            'views as views_count',
+        ]);
+
+        $viewsDaily = $article->views()
+            ->whereDate('created_at', '>=', $dateFrom)
+            ->whereDate('created_at', '<=', $dateTo)
+            ->select(DB::raw(SqlDialect::date('created_at').' as date'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')
+            ->pluck('count', 'date');
+
+        $likesDaily = $article->likes()
+            ->where('type', 'like')
+            ->whereDate('created_at', '>=', $dateFrom)
+            ->whereDate('created_at', '<=', $dateTo)
+            ->select(DB::raw(SqlDialect::date('created_at').' as date'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')
+            ->pluck('count', 'date');
+
+        $commentsDaily = $article->comments()
+            ->whereDate('created_at', '>=', $dateFrom)
+            ->whereDate('created_at', '<=', $dateTo)
+            ->select(DB::raw(SqlDialect::date('created_at').' as date'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')
+            ->pluck('count', 'date');
+
+        $bookmarksDaily = Bookmark::query()
+            ->where('bookmarkable_type', Article::class)
+            ->where('bookmarkable_id', $article->id)
+            ->whereDate('created_at', '>=', $dateFrom)
+            ->whereDate('created_at', '<=', $dateTo)
+            ->select(DB::raw(SqlDialect::date('created_at').' as date'), DB::raw('COUNT(*) as count'))
+            ->groupBy('date')
+            ->pluck('count', 'date');
+
+        $dailyTrend = collect($period)->map(function ($date) use ($viewsDaily, $likesDaily, $commentsDaily, $bookmarksDaily) {
+            $key = $date->toDateString();
+
+            return [
+                'date' => $key,
+                'views' => (int) ($viewsDaily[$key] ?? 0),
+                'likes' => (int) ($likesDaily[$key] ?? 0),
+                'comments' => (int) ($commentsDaily[$key] ?? 0),
+                'bookmarks' => (int) ($bookmarksDaily[$key] ?? 0),
+            ];
+        })->values();
+
+        $views = $article->viewCount();
+        $likes = (int) $article->likes_count;
+        $comments = (int) $article->comments_count;
+        $bookmarks = (int) $article->bookmarks_count;
+
+        return response()->json([
+            'message' => 'Success',
+            'analytics' => [
+                'totals' => [
+                    'views' => $views,
+                    'likes' => $likes,
+                    'comments' => $comments,
+                    'bookmarks' => $bookmarks,
+                    'likes_per_100_views' => $views > 0 ? round(($likes / $views) * 100, 2) : 0,
+                    'comments_per_100_views' => $views > 0 ? round(($comments / $views) * 100, 2) : 0,
+                    'bookmarks_per_100_views' => $views > 0 ? round(($bookmarks / $views) * 100, 2) : 0,
+                ],
+                'engagement_mix' => [
+                    'labels' => ['بازدید', 'لایک', 'نظر', 'بوکمارک'],
+                    'data' => [$views, $likes, $comments, $bookmarks],
+                    'colors' => ['#60a5fa', '#f472b6', '#22d3ee', '#a78bfa'],
+                ],
+                'daily_trend' => $dailyTrend,
+                'period' => ['from' => $dateFrom, 'to' => $dateTo],
+            ],
+        ]);
+    }
+
+    private function resolveAnalyticsDateRange(Request $request): array
+    {
+        $dateFrom = $request->input('date_from', now()->subDays(29)->toDateString());
+        $dateTo = $request->input('date_to', now()->toDateString());
+
+        if ($dateFrom > $dateTo) {
+            [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
+        }
+
+        $periodDays = max(1, (int) Carbon::parse($dateFrom)->diffInDays(Carbon::parse($dateTo)) + 1);
+        $previousFrom = Carbon::parse($dateFrom)->subDays($periodDays)->toDateString();
+        $previousTo = Carbon::parse($dateFrom)->subDay()->toDateString();
+
+        return [$dateFrom, $dateTo, $periodDays, $previousFrom, $previousTo];
+    }
+
+    private function compareMetric(int $current, int $previous): array
+    {
+        $changePercent = $previous > 0
+            ? round((($current - $previous) / $previous) * 100, 1)
+            : ($current > 0 ? 100 : 0);
+
+        return [
+            'current' => $current,
+            'previous' => $previous,
+            'change' => $current - $previous,
+            'change_percent' => $changePercent,
+        ];
     }
 
     public function uploadCover(Request $request)
@@ -374,6 +763,43 @@ class ArticleController extends Controller
         }
 
         return response()->json(['message' => 'Cover removed successfully'], 200);
+    }
+
+    public function storeCover(Request $request, Article $article)
+    {
+        $validator = Validator::make($request->all(), [
+            'file' => ['required', 'file', 'mimes:jpeg,png,webp,gif', 'max:5120'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation error', 'errors' => $validator->errors()], 422);
+        }
+
+        if ($article->cover_image) {
+            $details = $this->urlDetails($article->cover_image);
+            if ($details && $details['disk'] && $details['path'] && Storage::disk($details['disk'])->exists($details['path'])) {
+                Storage::disk($details['disk'])->delete($details['path']);
+            }
+        }
+
+        $disk = 'static';
+        $folder = 'cover/article/'.date('Y/m/d');
+        $file = $request->file('file');
+        $ext = $file->getClientOriginalExtension() ?: 'jpg';
+        $filePath = "{$folder}/".Str::uuid()->toString().".{$ext}";
+
+        Storage::disk($disk)->putFileAs($folder, $file, basename($filePath));
+
+        $diskUrl = rtrim(config("filesystems.disks.{$disk}.url"), '/');
+        $url = "{$diskUrl}/{$filePath}";
+
+        $article->cover_image = $url;
+        $article->save();
+
+        return response()->json([
+            'message' => 'Cover uploaded successfully',
+            'cover_image' => $url,
+        ], 200);
     }
 
     private function urlDetails(?string $url): ?array

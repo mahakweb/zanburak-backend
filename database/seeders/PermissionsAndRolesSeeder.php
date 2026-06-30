@@ -263,6 +263,8 @@ class PermissionsAndRolesSeeder extends Seeder
             ['name' => 'articles.delete.any', 'label' => 'حذف هر مقاله‌ای', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'articles.publish.own', 'label' => 'انتشار/عدم انتشار مقالات خود', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'articles.publish.any', 'label' => 'انتشار/عدم انتشار هر مقاله‌ای', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'articles.stats.view', 'label' => 'مشاهده آمار مقالات', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'articles.categories.manage', 'label' => 'مدیریت دسته‌بندی مقالات', 'created_at' => $now, 'updated_at' => $now],
 
             // Payments
             ['name' => 'payments.view', 'label' => 'مشاهده پرداخت‌ها', 'created_at' => $now, 'updated_at' => $now],
@@ -519,6 +521,7 @@ class PermissionsAndRolesSeeder extends Seeder
 
             'content_admin' => [
                 'articles.*',
+                'admin.search_user',
                 'categories.*',
                 'uploads.image.editor',
             ],
@@ -766,15 +769,20 @@ class PermissionsAndRolesSeeder extends Seeder
                 'articles.list.any',
                 'articles.overview.view',
                 'articles.comments.view',
+                'articles.stats.view',
             ],
 
-            'article_manager_all' => ['articles.*'],
+            'article_manager_all' => ['articles.*', 'admin.search_user'],
 
             'article_manager_own' => [
+                'articles.view',
                 'articles.view.own',
+                'articles.list',
+                'articles.create',
                 'articles.update.own',
                 'articles.delete.own',
                 'articles.publish.own',
+                'uploads.image.editor',
             ],
 
             'file_manager' => [

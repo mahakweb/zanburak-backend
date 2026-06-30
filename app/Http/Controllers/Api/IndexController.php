@@ -301,11 +301,11 @@ class IndexController extends Controller
     {
 
         $validData = Validator::make($request->all(), [
-            'image' => ['required', 'mimetypes:image/png,image/jpg,image/jpeg,image/gif', 'max:5120'],
+            'image' => ['required', 'mimetypes:image/png,image/jpg,image/jpeg,image/gif,image/webp', 'max:5120'],
         ], [
             'image.required' => 'ابتدا فایل مورد نظر را انتخاب کنید',
             'image.max' => 'حداکثر سایز تصویر 5 مگابایت میباشد',
-            'image.mimetypes' => 'تصویر مورد نظر باید یکی از فرمت‌های: png, jpg, jpeg, gif باشد',
+            'image.mimetypes' => 'تصویر مورد نظر باید یکی از فرمت‌های: png, jpg, jpeg, gif, webp باشد',
         ]);
 
         if (!$validData->passes()) {
@@ -315,6 +315,61 @@ class IndexController extends Controller
             $path = Storage::disk('static')->put('/editor/' . now()->year . '/' . now()->month . '/' . now()->day, $request->image);
             return response()->json(['message' => 'Success, data has been successfully saved', 'path' => $storagePath . $path]);
         }
+    }
+
+    public function editorUploadFile(Request $request)
+    {
+        $user = auth('api')->user();
+        if (!$user || !$user->is_staff) {
+            return response()->json(['message' => 'Forbidden', 'errors' => ['file' => ['دسترسی مجاز نیست']]], 403);
+        }
+
+        $validData = Validator::make($request->all(), [
+            'file' => [
+                'required',
+                'file',
+                'max:20480',
+                'mimes:pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,zip,rar,7z,tar,gz,json,xml,md,rtf,odt,ods,odp',
+            ],
+        ], [
+            'file.required' => 'ابتدا فایل مورد نظر را انتخاب کنید',
+            'file.max' => 'حداکثر سایز فایل ۲۰ مگابایت میباشد',
+            'file.mimes' => 'فرمت فایل مجاز نیست',
+        ]);
+
+        if (!$validData->passes()) {
+            return response()->json(['message' => 'Error', 'errors' => $validData->errors()->toArray()], 422);
+        }
+
+        $storagePath = Storage::disk('static')->url('');
+        $path = Storage::disk('static')->put('/editor/' . now()->year . '/' . now()->month . '/' . now()->day, $request->file('file'));
+
+        return response()->json(['message' => 'Success, data has been successfully saved', 'path' => $storagePath . $path]);
+    }
+
+    public function editorUploadVideo(Request $request)
+    {
+        $user = auth('api')->user();
+        if (!$user || !$user->is_staff) {
+            return response()->json(['message' => 'Forbidden', 'errors' => ['video' => ['دسترسی مجاز نیست']]], 403);
+        }
+
+        $validData = Validator::make($request->all(), [
+            'video' => ['required', 'file', 'max:102400', 'mimes:mp4,webm,mov,avi,mkv,ogv'],
+        ], [
+            'video.required' => 'ابتدا ویدیو مورد نظر را انتخاب کنید',
+            'video.max' => 'حداکثر سایز ویدیو ۱۰۰ مگابایت میباشد',
+            'video.mimes' => 'ویدیو باید یکی از فرمت‌های mp4, webm, mov باشد',
+        ]);
+
+        if (!$validData->passes()) {
+            return response()->json(['message' => 'Error', 'errors' => $validData->errors()->toArray()], 422);
+        }
+
+        $storagePath = Storage::disk('static')->url('');
+        $path = Storage::disk('static')->put('/editor/' . now()->year . '/' . now()->month . '/' . now()->day, $request->file('video'));
+
+        return response()->json(['message' => 'Success, data has been successfully saved', 'path' => $storagePath . $path]);
     }
 
 
