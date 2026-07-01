@@ -103,6 +103,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/path/uploadTrailer', [\App\Http\Controllers\Api\Admin\PathController::class, 'uploadTrailer'])->name('path.upload-trailer');
 
     // Users
+    Route::get('/users/stats', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'stats'])->name('users.stats');
     Route::post('/users', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'users'])->name('users');
     Route::post('/searchUser', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'searchUser'])->name('user.search');
     Route::post('/user/create', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'create'])->name('user.create');
@@ -191,6 +192,8 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
 
     // Admin Comments
     Route::post('/comments', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'index'])->name('comments.index');
+    Route::get('/comments/stats', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'stats'])->name('comments.stats');
+    Route::post('/comments/bulk', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'bulkAction'])->name('comments.bulk');
     Route::post('/comments/toggle-approval', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'toggleApproval'])->name('comments.toggle-approval');
     Route::post('/comments/send-reply', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'sendReply'])->name('comments.send-reply');
     Route::post('/comments/update', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'update'])->name('comments.update');
@@ -266,14 +269,17 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::delete('/discuss/answer/{answer}', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'deleteAnswer'])->name('discuss.answer.delete');
     Route::post('/discuss/answer/{answer}/toggle-pin', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'togglePinAnswer'])->name('discuss.answer.toggle-pin');
     Route::post('/discuss/answer/{answer}/toggle-publish', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'togglePublishAnswer'])->name('discuss.answer.toggle-publish');
+    Route::post('/discuss/questions/bulk', [\App\Http\Controllers\Api\Admin\DiscussController::class, 'bulkAction'])->name('discuss.questions.bulk');
 
     // Question Categories
     Route::post('/question-categories', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'index'])->name('question-categories.index');
     Route::get('/question-categories/tree', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'tree'])->name('question-categories.tree');
     Route::get('/question-category/{category}', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'show'])->name('question-category.show');
+    Route::get('/question-category/{category}/questions', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'questions'])->name('question-category.questions');
     Route::post('/question-category/create', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'create'])->name('question-category.create');
     Route::post('/question-category/{category}/update', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'update'])->name('question-category.update');
     Route::delete('/question-category/{category}', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'delete'])->name('question-category.delete');
+    Route::post('/question-categories/bulk', [\App\Http\Controllers\Api\Admin\QuestionCategoryController::class, 'bulkAction'])->name('question-categories.bulk');
 
     // Articles
     Route::get('/articles/stats', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'stats'])->name('articles.stats');
@@ -294,9 +300,11 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
 
     // Article Categories
     Route::post('/article-categories', [\App\Http\Controllers\Api\Admin\ArticleCategoryController::class, 'index'])->name('article-categories.index');
+    Route::get('/article-category/{category}/articles', [\App\Http\Controllers\Api\Admin\ArticleCategoryController::class, 'articles'])->name('article-category.articles');
     Route::post('/article-category/create', [\App\Http\Controllers\Api\Admin\ArticleCategoryController::class, 'create'])->name('article-category.create');
     Route::post('/article-category/{category}/update', [\App\Http\Controllers\Api\Admin\ArticleCategoryController::class, 'update'])->name('article-category.update');
     Route::delete('/article-category/{category}', [\App\Http\Controllers\Api\Admin\ArticleCategoryController::class, 'delete'])->name('article-category.delete');
+    Route::post('/article-categories/bulk', [\App\Http\Controllers\Api\Admin\ArticleCategoryController::class, 'bulkAction'])->name('article-categories.bulk');
 
     // Tags
     Route::get('/tags/stats', [\App\Http\Controllers\Api\Admin\TagController::class, 'stats'])->name('tags.stats');
@@ -310,6 +318,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::delete('/tag/{tag:tag_id}', [\App\Http\Controllers\Api\Admin\TagController::class, 'delete'])->name('tag.delete');
     Route::post('/tag/{tag:tag_id}/questions', [\App\Http\Controllers\Api\Admin\TagController::class, 'questions'])->name('tag.questions');
     Route::post('/tag/{tag:tag_id}/courses', [\App\Http\Controllers\Api\Admin\TagController::class, 'courses'])->name('tag.courses');
+    Route::post('/tag/{tag:tag_id}/articles', [\App\Http\Controllers\Api\Admin\TagController::class, 'articles'])->name('tag.articles');
     Route::post('/tag/{tag:tag_id}/followers', [\App\Http\Controllers\Api\Admin\TagController::class, 'followers'])->name('tag.followers');
     Route::get('/tag/{tag:tag_id}/analytics', [\App\Http\Controllers\Api\Admin\TagController::class, 'analytics'])->name('tag.analytics');
 

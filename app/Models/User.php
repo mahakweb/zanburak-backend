@@ -161,8 +161,24 @@ class User extends Authenticatable implements MustVerifyEmail
     {
         return match ($value) {
             'oldest' => $query->orderBy('created_at', 'asc'),
-            'newest' => $query->orderBy('created_at', 'desc'),
+            'name' => $query->orderBy('first_name')->orderBy('last_name'),
+            'last_seen' => $query->orderByDesc('last_seen'),
             default => $query->orderBy('created_at', 'desc'),
+        };
+    }
+
+    public function scopeVerified($query, $verified)
+    {
+        if (empty($verified) || $verified === 'all') {
+            return $query;
+        }
+
+        return match ($verified) {
+            'email_verified' => $query->whereNotNull('email_verified_at'),
+            'email_unverified' => $query->whereNull('email_verified_at'),
+            'mobile_verified' => $query->whereNotNull('mobile_verified_at'),
+            'mobile_unverified' => $query->whereNotNull('mobile')->whereNull('mobile_verified_at'),
+            default => $query,
         };
     }
 

@@ -57,14 +57,60 @@ class UserController extends Controller
         ], 200);
     }
 
+    public function stats()
+    {
+        $vipCondition = fn ($q) => $q->where('expired_at', '>', now());
+
+        $activeCount = User::query()
+            ->where('active', 1)
+            ->where(function ($q) {
+                $q->whereNull('deactivated_until')->orWhere('deactivated_until', '<=', now());
+            })
+            ->count();
+
+        $inactiveCount = User::query()
+            ->where(function ($q) {
+                $q->where('active', 0)->orWhere('deactivated_until', '>', now());
+            })
+            ->count();
+
+        return response()->json([
+            'message' => 'Success',
+            'stats' => [
+                'total_users' => User::count(),
+                'active_users' => $activeCount,
+                'inactive_users' => $inactiveCount,
+                'vip_users' => User::whereHas('plans', $vipCondition)->count(),
+                'staff_users' => User::where('is_staff', 1)->orWhere('is_superuser', 1)->count(),
+                'email_unverified' => User::whereNull('email_verified_at')->count(),
+                'created_today' => User::whereDate('created_at', today())->count(),
+                'created_this_month' => User::where('created_at', '>=', now()->startOfMonth())->count(),
+                'recent_users' => User::query()
+                    ->orderByDesc('created_at')
+                    ->take(5)
+                    ->get(['id', 'first_name', 'last_name', 'username', 'profile_pic', 'created_at'])
+                    ->map(fn (User $u) => [
+                        'id' => $u->id,
+                        'first_name' => $u->first_name,
+                        'last_name' => $u->last_name,
+                        'username' => $u->username,
+                        'profile_pic' => $u->profile_pic,
+                        'created_at' => $u->created_at,
+                    ]),
+            ],
+        ]);
+    }
+
     public function users(Request $request)
     {
         $query = User::query()
-            ->status($request->input('status'))                // all | active | inactive
+            ->withCount('courses')
+            ->status($request->input('status'))
             ->role($request->input('role'))
-            ->subscription($request->input('subscription'))    // all | vip | normal
+            ->subscription($request->input('subscription'))
+            ->verified($request->input('verified'))
             ->search($request->input('search'))
-            ->sort($request->input('sort', 'newest'));        // newest | oldest
+            ->sort($request->input('sort', 'newest'));
 
         $perPage = (int) $request->input('perPage', 10);
         $users = $query->paginate($perPage);
@@ -84,7 +130,11 @@ class UserController extends Controller
 
                 'subscription' => $user->hasVip() ? 'vip' : 'normal',
                 'active_plan' => $user->activeVipPlan() ? $user->activeVipPlan() : null,
-
+                'mobile' => $user->mobile,
+                'email_verified' => (bool) $user->email_verified_at,
+                'mobile_verified' => (bool) $user->mobile_verified_at,
+                'last_seen' => $user->last_seen,
+                'courses_count' => $user->courses_count ?? 0,
                 'created_at' => $user->created_at,
                 'updated_at' => $user->updated_at,
             ];
@@ -110,8 +160,23 @@ class UserController extends Controller
             return response()->json(['message' => 'Error: Not found'], 404);
         }
         $loginUser = auth('api')->user();
-        $user = $username->only('id', 'first_name', 'last_name', 'username', 'profile_pic', 'cover_pic', 'last_seen');
-        $user['info'] = $username->info->only('job', 'website', 'github', 'twitter', 'linkedin', 'telegram', 'instagram');
+        $activePlan = $username->activeVipPlan();
+        $user = $username->only('id', 'first_name', 'last_name', 'username', 'profile_pic', 'cover_pic', 'last_seen', 'email', 'email_verified_at', 'mobile', 'mobile_verified_at', 'active', 'deactivated_until', 'created_at', 'is_superuser', 'is_staff');
+        $user['info'] = $username->info->only('job', 'about', 'website', 'github', 'twitter', 'linkedin', 'telegram', 'instagram');
+        $user['subscription'] = $activePlan ? 'vip' : 'normal';
+        $user['active_plan'] = $activePlan ? [
+            'title' => $activePlan->title,
+            'expired_at' => optional($activePlan->pivot)->expired_at,
+        ] : null;
+        $user['stats'] = [
+            'courses_count' => $username->courses()->count(),
+            'comments_count' => $username->comments()->count(),
+            'providers_count' => $username->providers()->count(),
+            'roles_count' => $username->roles()->count(),
+            'permissions_count' => $username->permissions()->count(),
+            'wallet_balance' => (int) $username->wallet_balance,
+            'payments_count' => $username->payments()->where('status', 1)->count(),
+        ];
         return response()->json(['message' => 'Success', 'user' => $user]);
     }
 

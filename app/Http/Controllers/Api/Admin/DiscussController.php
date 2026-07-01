@@ -467,5 +467,48 @@ class DiscussController extends Controller
             'publish' => $answer->publish,
         ], 200);
     }
+
+    public function bulkAction(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:questions,id',
+            'action' => 'required|in:publish,unpublish,delete',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation error',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $ids = $request->input('ids');
+        $action = $request->input('action');
+        $questions = Question::whereIn('id', $ids)->get();
+        $affected = 0;
+
+        foreach ($questions as $question) {
+            if ($action === 'delete') {
+                $question->detag();
+                $question->answers()->delete();
+                $question->delete();
+                $affected++;
+            } elseif ($action === 'publish' && ! $question->publish) {
+                $question->publish = true;
+                $question->save();
+                $affected++;
+            } elseif ($action === 'unpublish' && $question->publish) {
+                $question->publish = false;
+                $question->save();
+                $affected++;
+            }
+        }
+
+        return response()->json([
+            'message' => 'Bulk action completed',
+            'affected' => $affected,
+        ]);
+    }
 }
 

@@ -15,12 +15,13 @@ class CommentController extends Controller
      */
     public function index(Request $request)
     {
-        $filter = $request->input('filter', 'all'); // all | course | episode | path
+        $filter = $request->input('filter', 'all'); // all | course | episode | path | article
         $commentable_type = match ($filter) {
             'course' => \App\Models\Course::class,
             'episode' => \App\Models\Episode::class,
             'path' => \App\Models\Path::class,
-            default => null, // 'all' or any other value means show all types
+            'article' => \App\Models\Article::class,
+            default => null,
         };
 
         $sort = $request->input('sort', 'newest'); // newest | oldest
@@ -305,16 +306,8 @@ class CommentController extends Controller
         $comment->save();
 
         // ارسال اطلاع‌رسانی در صورت تایید کامنت
-        if ($comment->approved && !$wasApproved && $comment->user) {
-            $commentableTitle = $this->getCommentableTitle($comment);
-            $commentableUrl = $this->getCommentableUrl($comment);
-            
-            event(new \App\Events\Comment\CommentApproved($comment, $commentableTitle, $commentableUrl));
-            
-            // Fire Mission Community Activity Event (when comment is approved)
-            if ($comment->user) {
-                event(new \App\Events\Mission\CommunityActivityEvent($comment->user, 'comment', $comment));
-            }
+        if ($comment->approved && ! $wasApproved) {
+            $this->notifyCommentApproved($comment);
         }
 
         $response = [
@@ -327,6 +320,73 @@ class CommentController extends Controller
         ];
 
         return response()->json(['message' => 'Success, comment updated successfully', 'comment' => $response], 200);
+    }
+
+    public function bulkAction(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'integer|exists:comments,id',
+            'action' => 'required|in:approve,unapprove,delete',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation error',
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $ids = $request->input('ids');
+        $action = $request->input('action');
+        $comments = Comment::whereIn('id', $ids)->get();
+        $affected = 0;
+
+        if ($action === 'delete') {
+            foreach ($comments as $comment) {
+                $comment->descendants(null)->each(fn (Comment $child) => $child->delete());
+                $comment->delete();
+                $affected++;
+            }
+
+            return response()->json([
+                'message' => 'Bulk action completed',
+                'affected' => $affected,
+            ]);
+        }
+
+        foreach ($comments as $comment) {
+            $wasApproved = (bool) $comment->approved;
+
+            if ($action === 'approve' && ! $wasApproved) {
+                $comment->approved = true;
+                $comment->save();
+                $this->notifyCommentApproved($comment);
+                $affected++;
+            } elseif ($action === 'unapprove' && $wasApproved) {
+                $comment->approved = false;
+                $comment->save();
+                $affected++;
+            }
+        }
+
+        return response()->json([
+            'message' => 'Bulk action completed',
+            'affected' => $affected,
+        ]);
+    }
+
+    private function notifyCommentApproved(Comment $comment): void
+    {
+        if (! $comment->user) {
+            return;
+        }
+
+        $commentableTitle = $this->getCommentableTitle($comment);
+        $commentableUrl = $this->getCommentableUrl($comment);
+
+        event(new \App\Events\Comment\CommentApproved($comment, $commentableTitle, $commentableUrl));
+        event(new \App\Events\Mission\CommunityActivityEvent($comment->user, 'comment', $comment));
     }
 
     private function getCommentableTitle($comment)
@@ -550,5 +610,28 @@ class CommentController extends Controller
         return response()->json([
             'message' => 'Success, comment deleted successfully'
         ], 200);
+    }
+
+    public function stats()
+    {
+        $today = now()->startOfDay();
+
+        return response()->json([
+            'message' => 'Success',
+            'stats' => [
+                'total' => Comment::count(),
+                'pending' => Comment::where('approved', false)->where('parent_id', 0)->count(),
+                'approved' => Comment::where('approved', true)->count(),
+                'replies' => Comment::where('parent_id', '>', 0)->count(),
+                'today' => Comment::where('created_at', '>=', $today)->count(),
+                'this_week' => Comment::where('created_at', '>=', now()->startOfWeek())->count(),
+                'by_type' => [
+                    'course' => Comment::where('commentable_type', \App\Models\Course::class)->count(),
+                    'episode' => Comment::where('commentable_type', \App\Models\Episode::class)->count(),
+                    'path' => Comment::where('commentable_type', \App\Models\Path::class)->count(),
+                    'article' => Comment::where('commentable_type', \App\Models\Article::class)->count(),
+                ],
+            ],
+        ]);
     }
 }

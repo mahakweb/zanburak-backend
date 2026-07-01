@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Article;
 use App\Models\Course;
 use App\Models\Question;
 use App\Models\User;
@@ -20,7 +21,8 @@ class TagController extends Controller
         $totalTags = Tag::count();
         $tagsWithQuestions = Tag::whereHas('questions')->count();
         $tagsWithCourses = Tag::whereHas('courses')->count();
-        $emptyTags = Tag::whereDoesntHave('questions')->whereDoesntHave('courses')->count();
+        $tagsWithArticles = Tag::whereHas('articles')->count();
+        $emptyTags = Tag::whereDoesntHave('questions')->whereDoesntHave('courses')->whereDoesntHave('articles')->count();
         $totalFollowers = DB::table('followables')
             ->where('followable_type', Tag::class)
             ->count();
@@ -48,6 +50,13 @@ class TagController extends Controller
             ->get()
             ->map(fn (Tag $tag) => $this->compactTag($tag));
 
+        $topByArticles = Tag::query()
+            ->withCount(['articles as articles_count' => fn ($q) => $q->where('publish', 1)])
+            ->orderByDesc('articles_count')
+            ->take(8)
+            ->get()
+            ->map(fn (Tag $tag) => $this->compactTag($tag));
+
         $recentTags = Tag::query()
             ->orderByDesc('created_at')
             ->take(6)
@@ -60,12 +69,14 @@ class TagController extends Controller
                 'total_tags' => $totalTags,
                 'tags_with_questions' => $tagsWithQuestions,
                 'tags_with_courses' => $tagsWithCourses,
+                'tags_with_articles' => $tagsWithArticles,
                 'empty_tags' => $emptyTags,
                 'total_followers' => $totalFollowers,
                 'created_this_month' => $createdThisMonth,
                 'created_today' => $createdToday,
                 'top_by_questions' => $topByQuestions,
                 'top_by_courses' => $topByCourses,
+                'top_by_articles' => $topByArticles,
                 'top_by_followers' => $topByFollowers,
                 'recent_tags' => $recentTags,
             ], $this->globalAnalytics()),
@@ -77,10 +88,18 @@ class TagController extends Controller
         $pivotTable = config('taggable.tables.taggable_taggables', 'taggable_taggables');
         $since = now()->subDays(29)->startOfDay();
 
-        $onlyQuestions = Tag::whereHas('questions')->whereDoesntHave('courses')->count();
-        $onlyCourses = Tag::whereHas('courses')->whereDoesntHave('questions')->count();
-        $both = Tag::whereHas('questions')->whereHas('courses')->count();
-        $empty = Tag::whereDoesntHave('questions')->whereDoesntHave('courses')->count();
+        $onlyQuestions = Tag::whereHas('questions')->whereDoesntHave('courses')->whereDoesntHave('articles')->count();
+        $onlyCourses = Tag::whereHas('courses')->whereDoesntHave('questions')->whereDoesntHave('articles')->count();
+        $onlyArticles = Tag::whereHas('articles')->whereDoesntHave('questions')->whereDoesntHave('courses')->count();
+        $mixed = Tag::query()
+            ->where(function ($q) {
+                $q->where(fn ($q2) => $q2->whereHas('questions')->whereHas('courses'))
+                    ->orWhere(fn ($q2) => $q2->whereHas('questions')->whereHas('articles'))
+                    ->orWhere(fn ($q2) => $q2->whereHas('courses')->whereHas('articles'))
+                    ->orWhere(fn ($q2) => $q2->whereHas('questions')->whereHas('courses')->whereHas('articles'));
+            })
+            ->count();
+        $empty = Tag::whereDoesntHave('questions')->whereDoesntHave('courses')->whereDoesntHave('articles')->count();
         $withFollowers = Tag::whereHas('followers')->count();
 
         $totalQuestionLinks = DB::table($pivotTable)
@@ -88,6 +107,9 @@ class TagController extends Controller
             ->count();
         $totalCourseLinks = DB::table($pivotTable)
             ->where('taggable_type', Course::class)
+            ->count();
+        $totalArticleLinks = DB::table($pivotTable)
+            ->where('taggable_type', Article::class)
             ->count();
         $totalFollowers = DB::table('followables')
             ->where('followable_type', Tag::class)
@@ -113,6 +135,13 @@ class TagController extends Controller
             ->groupBy('date')
             ->pluck('count', 'date');
 
+        $articleLinks = DB::table($pivotTable)
+            ->where('taggable_type', Article::class)
+            ->where('created_at', '>=', $since)
+            ->selectRaw('DATE(created_at) as date, COUNT(*) as count')
+            ->groupBy('date')
+            ->pluck('count', 'date');
+
         $followerLinks = DB::table('followables')
             ->where('followable_type', Tag::class)
             ->where('created_at', '>=', $since)
@@ -129,28 +158,30 @@ class TagController extends Controller
         return [
             'analytics' => [
                 'tag_usage_distribution' => [
-                    'labels' => ['فقط سوال', 'فقط دوره', 'سوال و دوره', 'بدون محتوا'],
-                    'data' => [$onlyQuestions, $onlyCourses, $both, $empty],
-                    'colors' => ['#fbbf24', '#60a5fa', '#34d399', '#9ca3af'],
+                    'labels' => ['فقط سوال', 'فقط دوره', 'فقط مقاله', 'ترکیبی', 'بدون محتوا'],
+                    'data' => [$onlyQuestions, $onlyCourses, $onlyArticles, $mixed, $empty],
+                    'colors' => ['#fbbf24', '#60a5fa', '#34d399', '#a78bfa', '#9ca3af'],
                 ],
                 'tag_status_distribution' => [
-                    'labels' => ['با سوال', 'با دوره', 'بدون محتوا', 'با دنبال‌کننده'],
+                    'labels' => ['با سوال', 'با دوره', 'با مقاله', 'بدون محتوا', 'با دنبال‌کننده'],
                     'data' => [
                         Tag::whereHas('questions')->count(),
                         Tag::whereHas('courses')->count(),
+                        Tag::whereHas('articles')->count(),
                         $empty,
                         $withFollowers,
                     ],
-                    'colors' => ['#fbbf24', '#60a5fa', '#9ca3af', '#a78bfa'],
+                    'colors' => ['#fbbf24', '#60a5fa', '#34d399', '#9ca3af', '#a78bfa'],
                 ],
                 'ecosystem_overview' => [
-                    'labels' => ['تگ‌ها', 'اتصال سوال', 'اتصال دوره', 'دنبال‌کننده'],
-                    'data' => [Tag::count(), $totalQuestionLinks, $totalCourseLinks, $totalFollowers],
-                    'colors' => ['#f59e0b', '#fbbf24', '#60a5fa', '#a78bfa'],
+                    'labels' => ['تگ‌ها', 'اتصال سوال', 'اتصال دوره', 'اتصال مقاله', 'دنبال‌کننده'],
+                    'data' => [Tag::count(), $totalQuestionLinks, $totalCourseLinks, $totalArticleLinks, $totalFollowers],
+                    'colors' => ['#f59e0b', '#fbbf24', '#60a5fa', '#34d399', '#a78bfa'],
                 ],
                 'tags_created_timeline' => $this->buildDateSeries($tagsCreated),
                 'question_links_timeline' => $this->buildDateSeries($questionLinks),
                 'course_links_timeline' => $this->buildDateSeries($courseLinks),
+                'article_links_timeline' => $this->buildDateSeries($articleLinks),
                 'followers_timeline' => $this->buildDateSeries($followerLinks),
                 'top_tags_questions_bar' => [
                     'labels' => $topForBar->pluck('name')->all(),
@@ -172,6 +203,7 @@ class TagController extends Controller
                 'followers',
                 'questions as questions_count' => fn ($q) => $q->where('publish', 1),
                 'courses as courses_count',
+                'articles as articles_count' => fn ($q) => $q->where('publish', 1),
             ]);
 
         if ($search !== '') {
@@ -185,7 +217,8 @@ class TagController extends Controller
         match ($filter) {
             'with_questions' => $query->whereHas('questions', fn ($q) => $q->where('publish', 1)),
             'with_courses' => $query->whereHas('courses'),
-            'empty' => $query->whereDoesntHave('questions')->whereDoesntHave('courses'),
+            'with_articles' => $query->whereHas('articles', fn ($q) => $q->where('publish', 1)),
+            'empty' => $query->whereDoesntHave('questions')->whereDoesntHave('courses')->whereDoesntHave('articles'),
             'with_followers' => $query->whereHas('followers'),
             default => null,
         };
@@ -194,6 +227,7 @@ class TagController extends Controller
             'name' => $query->orderBy('name'),
             'followers' => $query->orderByDesc('followers_count'),
             'courses' => $query->orderByDesc('courses_count'),
+            'articles' => $query->orderByDesc('articles_count'),
             'created_at' => $query->orderByDesc('created_at'),
             default => $query->orderByDesc('questions_count'),
         };
@@ -217,6 +251,8 @@ class TagController extends Controller
             'questions as questions_count' => fn ($q) => $q->where('publish', 1),
             'questions as questions_total_count',
             'courses as courses_count',
+            'articles as articles_count' => fn ($q) => $q->where('publish', 1),
+            'articles as articles_total_count',
         ]);
 
         return response()->json([
@@ -231,7 +267,7 @@ class TagController extends Controller
 
         $questions = $tag->questions()
             ->with(['user:id,first_name,last_name,username'])
-            ->orderByDesc('created_at')
+            ->orderByDesc('questions.created_at')
             ->paginate($perPage);
 
         $questions->getCollection()->transform(function (Question $question) {
@@ -260,13 +296,90 @@ class TagController extends Controller
         $perPage = (int) $request->input('perPage', 10);
 
         $courses = $tag->courses()
-            ->select(['id', 'title', 'english_title', 'slug', 'status_id', 'created_at'])
-            ->orderByDesc('created_at')
+            ->select([
+                'courses.id',
+                'courses.title',
+                'courses.english_title',
+                'courses.slug',
+                'courses.publish',
+                'courses.status_id',
+                'courses.created_at',
+            ])
+            ->orderByDesc('courses.created_at')
             ->paginate($perPage);
+
+        $courses->getCollection()->transform(function (Course $course) {
+            return [
+                'id' => $course->id,
+                'title' => $course->title,
+                'english_title' => $course->english_title,
+                'slug' => $course->slug,
+                'publish' => (bool) $course->publish,
+                'status_id' => $course->status_id,
+                'created_at' => $course->created_at,
+            ];
+        });
 
         return response()->json([
             'message' => 'Success',
             'courses' => $courses,
+        ]);
+    }
+
+    public function articles(Request $request, Tag $tag)
+    {
+        $perPage = (int) $request->input('perPage', 10);
+
+        $articles = $tag->articles()
+            ->with([
+                'user:id,first_name,last_name,username',
+                'category:id,title',
+            ])
+            ->select([
+                'articles.id',
+                'articles.title',
+                'articles.english_title',
+                'articles.slug',
+                'articles.publish',
+                'articles.status',
+                'articles.is_featured',
+                'articles.cover_image',
+                'articles.user_id',
+                'articles.category_id',
+                'articles.published_at',
+                'articles.created_at',
+            ])
+            ->orderByDesc('articles.created_at')
+            ->paginate($perPage);
+
+        $articles->getCollection()->transform(function (Article $article) {
+            return [
+                'id' => $article->id,
+                'title' => $article->title,
+                'english_title' => $article->english_title,
+                'slug' => $article->slug,
+                'publish' => (bool) $article->publish,
+                'status' => $article->status,
+                'is_featured' => (bool) $article->is_featured,
+                'cover_image' => $article->cover_image,
+                'published_at' => $article->published_at,
+                'created_at' => $article->created_at,
+                'user' => $article->user ? [
+                    'id' => $article->user->id,
+                    'first_name' => $article->user->first_name,
+                    'last_name' => $article->user->last_name,
+                    'username' => $article->user->username,
+                ] : null,
+                'category' => $article->category ? [
+                    'id' => $article->category->id,
+                    'title' => $article->category->title,
+                ] : null,
+            ];
+        });
+
+        return response()->json([
+            'message' => 'Success',
+            'articles' => $articles,
         ]);
     }
 
@@ -301,6 +414,8 @@ class TagController extends Controller
         $publishedQuestions = $tag->questions()->where('publish', 1)->count();
         $draftQuestions = $tag->questions()->where('publish', 0)->count();
         $coursesCount = $tag->courses()->count();
+        $publishedArticles = $tag->articles()->where('publish', 1)->count();
+        $draftArticles = $tag->articles()->where('publish', 0)->count();
         $followersCount = $tag->followers()->count();
 
         $pivotTable = config('taggable.tables.taggable_taggables', 'taggable_taggables');
@@ -322,6 +437,14 @@ class TagController extends Controller
             ->groupBy('date')
             ->pluck('count', 'date');
 
+        $articleLinks = DB::table($pivotTable)
+            ->where('tag_id', $tag->tag_id)
+            ->where('taggable_type', Article::class)
+            ->where('created_at', '>=', $since)
+            ->selectRaw('DATE(created_at) as date, COUNT(*) as count')
+            ->groupBy('date')
+            ->pluck('count', 'date');
+
         $followerLinks = DB::table('followables')
             ->where('followable_type', Tag::class)
             ->where('followable_id', $tag->tag_id)
@@ -334,17 +457,18 @@ class TagController extends Controller
             'message' => 'Success',
             'analytics' => [
                 'content_distribution' => [
-                    'labels' => ['منتشرشده', 'پیش‌نویس', 'دوره‌ها'],
-                    'data' => [$publishedQuestions, $draftQuestions, $coursesCount],
-                    'colors' => ['#34d399', '#9ca3af', '#60a5fa'],
+                    'labels' => ['سوال منتشر', 'سوال پیش‌نویس', 'دوره‌ها', 'مقاله منتشر', 'مقاله پیش‌نویس'],
+                    'data' => [$publishedQuestions, $draftQuestions, $coursesCount, $publishedArticles, $draftArticles],
+                    'colors' => ['#34d399', '#9ca3af', '#60a5fa', '#10b981', '#d1d5db'],
                 ],
                 'usage_overview' => [
-                    'labels' => ['سوالات', 'دوره‌ها', 'دنبال‌کننده'],
-                    'data' => [$publishedQuestions + $draftQuestions, $coursesCount, $followersCount],
-                    'colors' => ['#fbbf24', '#60a5fa', '#a78bfa'],
+                    'labels' => ['سوالات', 'دوره‌ها', 'مقالات', 'دنبال‌کننده'],
+                    'data' => [$publishedQuestions + $draftQuestions, $coursesCount, $publishedArticles + $draftArticles, $followersCount],
+                    'colors' => ['#fbbf24', '#60a5fa', '#34d399', '#a78bfa'],
                 ],
                 'questions_timeline' => $this->buildDateSeries($questionLinks),
                 'courses_timeline' => $this->buildDateSeries($courseLinks),
+                'articles_timeline' => $this->buildDateSeries($articleLinks),
                 'followers_timeline' => $this->buildDateSeries($followerLinks),
             ],
         ]);
@@ -378,6 +502,7 @@ class TagController extends Controller
             'followers',
             'questions as questions_count' => fn ($q) => $q->where('publish', 1),
             'courses as courses_count',
+            'articles as articles_count' => fn ($q) => $q->where('publish', 1),
         ]);
 
         return response()->json([
@@ -420,6 +545,7 @@ class TagController extends Controller
             'followers',
             'questions as questions_count' => fn ($q) => $q->where('publish', 1),
             'courses as courses_count',
+            'articles as articles_count' => fn ($q) => $q->where('publish', 1),
         ]);
 
         return response()->json([
@@ -519,6 +645,7 @@ class TagController extends Controller
             'followers',
             'questions as questions_count' => fn ($q) => $q->where('publish', 1),
             'courses as courses_count',
+            'articles as articles_count' => fn ($q) => $q->where('publish', 1),
         ]);
 
         return response()->json([
@@ -536,6 +663,7 @@ class TagController extends Controller
             ->withCount([
                 'questions as questions_count' => fn ($q) => $q->where('publish', 1),
                 'courses as courses_count',
+                'articles as articles_count' => fn ($q) => $q->where('publish', 1),
             ]);
 
         if ($search !== '') {
@@ -577,6 +705,7 @@ class TagController extends Controller
             'slug' => $tag->normalized,
             'questions_count' => $tag->questions_count ?? 0,
             'courses_count' => $tag->courses_count ?? 0,
+            'articles_count' => $tag->articles_count ?? 0,
             'followers_count' => $tag->followers_count ?? 0,
             'created_at' => $tag->created_at,
         ];
@@ -593,6 +722,7 @@ class TagController extends Controller
     {
         return array_merge($this->listTag($tag), [
             'questions_total_count' => $tag->questions_total_count ?? $tag->questions_count ?? 0,
+            'articles_total_count' => $tag->articles_total_count ?? $tag->articles_count ?? 0,
         ]);
     }
 

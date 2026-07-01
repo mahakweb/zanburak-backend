@@ -221,6 +221,7 @@ class RoutePermissionsSeeder extends Seeder
         // Users
         $assign([
             'api.admin.users',
+            'api.admin.users.stats',
             'api.admin.user.search',
             'api.admin.user.base',
             'api.admin.user.details',
@@ -324,6 +325,8 @@ class RoutePermissionsSeeder extends Seeder
 
         // Comments
         $assign('api.admin.comments.index', $commentsView);
+        $assign('api.admin.comments.stats', $commentsView);
+        $assign('api.admin.comments.bulk', array_merge($commentsView, $commentsModerate, $commentsDelete));
         $assign('api.admin.comments.toggle-approval', array_merge($commentsView, $commentsModerate));
         $assign('api.admin.comments.send-reply', array_merge($commentsView, $commentsReply));
         $assign('api.admin.comments.update', array_merge($commentsView, $commentsModerate));
@@ -403,6 +406,7 @@ class RoutePermissionsSeeder extends Seeder
         $assign('api.admin.discuss.question.create', ['discuss.create']);
         $assign('api.admin.discuss.question.update', ['discuss.update']);
         $assign('api.admin.discuss.question.delete', ['discuss.delete']);
+        $assign('api.admin.discuss.questions.bulk', array_merge($discussWrite, ['discuss.update']));
         $assign([
             'api.admin.discuss.question.toggle-publish',
             'api.admin.discuss.question.set-best-answer',
@@ -420,11 +424,13 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.question-categories.index',
             'api.admin.question-categories.tree',
             'api.admin.question-category.show',
+            'api.admin.question-category.questions',
         ], $discussRead);
         $assign([
             'api.admin.question-category.create',
             'api.admin.question-category.update',
             'api.admin.question-category.delete',
+            'api.admin.question-categories.bulk',
         ], $discussWrite);
 
         // Articles
@@ -439,6 +445,7 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.articles.index',
             'api.admin.article.show',
             'api.admin.article-categories.index',
+            'api.admin.article-category.articles',
         ], $articlesRead);
         $assign([
             'api.admin.articles.stats',
@@ -463,6 +470,7 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.article-category.create',
             'api.admin.article-category.update',
             'api.admin.article-category.delete',
+            'api.admin.article-categories.bulk',
         ], $articlesCategoriesManage);
 
         // Tags
@@ -475,6 +483,7 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.tag.show',
             'api.admin.tag.questions',
             'api.admin.tag.courses',
+            'api.admin.tag.articles',
             'api.admin.tag.followers',
             'api.admin.tag.analytics',
         ], $tagsRead);

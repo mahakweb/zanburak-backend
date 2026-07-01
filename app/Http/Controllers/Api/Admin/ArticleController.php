@@ -74,6 +74,13 @@ class ArticleController extends Controller
 
         $sort = $request->input('sort', 'newest');
         match ($sort) {
+            'author' => $query
+                ->leftJoin('users as article_authors', 'article_authors.id', '=', 'articles.user_id')
+                ->orderBy('article_authors.first_name')
+                ->orderBy('article_authors.last_name')
+                ->orderByDesc('articles.created_at')
+                ->orderByDesc('articles.id')
+                ->select('articles.*'),
             'oldest' => $query->orderBy('created_at')->orderBy('id'),
             'updated' => $query->orderByDesc('updated_at')->orderByDesc('id'),
             'most_views' => $query->orderByDesc('views_count')->orderByDesc('id'),

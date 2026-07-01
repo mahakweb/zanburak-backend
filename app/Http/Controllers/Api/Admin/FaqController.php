@@ -46,15 +46,33 @@ class FaqController extends Controller
     // Admin: Get all categories with FAQs
     public function categories(Request $request)
     {
-        $perPage = $request->input('perPage', 10);
+        $perPage = (int) $request->input('perPage', 50);
+        $search = $request->input('search', '');
+        $status = $request->input('status');
 
-        $categories = FaqCategory::with(['faqs' => function ($query) {
-            $query->ordered();
-        }])
-            ->ordered()
-            ->paginate($perPage);
+        $query = FaqCategory::with(['faqs' => function ($q) {
+            $q->ordered();
+        }])->withCount([
+            'faqs as faqs_count',
+            'faqs as active_faqs_count' => fn ($q) => $q->where('status', true),
+            'faqs as inactive_faqs_count' => fn ($q) => $q->where('status', false),
+        ])->ordered();
 
-        $data = $categories->map(function ($category) {
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('title', 'like', "%{$search}%")
+                    ->orWhere('english_title', 'like', "%{$search}%")
+                    ->orWhere('slug', 'like', "%{$search}%");
+            });
+        }
+
+        if ($status !== null && $status !== '') {
+            $query->where('status', filter_var($status, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE));
+        }
+
+        $categories = $query->paginate($perPage);
+
+        $data = $categories->getCollection()->map(function ($category) {
             return [
                 'id' => $category->id,
                 'title' => $category->title,
@@ -63,7 +81,9 @@ class FaqController extends Controller
                 'icon' => $category->icon,
                 'order' => $category->order,
                 'status' => $category->status,
-                'faqs_count' => $category->faqs->count(),
+                'faqs_count' => $category->faqs_count,
+                'active_faqs_count' => $category->active_faqs_count,
+                'inactive_faqs_count' => $category->inactive_faqs_count,
                 'faqs' => $category->faqs->map(function ($faq) {
                     return [
                         'id' => $faq->id,
@@ -79,6 +99,9 @@ class FaqController extends Controller
             ];
         });
 
+        $totalFaqs = (int) Faq::count();
+        $totalCategories = FaqCategory::count();
+
         return response()->json([
             'message' => 'Success',
             'categories' => $data,
@@ -87,7 +110,19 @@ class FaqController extends Controller
                 'per_page' => $categories->perPage(),
                 'current_page' => $categories->currentPage(),
                 'last_page' => $categories->lastPage(),
-            ]
+            ],
+            'stats' => [
+                'total_categories' => $totalCategories,
+                'active_categories' => FaqCategory::where('status', true)->count(),
+                'inactive_categories' => FaqCategory::where('status', false)->count(),
+                'empty_categories' => FaqCategory::withCount('faqs')->get()->where('faqs_count', 0)->count(),
+                'total_faqs' => $totalFaqs,
+                'active_faqs' => Faq::where('status', true)->count(),
+                'inactive_faqs' => Faq::where('status', false)->count(),
+                'avg_faqs_per_category' => $totalCategories > 0
+                    ? round($totalFaqs / $totalCategories, 1)
+                    : 0,
+            ],
         ], 200);
     }
 
@@ -156,13 +191,78 @@ class FaqController extends Controller
     }
 
     // Admin: Delete category
-    public function deleteCategory(FaqCategory $category)
+    public function deleteCategory(Request $request, FaqCategory $category)
     {
+        $faqsCount = $category->faqs()->count();
+
+        if ($faqsCount > 0) {
+            if ($request->filled('transfer_to')) {
+                $validator = Validator::make($request->all(), [
+                    'transfer_to' => 'required|integer|exists:faq_categories,id|not_in:'.$category->id,
+                ]);
+
+                if ($validator->fails()) {
+                    return response()->json([
+                        'message' => 'برای حذف این دسته، ابتدا سوالات را به دسته دیگری منتقل کنید.',
+                        'errors' => $validator->errors(),
+                    ], 422);
+                }
+
+                $target = FaqCategory::findOrFail($request->integer('transfer_to'));
+
+                \Illuminate\Support\Facades\DB::transaction(function () use ($category, $target) {
+                    $category->faqs()->update(['category_id' => $target->id]);
+                    $category->delete();
+                });
+
+                return response()->json([
+                    'message' => 'Category deleted successfully',
+                    'transferred_faqs' => $faqsCount,
+                    'transfer_to' => $target->only(['id', 'title', 'slug']),
+                ]);
+            }
+
+            $validator = Validator::make($request->all(), [
+                'transfers' => 'required|array|min:1',
+                'transfers.*.faq_id' => 'required|integer|distinct',
+                'transfers.*.category_id' => 'required|integer|exists:faq_categories,id|not_in:'.$category->id,
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'message' => 'برای حذف این دسته، مقصد همه سوالات را مشخص کنید.',
+                    'errors' => $validator->errors(),
+                ], 422);
+            }
+
+            $categoryFaqIds = $category->faqs()->pluck('id')->sort()->values();
+            $transferFaqIds = collect($request->input('transfers'))->pluck('faq_id')->sort()->values();
+
+            if ($categoryFaqIds->count() !== $transferFaqIds->count()
+                || $categoryFaqIds->diff($transferFaqIds)->isNotEmpty()) {
+                return response()->json(['message' => 'باید برای همه سوالات این دسته مقصد انتقال مشخص شود.'], 422);
+            }
+
+            $transfers = collect($request->input('transfers'));
+
+            \Illuminate\Support\Facades\DB::transaction(function () use ($category, $transfers) {
+                foreach ($transfers as $transfer) {
+                    $category->faqs()
+                        ->where('id', $transfer['faq_id'])
+                        ->update(['category_id' => $transfer['category_id']]);
+                }
+                $category->delete();
+            });
+
+            return response()->json([
+                'message' => 'Category deleted successfully',
+                'transferred_faqs' => $faqsCount,
+            ]);
+        }
+
         $category->delete();
 
-        return response()->json([
-            'message' => 'Category deleted successfully',
-        ], 200);
+        return response()->json(['message' => 'Category deleted successfully']);
     }
 
     // Admin: Create FAQ

@@ -47,6 +47,10 @@ class Payment extends Model
                     . now()->format('YmdHis')   
                     . '-' . strtoupper(Str::random(6));
             }
+
+            if (empty($model->resnumber)) {
+                $model->resnumber = $model->reference_id;
+            }
         });
     }
 
