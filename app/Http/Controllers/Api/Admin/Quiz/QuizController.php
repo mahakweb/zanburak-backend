@@ -22,10 +22,16 @@ class QuizController extends Controller
         $query = Quiz::query()
             ->with(['quizzable'])
             ->when($request->filled('search'), fn ($q) => $q->where('title', 'like', '%'.$request->search.'%'))
-            ->when($request->filled('quizzable_type'), fn ($q) => $q->where('quizzable_type', QuizConstants::QUIZZABLE_TYPES[$request->quizzable_type] ?? $request->quizzable_type))
+            ->when($request->quizzable_type === 'standalone', fn ($q) => $q->whereNull('quizzable_type'))
+            ->when(
+                $request->filled('quizzable_type') && $request->quizzable_type !== 'standalone',
+                fn ($q) => $q->where('quizzable_type', QuizConstants::QUIZZABLE_TYPES[$request->quizzable_type] ?? $request->quizzable_type)
+            )
             ->when($request->filled('quizzable_id'), fn ($q) => $q->where('quizzable_id', $request->quizzable_id))
             ->when($request->published === 'yes', fn ($q) => $q->where('is_published', true))
-            ->when($request->published === 'no', fn ($q) => $q->where('is_published', false));
+            ->when($request->published === 'no', fn ($q) => $q->where('is_published', false))
+            ->when($request->manual_review === 'yes', fn ($q) => $q->where('manual_review_required', true))
+            ->when($request->manual_review === 'no', fn ($q) => $q->where('manual_review_required', false));
 
         $quizzes = $query->latest()->paginate((int) $request->input('perPage', 20));
 

@@ -20,9 +20,17 @@ class QuizQuestionController extends Controller
         $this->authorize('viewAny', QuizQuestion::class);
 
         $query = QuizQuestion::with(['category', 'tags'])
+            ->withCount(['options', 'quizzes'])
             ->when($request->filled('search'), fn ($q) => $q->where('text', 'like', '%'.$request->search.'%'))
             ->when($request->filled('type'), fn ($q) => $q->where('type', $request->type))
             ->when($request->filled('difficulty'), fn ($q) => $q->where('difficulty', $request->difficulty))
+            ->when($request->filled('status'), function ($q) use ($request) {
+                if ($request->status === 'active') {
+                    $q->where('is_active', true);
+                } elseif ($request->status === 'inactive') {
+                    $q->where('is_active', false);
+                }
+            })
             ->when($request->filled('category_id'), fn ($q) => $q->where('category_id', $request->category_id))
             ->when($request->filled('tag_id'), fn ($q) => $q->whereHas('tags', fn ($t) => $t->where('quiz_tags.id', $request->tag_id)));
 

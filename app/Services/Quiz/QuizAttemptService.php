@@ -186,7 +186,7 @@ class QuizAttemptService
             'quiz' => fn ($q) => $q->select([
                 'id', 'uuid', 'title', 'description', 'time_limit', 'max_attempts',
                 'result_display', 'show_correct_answers', 'passing_score', 'passing_percentage',
-                'randomize_answers', 'manual_review_required', 'total_score',
+                'randomize_answers', 'manual_review_required', 'total_score', 'settings',
             ]),
             'answers.question.options',
         ]);
