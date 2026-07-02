@@ -37,11 +37,23 @@ class VideoController extends Controller
     }
 
     public function videoKey(){
-        return Storage::disk(request()->disk)->get(request()->path);
+        $content = Storage::disk(request()->disk)->get(request()->path);
+
+        return response($content, 200, [
+            'Content-Type' => 'application/octet-stream',
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
     public function videoM3u8(){
-        return Storage::disk(request()->disk)->get(request()->path);
+        $content = Storage::disk(request()->disk)->get(request()->path);
+
+        return response($content, 200, [
+            'Content-Type' => 'application/octet-stream',
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
     }
 
 

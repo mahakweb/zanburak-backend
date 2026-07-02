@@ -128,11 +128,12 @@ class CourseController extends Controller
             'paths',
             'teacher:id,first_name,last_name,username,profile_pic',
             'teacher.info',
-            'section.episode' => fn($q) => $q->where('publish', 1)->with('attachs'),
+            'section.episode' => fn($q) => $q->where('publish', 1)->orderBy('order')->with('attachs'),
             'status'
         ])
             ->withCount('users')
-            ->findOrFail($course->id);
+            ->findOrFail($course->id)
+            ->sortSectionsForDisplay();
 
         $episode_number = 1;
 

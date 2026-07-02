@@ -78,6 +78,18 @@ class RouteServiceProvider extends ServiceProvider
             return Episode::where('slug', $value)->firstOrFail();
         });
 
+        Route::bind('episodeOrder', function ($value, $route) {
+            $course = $route->parameter('courseSlug');
+            if (!$course instanceof Course) {
+                $course = Course::where('slug', $course)->firstOrFail();
+            }
+
+            return Episode::query()
+                ->where('order', (int) $value)
+                ->whereHas('section', fn ($q) => $q->where('course_id', $course->id))
+                ->firstOrFail();
+        });
+
         Route::bind('username', function ($value) {
             return User::where('username', $value)->firstOrFail();
         });

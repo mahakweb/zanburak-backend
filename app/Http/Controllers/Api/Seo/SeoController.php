@@ -98,7 +98,7 @@ class SeoController extends Controller
         foreach ($episodes as $episode) {
             if ($episode->section && $episode->section->course) {
                 $xml .= $this->generateUrl(
-                    $siteUrl . '/course/' . $episode->section->course->slug . '/episode/' . $episode->slug,
+                    $siteUrl . '/course/' . $episode->section->course->slug . '/episode/' . $episode->order,
                     '0.7',
                     'weekly',
                     $episode->updated_at
@@ -256,14 +256,16 @@ class SeoController extends Controller
     /**
      * Generate JSON-LD Schema for Episode
      */
-    public function episodeSchema(Request $request, $courseSlug, $episodeSlug)
+    public function episodeSchema(Request $request, $courseSlug, $episodeOrder)
     {
-        $episode = Episode::where('slug', $episodeSlug)
+        $course = $courseSlug instanceof \App\Models\Course
+            ? $courseSlug
+            : \App\Models\Course::where('slug', $courseSlug)->where('publish', 1)->firstOrFail();
+
+        $episode = Episode::where('order', (int) $episodeOrder)
             ->where('publish', 1)
             ->with(['section.course', 'videos'])
-            ->whereHas('section.course', function($q) use ($courseSlug) {
-                $q->where('slug', $courseSlug)->where('publish', 1);
-            })
+            ->whereHas('section', fn ($q) => $q->where('course_id', $course->id))
             ->firstOrFail();
 
         $schema = $this->generateEpisodeSchema($episode);
@@ -329,11 +331,13 @@ class SeoController extends Controller
                 break;
 
             case 'episode':
-                $episode = Episode::where('slug', $slug)
+                $course = Course::where('slug', $courseSlug)->where('publish', 1)->first();
+                if (!$course) {
+                    break;
+                }
+                $episode = Episode::where('order', (int) $slug)
                     ->where('publish', 1)
-                    ->whereHas('section.course', function($q) use ($courseSlug) {
-                        $q->where('slug', $courseSlug)->where('publish', 1);
-                    })
+                    ->whereHas('section', fn ($q) => $q->where('course_id', $course->id))
                     ->with(['section.course'])
                     ->first();
                 if ($episode) {
@@ -708,7 +712,7 @@ class SeoController extends Controller
             '@type' => 'VideoObject',
             'name' => $episode->title,
             'description' => strip_tags($episode->description ?? ''),
-            'url' => $siteUrl . '/course/' . $course->slug . '/episode/' . $episode->slug,
+            'url' => $siteUrl . '/course/' . $course->slug . '/episode/' . $episode->order,
             'thumbnailUrl' => $course->poster ?? '',
             'uploadDate' => $episode->publish_date ? (is_string($episode->publish_date) ? Carbon::parse($episode->publish_date)->toIso8601String() : $episode->publish_date->toIso8601String()) : $episode->created_at->toIso8601String(),
             'inLanguage' => 'fa-IR',
@@ -862,7 +866,7 @@ class SeoController extends Controller
     private function getEpisodeMetaTags($episode)
     {
         $course = $episode->section->course;
-        $url = $this->siteUrl . '/course/' . $course->slug . '/episode/' . $episode->slug;
+        $url = $this->siteUrl . '/course/' . $course->slug . '/episode/' . $episode->order;
         $title = $episode->title . ' | ' . $course->title . ' | ' . $this->siteName;
         $description = strip_tags($episode->description ?? '') ?? $this->defaultDescription;
         $image = $course->poster ?? $this->siteUrl . '/assets/image/logo/logo.png';

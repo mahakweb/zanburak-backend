@@ -259,7 +259,8 @@ class CommentController extends Controller
         } elseif ($commentable instanceof Article) {
             return frontendUrl("articles/{$slug}");
         } elseif ($commentable instanceof Episode) {
-            return frontendUrl("course/{$commentable->section->course->slug}/episode/{$slug}");
+            $commentable->loadMissing('section.course');
+            return frontendUrl("course/{$commentable->section->course->slug}/episode/{$commentable->order}");
         } elseif ($commentable instanceof Path) {
             return frontendUrl("path/{$slug}");
         }

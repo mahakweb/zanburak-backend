@@ -266,6 +266,7 @@ class SearchService
                 'title' => $episode->title,
                 'english_title' => $episode->english_title,
                 'slug' => $episode->slug,
+                'order' => $episode->order,
                 'course' => $course ? [
                     'id' => $course->id,
                     'title' => $course->title,

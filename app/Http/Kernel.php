@@ -75,5 +75,6 @@ class Kernel extends HttpKernel
 
 
         'active' => \App\Http\Middleware\CheckActiveUser::class,
+        'video.player' => \App\Http\Middleware\EnsureVideoPlayerRequest::class,
     ];
 }

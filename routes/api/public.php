@@ -17,7 +17,7 @@ Route::middleware('auth:sanctum')->post('/comments/store', [\App\Http\Controller
 Route::get('/courses', [\App\Http\Controllers\Api\Course\CourseController::class, 'courses'])->name('api.courses.index');
 Route::get('/courses-page-filter', [\App\Http\Controllers\Api\Course\CourseController::class, 'filters'])->name('api.courses.filters');
 Route::get('/course/{courseSlug}', [\App\Http\Controllers\Api\Course\CourseController::class, 'getCourse'])->name('api.courses.show');
-Route::get('/course/{courseSlug}/episode/{episodeSlug}', [\App\Http\Controllers\Api\Course\EpisodeController::class, 'getEpisode'])->name('api.episodes.show');
+Route::get('/course/{courseSlug}/episode/{episodeOrder}', [\App\Http\Controllers\Api\Course\EpisodeController::class, 'getEpisode'])->where('episodeOrder', '[0-9]+')->name('api.episodes.show');
 
 // FAQs - Public access
 Route::get('/faqs', [\App\Http\Controllers\Api\Admin\FaqController::class, 'index'])->name('api.faqs.index');
@@ -32,7 +32,7 @@ Route::get('/rss.xml', [\App\Http\Controllers\Api\Seo\SeoController::class, 'rss
 
 // SEO Schema and Meta Tags
 Route::get('/seo/course/{courseSlug}/schema.json', [\App\Http\Controllers\Api\Seo\SeoController::class, 'courseSchema'])->name('api.seo.course-schema');
-Route::get('/seo/course/{courseSlug}/episode/{episodeSlug}/schema.json', [\App\Http\Controllers\Api\Seo\SeoController::class, 'episodeSchema'])->name('api.seo.episode-schema');
+Route::get('/seo/course/{courseSlug}/episode/{episodeOrder}/schema.json', [\App\Http\Controllers\Api\Seo\SeoController::class, 'episodeSchema'])->where('episodeOrder', '[0-9]+')->name('api.seo.episode-schema');
 Route::get('/seo/path/{pathSlug}/schema.json', [\App\Http\Controllers\Api\Seo\SeoController::class, 'pathSchema'])->name('api.seo.path-schema');
 Route::get('/seo/question/{questionSlug}/schema.json', [\App\Http\Controllers\Api\Seo\SeoController::class, 'questionSchema'])->name('api.seo.question-schema');
 Route::get('/seo/meta-tags', [\App\Http\Controllers\Api\Seo\SeoController::class, 'metaTags'])->name('api.seo.meta-tags');

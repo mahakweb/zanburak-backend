@@ -155,6 +155,8 @@ class EpisodeController extends Controller
         $validator = Validator::make($request->all(), [
             'order' => ['required', 'numeric'],
             'section_id' => ['required', "exists:sections,id"],
+            'title' => ['required', 'min:5', 'max:255'],
+            'english_title' => ['required', 'min:5', 'max:255', 'regex:/^[~`!@#$%^&*()_+=[\]\\{}|;":",.\/<>?a-zA-Z0-9- ]+$/'],
         ]);
         if (!$validator->passes()) {
             return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
@@ -168,6 +170,8 @@ class EpisodeController extends Controller
             $episode = Episode::create([
                 'section_id' => $validData['section_id'],
                 'order' => $validData['order'],
+                'title' => $validData['title'],
+                'english_title' => $validData['english_title'],
                 'publish' => false,
                 'lock' => $course->type == 'free' ? false : true,
             ]);

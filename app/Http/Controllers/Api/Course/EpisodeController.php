@@ -31,8 +31,8 @@ class EpisodeController extends Controller
             $courseBrief = Course::with([
                 'status',
                 'teacher' => fn ($q) => $q->select('id', 'first_name', 'last_name', 'username', 'profile_pic')->with('info'),
-                'section.episode' => fn ($q) => $q->where('publish', 1),
-            ])->find($course->id);
+                'section.episode' => fn ($q) => $q->where('publish', 1)->orderBy('order'),
+            ])->find($course->id)?->sortSectionsForDisplay();
             $availabilityService->enrichCourseTree($courseBrief);
 
             $episode->load('attachs');
@@ -75,14 +75,15 @@ class EpisodeController extends Controller
                 'section' => function ($query) {
                     $query->select('*')->with([
                         'episode' => function ($query) {
-                            $query->where('publish', 1);
+                            $query->where('publish', 1)->orderBy('order');
                         }
                     ]);
                 },
                 'status'
             ])
             ->withCount('users')
-            ->first();
+            ->first()
+            ?->sortSectionsForDisplay();
 
         // اضافه کردن درصد مشاهده برای هر اپیزود توی سکشن‌ها
         if ($user) {

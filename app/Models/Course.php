@@ -378,6 +378,29 @@ class Course extends Model implements Likeable
         return $this->hasMany(Section::class);
     }
 
+    /** Sort loaded sections by earliest episode order (sections have no order column). */
+    public function sortSectionsForDisplay(): self
+    {
+        if (! $this->relationLoaded('section')) {
+            return $this;
+        }
+
+        $sorted = $this->section->sortBy(function (Section $section) {
+            if ($section->relationLoaded('episode') && $section->episode->isNotEmpty()) {
+                $min = $section->episode->min('order');
+                if ($min !== null) {
+                    return (int) $min;
+                }
+            }
+
+            return (int) $section->id;
+        })->values();
+
+        $this->setRelation('section', $sorted);
+
+        return $this;
+    }
+
     public function level()
     {
         return $this->belongsTo(Level::class);

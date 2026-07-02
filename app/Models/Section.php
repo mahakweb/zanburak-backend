@@ -80,7 +80,7 @@ class Section extends Model
 
     public function episode()
     {
-        return $this->hasMany(Episode::class);
+        return $this->hasMany(Episode::class)->orderBy('order');
     }
 
     public function totalTime()

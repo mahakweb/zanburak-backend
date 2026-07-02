@@ -415,7 +415,8 @@ class CommentController extends Controller
         if ($commentable instanceof \App\Models\Course) {
             return frontendUrl("course/{$slug}");
         } elseif ($commentable instanceof \App\Models\Episode) {
-            return frontendUrl("course/{$commentable->section->course->slug}/episode/{$slug}");
+            $commentable->loadMissing('section.course');
+            return frontendUrl("course/{$commentable->section->course->slug}/episode/{$commentable->order}");
         } elseif ($commentable instanceof \App\Models\Path) {
             return frontendUrl("path/{$slug}");
         }
