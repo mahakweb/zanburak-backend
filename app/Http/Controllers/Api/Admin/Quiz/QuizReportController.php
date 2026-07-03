@@ -121,11 +121,14 @@ class QuizReportController extends Controller
     {
         $this->authorize('viewReports', $quiz);
 
-        $attempts = QuizAttempt::with(['user:id,first_name,last_name,username', 'answers.question'])
+        $attempts = QuizAttempt::with(['user:id,first_name,last_name,username,profile_pic', 'answers.question'])
             ->where('quiz_id', $quiz->id)
-            ->where('requires_manual_review', true)
             ->whereIn('status', ['grading', 'submitted'])
-            ->latest()
+            ->where(function ($query) {
+                $query->where('requires_manual_review', true)
+                    ->orWhereHas('answers', fn ($q) => $q->where('needs_manual_review', true));
+            })
+            ->latest('submitted_at')
             ->paginate(20);
 
         return response()->json(['message' => 'Success', 'attempts' => $attempts]);

@@ -20,6 +20,10 @@ class QuizAttemptService
         $this->expireStaleAttempts();
 
         if (! $quiz->userCanTake($user)) {
+            if (! $quiz->isAvailable()) {
+                abort(404);
+            }
+
             throw ValidationException::withMessages(['quiz' => 'شما مجاز به شرکت در این آزمون نیستید.']);
         }
 
@@ -32,15 +36,8 @@ class QuizAttemptService
             return $this->loadAttemptForStudent($inProgress);
         }
 
-        if (! $quiz->hasUnlimitedAttempts()) {
-            $used = QuizAttempt::where('quiz_id', $quiz->id)
-                ->where('user_id', $user->id)
-                ->whereNotIn('status', ['abandoned'])
-                ->count();
-
-            if ($used >= $quiz->max_attempts) {
-                throw ValidationException::withMessages(['quiz' => 'حداکثر تعداد تلاش‌های مجاز را استفاده کرده‌اید.']);
-            }
+        if (! $quiz->hasUnlimitedAttempts() && $this->countedAttempts($quiz, $user) >= (int) $quiz->max_attempts) {
+            abort(404);
         }
 
         $attemptNumber = QuizAttempt::where('quiz_id', $quiz->id)
@@ -50,9 +47,7 @@ class QuizAttemptService
         $questionOrder = $this->buildQuestionOrder($quiz);
 
         $startedAt = now();
-        $expiresAt = $quiz->time_limit
-            ? $startedAt->copy()->addSeconds($quiz->time_limit)
-            : null;
+        $expiresAt = $this->computeExpiresAt($quiz, $startedAt);
 
         return DB::transaction(function () use ($quiz, $user, $attemptNumber, $questionOrder, $startedAt, $expiresAt) {
             $attempt = QuizAttempt::create([
@@ -79,9 +74,13 @@ class QuizAttemptService
         });
     }
 
-    public function saveProgress(QuizAttempt $attempt, array $answers, int $timeSpent = 0): QuizAttempt
+    public function saveProgress(QuizAttempt $attempt, array $answers, int $timeSpent = 0, bool $forSubmit = false): QuizAttempt
     {
-        $this->assertInProgress($attempt);
+        if ($forSubmit) {
+            $this->assertCanSubmit($attempt);
+        } else {
+            $this->assertInProgress($attempt);
+        }
 
         $attempt->load(['quiz', 'answers.question.options']);
 
@@ -106,11 +105,11 @@ class QuizAttemptService
 
     public function submit(QuizAttempt $attempt, array $answers, int $timeSpent = 0): QuizAttempt
     {
-        $this->assertInProgress($attempt);
+        $this->assertCanSubmit($attempt);
         $attempt->load(['quiz.questions', 'answers.question.options']);
 
         return DB::transaction(function () use ($attempt, $answers, $timeSpent) {
-            $this->saveProgress($attempt, $answers, $timeSpent);
+            $this->saveProgress($attempt, $answers, $timeSpent, forSubmit: true);
             $attempt->refresh()->load(['answers.question.options', 'quiz']);
 
             foreach ($attempt->answers as $answerRow) {
@@ -138,6 +137,12 @@ class QuizAttemptService
 
     public function resume(QuizAttempt $attempt): QuizAttempt
     {
+        $attempt->load('quiz');
+
+        if (! $attempt->quiz->isAvailable()) {
+            abort(404);
+        }
+
         if ($attempt->isExpired()) {
             $attempt->update(['status' => 'expired']);
             throw ValidationException::withMessages(['attempt' => 'مهلت آزمون به پایان رسیده است.']);
@@ -171,12 +176,55 @@ class QuizAttemptService
             ->first();
     }
 
+    public function countUserAttempts(Quiz $quiz, User $user): int
+    {
+        return $this->countedAttempts($quiz, $user);
+    }
+
+    public function countedAttempts(Quiz $quiz, User $user): int
+    {
+        return QuizAttempt::where('quiz_id', $quiz->id)
+            ->where('user_id', $user->id)
+            ->whereIn('status', ['submitted', 'grading', 'completed', 'expired'])
+            ->count();
+    }
+
+    public function userAttemptsExhausted(Quiz $quiz, User $user): bool
+    {
+        if ($quiz->hasUnlimitedAttempts()) {
+            return false;
+        }
+
+        if ($this->activeAttempt($quiz, $user)) {
+            return false;
+        }
+
+        return $this->countedAttempts($quiz, $user) >= (int) $quiz->max_attempts;
+    }
+
+    public function userCanStartNewAttempt(Quiz $quiz, User $user): bool
+    {
+        if (! $quiz->userCanTake($user)) {
+            return false;
+        }
+
+        if ($this->activeAttempt($quiz, $user)) {
+            return true;
+        }
+
+        if ($quiz->hasUnlimitedAttempts()) {
+            return true;
+        }
+
+        return $this->countedAttempts($quiz, $user) < (int) $quiz->max_attempts;
+    }
+
     public function expireStaleAttempts(): int
     {
         return QuizAttempt::query()
             ->where('status', 'in_progress')
             ->whereNotNull('expires_at')
-            ->where('expires_at', '<=', now())
+            ->where('expires_at', '<=', now()->subSeconds(60))
             ->update(['status' => 'expired']);
     }
 
@@ -184,9 +232,9 @@ class QuizAttemptService
     {
         $attempt->load([
             'quiz' => fn ($q) => $q->select([
-                'id', 'uuid', 'title', 'description', 'time_limit', 'max_attempts',
+                'id', 'uuid', 'title', 'description', 'time_limit', 'max_attempts', 'end_at',
                 'result_display', 'show_correct_answers', 'passing_score', 'passing_percentage',
-                'randomize_answers', 'manual_review_required', 'total_score', 'settings',
+                'randomize_answers', 'manual_review_required', 'total_score', 'settings', 'questions_count',
             ]),
             'answers.question.options',
         ]);
@@ -203,6 +251,25 @@ class QuizAttemptService
         }
 
         return $attempt;
+    }
+
+    protected function computeExpiresAt(Quiz $quiz, \Illuminate\Support\Carbon $startedAt): ?\Illuminate\Support\Carbon
+    {
+        $candidates = [];
+
+        if ($quiz->time_limit) {
+            $candidates[] = $startedAt->copy()->addSeconds((int) $quiz->time_limit);
+        }
+
+        if ($quiz->end_at) {
+            $candidates[] = $quiz->end_at->copy();
+        }
+
+        if ($candidates === []) {
+            return null;
+        }
+
+        return collect($candidates)->sort()->first();
     }
 
     protected function buildQuestionOrder(Quiz $quiz): array
@@ -226,10 +293,19 @@ class QuizAttemptService
 
     protected function assertInProgress(QuizAttempt $attempt): void
     {
+        if (! $attempt->isInProgress()) {
+            throw ValidationException::withMessages(['attempt' => 'این تلاش دیگر فعال نیست.']);
+        }
+
         if ($attempt->isExpired()) {
-            $attempt->update(['status' => 'expired']);
             throw ValidationException::withMessages(['attempt' => 'مهلت آزمون به پایان رسیده است.']);
         }
+    }
+
+    protected function assertCanSubmit(QuizAttempt $attempt): void
+    {
+        $attempt->refresh();
+
         if (! $attempt->isInProgress()) {
             throw ValidationException::withMessages(['attempt' => 'این تلاش دیگر فعال نیست.']);
         }

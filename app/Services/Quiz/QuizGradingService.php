@@ -76,19 +76,35 @@ class QuizGradingService
         $maxScore = (float) $attempt->answers->sum('max_score');
         $percentage = $maxScore > 0 ? round(($score / $maxScore) * 100, 2) : 0;
 
-        $needsReview = $attempt->answers->contains('needs_manual_review', true)
-            || $attempt->quiz->manual_review_required;
+        $needsPerAnswerReview = $attempt->answers->contains(fn ($answer) => (bool) $answer->needs_manual_review);
+        $needsAdminReview = $needsPerAnswerReview
+            || (bool) $attempt->quiz->manual_review_required
+            || $attempt->quiz->result_display === 'after_review';
 
         $passed = $this->determinePass($attempt->quiz, $score, $percentage);
+
+        if ($needsAdminReview) {
+            $status = 'grading';
+            $completedAt = null;
+            $passedValue = null;
+        } elseif ($attempt->quiz->result_display === 'after_end') {
+            $status = 'submitted';
+            $completedAt = null;
+            $passedValue = null;
+        } else {
+            $status = 'completed';
+            $completedAt = now();
+            $passedValue = $passed;
+        }
 
         $attempt->update([
             'score' => $score,
             'max_score' => $maxScore,
             'percentage' => $percentage,
-            'passed' => $needsReview ? null : $passed,
-            'requires_manual_review' => $needsReview,
-            'status' => $needsReview ? 'grading' : 'completed',
-            'completed_at' => $needsReview ? null : now(),
+            'passed' => $passedValue,
+            'requires_manual_review' => $needsAdminReview,
+            'status' => $status,
+            'completed_at' => $completedAt,
             'submitted_at' => $attempt->submitted_at ?? now(),
         ]);
 

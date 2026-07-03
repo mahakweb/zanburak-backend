@@ -351,6 +351,7 @@ class RoutePermissionsSeeder extends Seeder
         ], $coursesView);
         $assign('api.admin.course.users', array_merge($coursesView, $coursesAssign));
         $assign('api.admin.course.users.assign', $coursesAssign);
+        $assign('api.admin.course.users.remove', $coursesAssign);
         $assign('api.admin.course.episodes.reorder', $coursesReorder);
         $assign([
             'api.admin.course.section.create',

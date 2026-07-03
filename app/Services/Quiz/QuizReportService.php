@@ -28,12 +28,18 @@ class QuizReportService
             ? round(($passedCount / $completedCount) * 100, 2)
             : 0;
 
+        $pendingReviewCount = (clone $base)
+            ->where('requires_manual_review', true)
+            ->whereIn('status', ['grading', 'submitted'])
+            ->count();
+
         return [
             'quiz_id' => $quiz->id,
             'total_attempts' => $totalAttempts,
             'completed_attempts' => $completedCount,
             'passed_count' => $passedCount,
             'failed_count' => $failedCount,
+            'pending_review_count' => $pendingReviewCount,
             'success_rate' => $successRate,
             'average_score' => round((float) $avgScore, 2),
             'average_percentage' => round((float) $avgPercentage, 2),

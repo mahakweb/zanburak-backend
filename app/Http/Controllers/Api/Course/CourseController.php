@@ -150,7 +150,7 @@ class CourseController extends Controller
         }
 
         $sectionIds = $course->section->pluck('id');
-        $sectionQuizMap = Quiz::availableNow()
+        $sectionQuizMap = Quiz::published()
             ->where('quizzable_type', Section::class)
             ->whereIn('quizzable_id', $sectionIds)
             ->get()
@@ -282,7 +282,7 @@ class CourseController extends Controller
 
     protected function quizzesFor(string $type, int $id): array
     {
-        return Quiz::availableNow()
+        return Quiz::published()
             ->where('quizzable_type', $type)
             ->where('quizzable_id', $id)
             ->orderBy('id')
@@ -299,7 +299,7 @@ class CourseController extends Controller
             ->whereIn('section_id', $sectionIds)
             ->pluck('id');
 
-        return Quiz::availableNow()
+        return Quiz::published()
             ->where(function ($query) use ($course, $sectionIds, $episodeIds) {
                 $query->where(function ($q) use ($course) {
                     $q->where('quizzable_type', Course::class)

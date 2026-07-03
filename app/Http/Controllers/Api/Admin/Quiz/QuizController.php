@@ -36,8 +36,8 @@ class QuizController extends Controller
         $quizzes = $query->latest()->paginate((int) $request->input('perPage', 20));
 
         $pendingReview = QuizAttempt::query()
-            ->where('status', 'grading')
             ->where('requires_manual_review', true)
+            ->whereIn('status', ['grading', 'submitted'])
             ->count();
 
         return response()->json([
@@ -90,10 +90,16 @@ class QuizController extends Controller
 
     protected function validatedQuiz(Request $request, ?Quiz $quiz = null): array
     {
+        $request->merge([
+            'start_at' => $request->input('start_at') ?: null,
+            'end_at' => $request->input('end_at') ?: null,
+        ]);
+
         return $request->validate([
             'title' => [$quiz ? 'sometimes' : 'required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
+            'instructions' => ['nullable', 'string'],
             'quizzable' => ['nullable', 'array'],
             'quizzable.type' => ['nullable', Rule::in(array_keys(QuizConstants::QUIZZABLE_TYPES))],
             'quizzable.id' => ['nullable', 'integer'],
@@ -107,9 +113,10 @@ class QuizController extends Controller
             'negative_scoring' => ['boolean'],
             'negative_scoring_factor' => ['nullable', 'numeric', 'min:0', 'max:1'],
             'start_at' => ['nullable', 'date'],
-            'end_at' => ['nullable', 'date', 'after_or_equal:start_at'],
+            'end_at' => ['nullable', 'date', Rule::when($request->filled('start_at'), 'after_or_equal:start_at')],
             'manual_review_required' => ['boolean'],
             'show_correct_answers' => ['boolean'],
+            'show_questions_in_result' => ['boolean'],
             'is_published' => ['boolean'],
             'question_ids' => ['nullable', 'array'],
             'question_ids.*' => ['integer', 'exists:quiz_questions,id'],

@@ -21,11 +21,11 @@ class Quiz extends Model
     protected $table = 'quizzes';
 
     protected $fillable = [
-        'uuid', 'quizzable_type', 'quizzable_id', 'title', 'slug', 'description',
+        'uuid', 'quizzable_type', 'quizzable_id', 'title', 'slug', 'description', 'instructions',
         'passing_score', 'passing_percentage', 'time_limit', 'max_attempts',
         'randomize_questions', 'randomize_answers', 'result_display',
         'negative_scoring', 'negative_scoring_factor',
-        'start_at', 'end_at', 'manual_review_required', 'show_correct_answers',
+        'start_at', 'end_at', 'manual_review_required', 'show_correct_answers', 'show_questions_in_result',
         'is_published', 'questions_count', 'total_score', 'settings', 'created_by',
     ];
 
@@ -38,8 +38,10 @@ class Quiz extends Model
         'negative_scoring' => 'boolean',
         'manual_review_required' => 'boolean',
         'show_correct_answers' => 'boolean',
+        'show_questions_in_result' => 'boolean',
         'is_published' => 'boolean',
         'total_score' => 'decimal:2',
+        'max_attempts' => 'integer',
         'settings' => 'array',
         'start_at' => 'datetime',
         'end_at' => 'datetime',
@@ -93,17 +95,36 @@ class Quiz extends Model
 
     public function isAvailable(): bool
     {
+        return $this->scheduleStatus() === 'open';
+    }
+
+    public function scheduleStatus(): string
+    {
+        if (! $this->is_published) {
+            return 'unpublished';
+        }
+        if ($this->start_at && $this->start_at->isFuture()) {
+            return 'not_started';
+        }
+        if ($this->end_at && $this->end_at->isPast()) {
+            return 'ended';
+        }
+
+        return 'open';
+    }
+
+    public function userCanViewAsStudent(User $user): bool
+    {
         if (! $this->is_published) {
             return false;
         }
-        if ($this->start_at && $this->start_at->isFuture()) {
-            return false;
-        }
-        if ($this->end_at && $this->end_at->isPast()) {
-            return false;
+
+        $course = $this->relatedCourse();
+        if ($course === null) {
+            return true;
         }
 
-        return true;
+        return (bool) $user->hasCourse($course);
     }
 
     public function relatedCourse(): ?Course
@@ -143,7 +164,7 @@ class Quiz extends Model
         }
 
         if (! $this->end_at) {
-            return true;
+            return false;
         }
 
         return $this->end_at->isPast();
@@ -155,15 +176,19 @@ class Quiz extends Model
             return false;
         }
 
-        if ($this->result_display === 'after_end' && ! $this->resultsReleased()) {
-            return false;
+        if ($this->result_display === 'immediately') {
+            return $attempt->status === 'completed';
         }
 
-        if ($this->result_display === 'after_review' && $attempt->status !== 'completed') {
-            return false;
+        if ($this->result_display === 'after_end') {
+            return $this->resultsReleased();
         }
 
-        return true;
+        if ($this->result_display === 'after_review') {
+            return $attempt->status === 'completed' && ! $attempt->requires_manual_review;
+        }
+
+        return false;
     }
 
     public function canShowCorrectAnswersForAttempt(QuizAttempt $attempt): bool
@@ -216,6 +241,7 @@ class Quiz extends Model
             'uuid' => $this->uuid,
             'title' => $this->title,
             'description' => $this->description,
+            'instructions' => $this->instructions,
             'questions_count' => (int) $this->questions_count,
             'total_score' => (float) $this->total_score,
             'time_limit' => $this->time_limit,
@@ -227,6 +253,7 @@ class Quiz extends Model
             'start_at' => $this->start_at,
             'end_at' => $this->end_at,
             'is_available' => $this->isAvailable(),
+            'schedule_status' => $this->scheduleStatus(),
         ];
     }
 }

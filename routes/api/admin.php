@@ -221,6 +221,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/course/{courseSlug}/overview', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'overview'])->name('course.overview');
     Route::post('/course/{courseSlug}/users', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'users'])->name('course.users');
     Route::post('/course/{courseSlug}/users/assign', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'assignToUser'])->name('course.users.assign');
+    Route::post('/course/{courseSlug}/users/remove', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'removeFromUser'])->name('course.users.remove');
     Route::post('/course/{courseSlug}/episodes', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'episodes'])->name('course.episodes');
     Route::post('/course/{courseSlug}/episodes/reorder', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'reorderEpisodes'])->name('course.episodes.reorder');
     Route::post('/course/{courseSlug}/comments', [\App\Http\Controllers\Api\Admin\Course\CourseController::class, 'comments'])->name('course.comments');

@@ -44,6 +44,11 @@ class QuizPolicy
         return $quiz->userCanTake($user);
     }
 
+    public function viewForStudent(User $user, Quiz $quiz): bool
+    {
+        return $quiz->userCanViewAsStudent($user);
+    }
+
     public function viewAttempt(User $user, QuizAttempt $attempt): bool
     {
         return $attempt->user_id === $user->id || $this->canManage($user, 'quizzes.view');

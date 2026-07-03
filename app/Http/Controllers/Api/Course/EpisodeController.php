@@ -393,7 +393,7 @@ class EpisodeController extends Controller
 
     protected function quizzesFor(string $type, int $id): array
     {
-        return Quiz::availableNow()
+        return Quiz::published()
             ->where('quizzable_type', $type)
             ->where('quizzable_id', $id)
             ->orderBy('id')

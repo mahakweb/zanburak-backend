@@ -124,6 +124,7 @@ class CourseController extends Controller
         ] : null;
 
         $response = [
+            'id' => $course->id,
             'title' => $course->title,
             'english_title' => $course->english_title,
             'slug' => $course->slug,
@@ -582,6 +583,25 @@ class CourseController extends Controller
 
         return response()->json(['message' => 'Success', 'result' => $result], 200);
     }
+
+    public function removeFromUser(Request $request, Course $course)
+    {
+        $user = User::find($request->input('user_id'));
+        if (! $user) {
+            return response()->json(['message' => 'Error!, user not found.'], 404);
+        }
+
+        if (! $user->courses()->where('courses.id', $course->id)->exists()) {
+            return response()->json([
+                'message' => 'Error! this course is not assigned to this user.',
+            ], 404);
+        }
+
+        $user->courses()->detach($course->id);
+
+        return response()->json(['message' => 'Success, User has been removed from course.'], 200);
+    }
+
     public function episodes(Request $request, $course)
     {
         $sections = $course->section?->load('episode') ?? collect([]);
