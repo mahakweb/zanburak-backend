@@ -569,9 +569,12 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.quizzes.reports.failed',
             'api.admin.quizzes.reports.review-queue',
             'api.admin.quizzes.for-course',
+            'api.admin.quizzes.for-section',
+            'api.admin.quizzes.for-episode',
         ], ['quizzes.reports']);
         $assign([
             'api.admin.quizzes.answers.grade',
+            'api.admin.quizzes.attempts.grade-answers',
             'api.admin.quizzes.attempts.complete-review',
         ], ['quizzes.review']);
         $assign('api.admin.quiz-questions.index', ['quiz_questions.view']);

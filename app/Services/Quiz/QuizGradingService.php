@@ -7,6 +7,9 @@ use App\Models\Quiz\QuizAttempt;
 use App\Models\Quiz\QuizAttemptAnswer;
 use App\Models\Quiz\QuizQuestion;
 use App\Support\Quiz\QuizConstants;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use InvalidArgumentException;
 
 /**
  * Auto-grades all machine-scorable question types.
@@ -123,6 +126,52 @@ class QuizGradingService
         ]);
 
         return $answer;
+    }
+
+    /**
+     * Grade multiple answers of one attempt in a single transaction.
+     *
+     * @param  array<int, array{answer_id:int, is_correct:bool, score?:float|null, comment?:string|null}>  $grades
+     */
+    public function manualGradeAnswers(QuizAttempt $attempt, array $grades): Collection
+    {
+        return DB::transaction(function () use ($attempt, $grades) {
+            $answerIds = collect($grades)->pluck('answer_id')->map(fn ($id) => (int) $id)->unique()->values();
+
+            $answers = QuizAttemptAnswer::query()
+                ->where('attempt_id', $attempt->id)
+                ->whereIn('id', $answerIds)
+                ->get()
+                ->keyBy('id');
+
+            if ($answers->count() !== $answerIds->count()) {
+                throw new InvalidArgumentException('One or more answers do not belong to this attempt.');
+            }
+
+            $graded = collect();
+            foreach ($grades as $item) {
+                $answer = $answers->get((int) $item['answer_id']);
+                $graded->push($this->manualGradeAnswer(
+                    $answer,
+                    (bool) $item['is_correct'],
+                    array_key_exists('score', $item) && $item['score'] !== null ? (float) $item['score'] : null,
+                    $item['comment'] ?? null
+                )->fresh());
+            }
+
+            $attempt->load('answers');
+            $score = max(0, (float) $attempt->answers->sum('score'));
+            $maxScore = (float) $attempt->answers->sum('max_score');
+            $percentage = $maxScore > 0 ? round(($score / $maxScore) * 100, 2) : 0;
+
+            $attempt->update([
+                'score' => $score,
+                'max_score' => $maxScore,
+                'percentage' => $percentage,
+            ]);
+
+            return $graded;
+        });
     }
 
     public function completeManualReview(QuizAttempt $attempt, int $reviewerId): QuizAttempt
@@ -260,12 +309,20 @@ class QuizGradingService
     protected function gradeMatching(QuizQuestion $question, array $payload): bool
     {
         $matches = $payload['matches'] ?? [];
-        $pairs = $question->options->filter(fn ($o) => $o->match_key !== null);
+        $pairs = $question->options->filter(function ($o) {
+            $key = $o->match_key ?? $o->text;
+
+            return $key !== null && $key !== '' && $o->match_value !== null && $o->match_value !== '';
+        });
 
         foreach ($pairs as $option) {
-            $key = (string) $option->id;
+            $optionId = (string) $option->id;
+            $matchKey = (string) ($option->match_key ?? $option->text);
             $expected = $this->normalizeText((string) $option->match_value, $question);
-            $given = $this->normalizeText((string) ($matches[$key] ?? $matches[$option->match_key] ?? ''), $question);
+            $given = $this->normalizeText(
+                (string) ($matches[$optionId] ?? $matches[$matchKey] ?? ''),
+                $question
+            );
 
             if ($given !== $expected) {
                 return false;
@@ -279,7 +336,7 @@ class QuizGradingService
     {
         $order = collect($payload['order'] ?? [])->map(fn ($id) => (int) $id)->values();
         $correct = $question->options
-            ->sortBy('correct_position')
+            ->sortBy(fn ($o) => $o->correct_position ?? $o->position ?? 0)
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->values();

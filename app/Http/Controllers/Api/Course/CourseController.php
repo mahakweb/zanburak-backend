@@ -150,9 +150,17 @@ class CourseController extends Controller
         }
 
         $sectionIds = $course->section->pluck('id');
+        $episodeIds = $course->section->flatMap(fn ($section) => $section->episode->pluck('id'))->values();
+
         $sectionQuizMap = Quiz::published()
             ->where('quizzable_type', Section::class)
             ->whereIn('quizzable_id', $sectionIds)
+            ->get()
+            ->groupBy('quizzable_id');
+
+        $episodeQuizMap = Quiz::published()
+            ->where('quizzable_type', Episode::class)
+            ->whereIn('quizzable_id', $episodeIds)
             ->get()
             ->groupBy('quizzable_id');
 
@@ -164,6 +172,16 @@ class CourseController extends Controller
                     ->values()
                     ->all()
             );
+
+            foreach ($section->episode as $episodeItem) {
+                $episodeItem->setAttribute(
+                    'quizzes',
+                    ($episodeQuizMap->get($episodeItem->id) ?? collect())
+                        ->map(fn (Quiz $quiz) => $quiz->toStudentSummary())
+                        ->values()
+                        ->all()
+                );
+            }
         }
 
         $userCanSeeCourse = app(CourseAvailabilityService::class)->userHasCourseAccess($user, $course);

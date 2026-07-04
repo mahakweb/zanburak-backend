@@ -382,7 +382,10 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
         Route::get('/', [\App\Http\Controllers\Api\Admin\Quiz\QuizController::class, 'index'])->name('index');
         Route::post('/', [\App\Http\Controllers\Api\Admin\Quiz\QuizController::class, 'store'])->name('store');
         Route::get('/for-course/{course}', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'courseOverview'])->name('for-course');
+        Route::get('/for-section/{section}', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'sectionOverview'])->name('for-section');
+        Route::get('/for-episode/{episode}', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'episodeOverview'])->name('for-episode');
         Route::post('/attempt-answers/{answer}/grade', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'gradeAnswer'])->name('answers.grade');
+        Route::post('/attempts/{attempt}/grade-answers', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'gradeAnswers'])->name('attempts.grade-answers');
         Route::post('/attempts/{attempt}/complete-review', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'completeReview'])->name('attempts.complete-review');
         Route::get('/{quiz}/reports/summary', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'summary'])->name('reports.summary');
         Route::get('/{quiz}/reports/passed', [\App\Http\Controllers\Api\Admin\Quiz\QuizReportController::class, 'passed'])->name('reports.passed');

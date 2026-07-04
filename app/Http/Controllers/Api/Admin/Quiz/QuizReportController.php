@@ -33,31 +33,74 @@ class QuizReportController extends Controller
             ? Episode::whereIn('section_id', $sectionIds)->pluck('id')->all()
             : [];
 
-        $quizzes = Quiz::query()
+        $scopes = [
+            [Course::class, [$course->id]],
+        ];
+        if ($sectionIds) {
+            $scopes[] = [Section::class, $sectionIds];
+        }
+        if ($episodeIds) {
+            $scopes[] = [Episode::class, $episodeIds];
+        }
+
+        return response()->json([
+            'message' => 'Success',
+            'quizzes' => $this->mapQuizzes($this->quizzesForScopes($scopes)),
+        ]);
+    }
+
+    public function sectionOverview(Section $section)
+    {
+        $this->authorize('viewAny', Quiz::class);
+
+        $episodeIds = Episode::where('section_id', $section->id)->pluck('id')->all();
+        $scopes = [
+            [Section::class, [$section->id]],
+        ];
+        if ($episodeIds) {
+            $scopes[] = [Episode::class, $episodeIds];
+        }
+
+        return response()->json([
+            'message' => 'Success',
+            'quizzes' => $this->mapQuizzes($this->quizzesForScopes($scopes)),
+        ]);
+    }
+
+    public function episodeOverview(Episode $episode)
+    {
+        $this->authorize('viewAny', Quiz::class);
+
+        $scopes = [
+            [Episode::class, [$episode->id]],
+        ];
+
+        return response()->json([
+            'message' => 'Success',
+            'quizzes' => $this->mapQuizzes($this->quizzesForScopes($scopes)),
+        ]);
+    }
+
+    protected function quizzesForScopes(array $scopes)
+    {
+        return Quiz::query()
             ->with('quizzable')
             ->withCount('attempts')
-            ->where(function ($q) use ($course, $sectionIds, $episodeIds) {
-                $q->where(function ($sub) use ($course) {
-                    $sub->where('quizzable_type', Course::class)
-                        ->where('quizzable_id', $course->id);
-                });
-                if ($sectionIds) {
-                    $q->orWhere(function ($sub) use ($sectionIds) {
-                        $sub->where('quizzable_type', Section::class)
-                            ->whereIn('quizzable_id', $sectionIds);
-                    });
-                }
-                if ($episodeIds) {
-                    $q->orWhere(function ($sub) use ($episodeIds) {
-                        $sub->where('quizzable_type', Episode::class)
-                            ->whereIn('quizzable_id', $episodeIds);
+            ->where(function ($q) use ($scopes) {
+                foreach ($scopes as [$type, $ids]) {
+                    $q->orWhere(function ($sub) use ($type, $ids) {
+                        $sub->where('quizzable_type', $type)
+                            ->whereIn('quizzable_id', $ids);
                     });
                 }
             })
             ->latest()
             ->get();
+    }
 
-        $payload = $quizzes->map(function (Quiz $quiz) {
+    protected function mapQuizzes($quizzes)
+    {
+        return $quizzes->map(function (Quiz $quiz) {
             $type = class_basename($quiz->quizzable_type ?? '');
 
             return [
@@ -79,11 +122,6 @@ class QuizReportController extends Controller
                 'summary' => $this->reports->summary($quiz),
             ];
         });
-
-        return response()->json([
-            'message' => 'Success',
-            'quizzes' => $payload,
-        ]);
     }
 
     public function summary(Quiz $quiz)
@@ -152,6 +190,31 @@ class QuizReportController extends Controller
         );
 
         return response()->json(['message' => 'Answer graded', 'answer' => $answer->fresh()]);
+    }
+
+    public function gradeAnswers(Request $request, QuizAttempt $attempt)
+    {
+        $this->authorize('review', $attempt);
+
+        $data = $request->validate([
+            'grades' => ['required', 'array', 'min:1'],
+            'grades.*.answer_id' => ['required', 'integer', 'distinct'],
+            'grades.*.is_correct' => ['required', 'boolean'],
+            'grades.*.score' => ['nullable', 'numeric', 'min:0'],
+            'grades.*.comment' => ['nullable', 'string'],
+        ]);
+
+        try {
+            $answers = $this->grading->manualGradeAnswers($attempt, $data['grades']);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'message' => 'Answers graded',
+            'answers' => $answers->values(),
+            'attempt' => $attempt->fresh(['user:id,first_name,last_name,username,profile_pic']),
+        ]);
     }
 
     public function completeReview(Request $request, QuizAttempt $attempt)

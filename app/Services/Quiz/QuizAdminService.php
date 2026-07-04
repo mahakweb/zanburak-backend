@@ -127,17 +127,95 @@ class QuizAdminService
     protected function syncOptions(QuizQuestion $question, array $options): void
     {
         foreach ($options as $i => $opt) {
-            $question->options()->create([
-                'text' => $opt['text'] ?? null,
-                'is_correct' => $opt['is_correct'] ?? false,
-                'blank_index' => $opt['blank_index'] ?? null,
-                'match_key' => $opt['match_key'] ?? null,
-                'match_value' => $opt['match_value'] ?? null,
-                'correct_position' => $opt['correct_position'] ?? null,
-                'feedback' => $opt['feedback'] ?? null,
-                'position' => $opt['position'] ?? $i,
-            ]);
+            $row = $this->normalizeOptionRow($question->type, $opt, $i);
+            if ($row === null) {
+                continue;
+            }
+            $question->options()->create($row);
         }
+    }
+
+    protected function normalizeOptionRow(string $type, array $opt, int $index): ?array
+    {
+        $text = isset($opt['text']) ? trim((string) $opt['text']) : '';
+        $matchKey = isset($opt['match_key']) ? trim((string) $opt['match_key']) : '';
+        $matchValue = isset($opt['match_value']) ? trim((string) $opt['match_value']) : '';
+
+        if ($type === 'matching') {
+            $key = $matchKey !== '' ? $matchKey : $text;
+            if ($key === '' || $matchValue === '') {
+                return null;
+            }
+
+            return [
+                'text' => $key,
+                'is_correct' => false,
+                'blank_index' => null,
+                'match_key' => $key,
+                'match_value' => $matchValue,
+                'correct_position' => null,
+                'feedback' => $opt['feedback'] ?? null,
+                'position' => $opt['position'] ?? $index,
+            ];
+        }
+
+        if ($text === '') {
+            return null;
+        }
+
+        if ($type === 'fill_blank') {
+            return [
+                'text' => $text,
+                'is_correct' => true,
+                'blank_index' => array_key_exists('blank_index', $opt) && $opt['blank_index'] !== null
+                    ? (int) $opt['blank_index']
+                    : 0,
+                'match_key' => null,
+                'match_value' => null,
+                'correct_position' => null,
+                'feedback' => $opt['feedback'] ?? null,
+                'position' => $opt['position'] ?? $index,
+            ];
+        }
+
+        if ($type === 'ordering') {
+            return [
+                'text' => $text,
+                'is_correct' => false,
+                'blank_index' => null,
+                'match_key' => null,
+                'match_value' => null,
+                'correct_position' => array_key_exists('correct_position', $opt) && $opt['correct_position'] !== null
+                    ? (int) $opt['correct_position']
+                    : $index,
+                'feedback' => $opt['feedback'] ?? null,
+                'position' => $opt['position'] ?? $index,
+            ];
+        }
+
+        if ($type === 'short_answer') {
+            return [
+                'text' => $text,
+                'is_correct' => true,
+                'blank_index' => null,
+                'match_key' => null,
+                'match_value' => null,
+                'correct_position' => null,
+                'feedback' => $opt['feedback'] ?? null,
+                'position' => $opt['position'] ?? $index,
+            ];
+        }
+
+        return [
+            'text' => $text,
+            'is_correct' => (bool) ($opt['is_correct'] ?? false),
+            'blank_index' => $opt['blank_index'] ?? null,
+            'match_key' => $opt['match_key'] ?? null,
+            'match_value' => $opt['match_value'] ?? null,
+            'correct_position' => $opt['correct_position'] ?? null,
+            'feedback' => $opt['feedback'] ?? null,
+            'position' => $opt['position'] ?? $index,
+        ];
     }
 
     protected function syncTags(QuizQuestion $question, array $tagIds, array $tagNames): void

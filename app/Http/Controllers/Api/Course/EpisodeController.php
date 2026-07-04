@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Course;
 use App\Models\Episode;
 use App\Models\Quiz\Quiz;
+use App\Models\Section;
 use App\Models\VideoView;
 use App\Models\View;
 use App\Services\Course\CourseAvailabilityService;
@@ -271,7 +272,8 @@ class EpisodeController extends Controller
             'course_availability' => $course->availability,
             'course' => $course,
             'episode' => $episode,
-            'quizzes' => $this->quizzesFor(Episode::class, $episode->id),
+            'quizzes' => $this->quizzesForEpisodeContext($episode),
+            'episode_quizzes' => $this->quizzesFor(Episode::class, $episode->id),
             'can_download' => $canDownload,
             'comments_count' => $commentsCount,
             'likes_count' => $likesCount,
@@ -403,5 +405,35 @@ class EpisodeController extends Controller
             ->all();
     }
 
+    protected function quizzesForEpisodeContext(Episode $episode): array
+    {
+        $episode->loadMissing('section.course');
+        $section = $episode->section;
+        $course = $section?->course;
 
+        return Quiz::published()
+            ->where(function ($query) use ($episode, $section, $course) {
+                $query->where(function ($q) use ($episode) {
+                    $q->where('quizzable_type', Episode::class)
+                        ->where('quizzable_id', $episode->id);
+                });
+                if ($section) {
+                    $query->orWhere(function ($q) use ($section) {
+                        $q->where('quizzable_type', Section::class)
+                            ->where('quizzable_id', $section->id);
+                    });
+                }
+                if ($course) {
+                    $query->orWhere(function ($q) use ($course) {
+                        $q->where('quizzable_type', Course::class)
+                            ->where('quizzable_id', $course->id);
+                    });
+                }
+            })
+            ->orderBy('id')
+            ->get()
+            ->map(fn (Quiz $quiz) => $quiz->toStudentSummary())
+            ->values()
+            ->all();
+    }
 }

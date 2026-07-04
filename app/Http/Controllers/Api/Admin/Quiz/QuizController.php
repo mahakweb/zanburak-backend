@@ -21,7 +21,18 @@ class QuizController extends Controller
 
         $query = Quiz::query()
             ->with(['quizzable'])
-            ->when($request->filled('search'), fn ($q) => $q->where('title', 'like', '%'.$request->search.'%'))
+            ->when($request->filled('search'), function ($q) use ($request) {
+                $term = trim((string) $request->input('search'));
+                if ($term === '') {
+                    return;
+                }
+                $like = '%'.mb_strtolower($term, 'UTF-8').'%';
+                $q->where(function ($inner) use ($like) {
+                    $inner->whereRaw('LOWER(title) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(COALESCE(description, \'\')) LIKE ?', [$like])
+                        ->orWhereRaw('LOWER(COALESCE(slug, \'\')) LIKE ?', [$like]);
+                });
+            })
             ->when($request->quizzable_type === 'standalone', fn ($q) => $q->whereNull('quizzable_type'))
             ->when(
                 $request->filled('quizzable_type') && $request->quizzable_type !== 'standalone',
