@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin\Comment;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AppliesContentScope;
 use App\Models\Comment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -10,6 +11,8 @@ use Illuminate\Support\Facades\Log;
 
 class CommentController extends Controller
 {
+    use AppliesContentScope;
+
     /**
      * Get all comments with powerful filters (for admin panel).
      */
@@ -49,8 +52,10 @@ class CommentController extends Controller
 
         if ($viewMode === 'grid' || $withChildren) {
             // Grid view: Get only parent comments with their children
-            $commentsQuery = Comment::where('parent_id', 0)
-                ->with(['commentable', 'user']);
+            $commentsQuery = $this->contentScope()->applyToComments(
+                Comment::where('parent_id', 0)
+                ->with(['commentable', 'user'])
+            );
 
             // Only filter by type if a specific type is selected
             if ($commentable_type !== null) {
@@ -169,7 +174,9 @@ class CommentController extends Controller
             })->values();
         } else {
             // Table view: Get all comments flat (including replies) sorted by time
-            $commentsQuery = Comment::with(['commentable', 'parent.user', 'user']);
+            $commentsQuery = $this->contentScope()->applyToComments(
+                Comment::with(['commentable', 'parent.user', 'user'])
+            );
 
             // Only filter by type if a specific type is selected
             if ($commentable_type !== null) {
@@ -300,6 +307,8 @@ class CommentController extends Controller
         if (!$comment) {
             return response()->json(['message' => 'Comment not found'], 404);
         }
+
+        $this->contentScope()->authorizeAction('comments', 'moderate', $comment);
         
         $wasApproved = $comment->approved;
         $comment->approved = !$comment->approved;
@@ -342,20 +351,17 @@ class CommentController extends Controller
         $comments = Comment::whereIn('id', $ids)->get();
         $affected = 0;
 
-        if ($action === 'delete') {
-            foreach ($comments as $comment) {
+        foreach ($comments as $comment) {
+            if ($action === 'delete') {
+                $this->contentScope()->authorizeAction('comments', 'delete', $comment);
                 $comment->descendants(null)->each(fn (Comment $child) => $child->delete());
                 $comment->delete();
                 $affected++;
+
+                continue;
             }
 
-            return response()->json([
-                'message' => 'Bulk action completed',
-                'affected' => $affected,
-            ]);
-        }
-
-        foreach ($comments as $comment) {
+            $this->contentScope()->authorizeAction('comments', 'moderate', $comment);
             $wasApproved = (bool) $comment->approved;
 
             if ($action === 'approve' && ! $wasApproved) {
@@ -368,6 +374,13 @@ class CommentController extends Controller
                 $comment->save();
                 $affected++;
             }
+        }
+
+        if ($action === 'delete') {
+            return response()->json([
+                'message' => 'Bulk action completed',
+                'affected' => $affected,
+            ]);
         }
 
         return response()->json([
@@ -441,6 +454,11 @@ class CommentController extends Controller
         } else {
             $validData = $validator->validated();
             $parent = Comment::find($request->parent_id);
+            if (! $parent) {
+                return response()->json(['message' => 'Comment not found'], 404);
+            }
+
+            $this->contentScope()->authorizeAction('comments', 'reply', $parent);
 
             $reply = Comment::create([
                 'user_id' => auth('api')->user()->id,
@@ -501,6 +519,8 @@ class CommentController extends Controller
         if (!$comment) {
             return response()->json(['message' => 'Comment not found'], 404);
         }
+
+        $this->contentScope()->authorizeAction('comments', 'moderate', $comment);
 
         $comment->comment = $request->input('comment');
         $comment->save();
@@ -601,6 +621,8 @@ class CommentController extends Controller
             return response()->json(['message' => 'Comment not found'], 404);
         }
 
+        $this->contentScope()->authorizeAction('comments', 'delete', $comment);
+
         // حذف تمام زیرکامنت‌ها (به صورت بازگشتی)
         $comment->descendants(null)->each(function (Comment $child) {
             $child->delete();
@@ -616,21 +638,22 @@ class CommentController extends Controller
     public function stats()
     {
         $today = now()->startOfDay();
+        $baseQuery = fn () => $this->contentScope()->applyToComments(Comment::query());
 
         return response()->json([
             'message' => 'Success',
             'stats' => [
-                'total' => Comment::count(),
-                'pending' => Comment::where('approved', false)->where('parent_id', 0)->count(),
-                'approved' => Comment::where('approved', true)->count(),
-                'replies' => Comment::where('parent_id', '>', 0)->count(),
-                'today' => Comment::where('created_at', '>=', $today)->count(),
-                'this_week' => Comment::where('created_at', '>=', now()->startOfWeek())->count(),
+                'total' => $baseQuery()->count(),
+                'pending' => $baseQuery()->where('approved', false)->where('parent_id', 0)->count(),
+                'approved' => $baseQuery()->where('approved', true)->count(),
+                'replies' => $baseQuery()->where('parent_id', '>', 0)->count(),
+                'today' => $baseQuery()->where('created_at', '>=', $today)->count(),
+                'this_week' => $baseQuery()->where('created_at', '>=', now()->startOfWeek())->count(),
                 'by_type' => [
-                    'course' => Comment::where('commentable_type', \App\Models\Course::class)->count(),
-                    'episode' => Comment::where('commentable_type', \App\Models\Episode::class)->count(),
-                    'path' => Comment::where('commentable_type', \App\Models\Path::class)->count(),
-                    'article' => Comment::where('commentable_type', \App\Models\Article::class)->count(),
+                    'course' => $baseQuery()->where('commentable_type', \App\Models\Course::class)->count(),
+                    'episode' => $baseQuery()->where('commentable_type', \App\Models\Episode::class)->count(),
+                    'path' => $baseQuery()->where('commentable_type', \App\Models\Path::class)->count(),
+                    'article' => $baseQuery()->where('commentable_type', \App\Models\Article::class)->count(),
                 ],
             ],
         ]);

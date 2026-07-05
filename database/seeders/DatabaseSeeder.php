@@ -48,6 +48,9 @@ class DatabaseSeeder extends Seeder
 
             // مرحله 6: قالب‌های گواهینامه
             CertificateTemplateSeeder::class,
+
+            // مرحله 8: داده‌های نمونه برای تست content scoping (چند مدرس / پرداخت / آمار)
+            ContentScopeDemoSeeder::class,
         ]);
     }
 }

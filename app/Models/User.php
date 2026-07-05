@@ -504,6 +504,11 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->is_superuser;
     }
 
+    public function contentScope(): \App\Services\Security\ContentScope
+    {
+        return \App\Services\Security\ContentScope::for($this);
+    }
+
     public function isStaffUser()
     {
         return $this->is_staff;

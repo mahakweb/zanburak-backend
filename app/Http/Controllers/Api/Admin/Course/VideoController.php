@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin\Course;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesAdminCourses;
 use App\Models\Course;
 use App\Models\Episode;
 use Illuminate\Http\Request;
@@ -13,6 +14,8 @@ use App\Services\UploadTokenService;
 
 class VideoController extends Controller
 {
+    use AuthorizesAdminCourses;
+
     public function upload(Request $request)
     {
         $request->validate([
@@ -26,6 +29,8 @@ class VideoController extends Controller
         $courseId = $request->input('course_id');
         $episodeId = $request->input('episode_id');
         $course = Course::findOrFail($courseId);
+        $this->contentScope()->authorizeAction('videos', 'upload', null);
+        $this->authorizeCourse($course, 'view');
 
         if ($episodeId) {
             $episode = Episode::findOrFail($episodeId);
@@ -90,6 +95,12 @@ class VideoController extends Controller
     // Proxy to worker reprocess endpoint for backward compatibility
     public function process(\App\Models\Video $video)
     {
+        $course = $this->resolveVideoCourse($video);
+        if ($course) {
+            $this->contentScope()->authorizeAction('videos', 'process', null);
+            $this->authorizeCourse($course, 'view');
+        }
+
         try {
             $worker = rtrim(config('upload.worker_base_url'), '/');
             $url = $worker . '/api/process/' . $video->id;
@@ -107,6 +118,23 @@ class VideoController extends Controller
     {
         // File removal will be handled by the worker.
         return;
+    }
+
+    protected function resolveVideoCourse(\App\Models\Video $video): ?Course
+    {
+        $video->loadMissing('videoable');
+
+        if ($video->videoable instanceof Course) {
+            return $video->videoable;
+        }
+
+        if ($video->videoable instanceof Episode) {
+            $video->videoable->loadMissing('section.course');
+
+            return $video->videoable->section?->course;
+        }
+
+        return null;
     }
 
 }

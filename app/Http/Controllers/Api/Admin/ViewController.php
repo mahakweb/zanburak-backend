@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AppliesContentScope;
 use App\Models\Course;
 use App\Models\Episode;
 use App\Models\Path;
@@ -19,6 +20,8 @@ use Jenssegers\Agent\Agent;
 
 class ViewController extends Controller
 {
+    use AppliesContentScope;
+
     private const TYPE_MAP = [
         Course::class => [
             'label' => 'دوره',
@@ -69,7 +72,7 @@ class ViewController extends Controller
         $previousFrom = Carbon::parse($dateFrom)->subDays($periodDays)->toDateString();
         $previousTo = Carbon::parse($dateFrom)->subDay()->toDateString();
 
-        $periodQuery = View::query();
+        $periodQuery = $this->scopedViewsQuery();
         $this->applyDateRange($periodQuery, $dateFrom, $dateTo);
         $this->applyTypeFilter($periodQuery, $request);
         $this->applyUserTypeFilter($periodQuery, $request);
@@ -80,11 +83,11 @@ class ViewController extends Controller
         $uniqueUsers = (clone $periodQuery)->whereNotNull('user_id')->distinct('user_id')->count('user_id');
         $uniqueIps = (clone $periodQuery)->whereNotNull('ip_address')->distinct('ip_address')->count('ip_address');
 
-        $todayViews = View::whereDate('created_at', today())->count();
-        $weekViews = View::where('created_at', '>=', now()->subDays(7))->count();
-        $allTimeViews = View::count();
+        $todayViews = $this->scopedViewsQuery()->whereDate('created_at', today())->count();
+        $weekViews = $this->scopedViewsQuery()->where('created_at', '>=', now()->subDays(7))->count();
+        $allTimeViews = $this->scopedViewsQuery()->count();
 
-        $previousQuery = View::query();
+        $previousQuery = $this->scopedViewsQuery();
         $this->applyDateRange($previousQuery, $previousFrom, $previousTo);
         $this->applyTypeFilter($previousQuery, $request);
         $this->applyUserTypeFilter($previousQuery, $request);
@@ -227,12 +230,13 @@ class ViewController extends Controller
                 'geo' => $geoAnalytics,
                 'devices' => $deviceAnalytics,
             ],
+            'capabilities' => $this->contentScope()->dashboardCapabilities(),
         ], 200);
     }
 
     public function index(Request $request)
     {
-        $query = View::query()->with([
+        $query = $this->scopedViewsQuery()->with([
             'user:id,first_name,last_name,username,profile_pic',
         ]);
 

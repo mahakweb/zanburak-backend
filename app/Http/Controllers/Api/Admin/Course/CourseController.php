@@ -21,19 +21,28 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use App\Services\UploadTokenService;
+use App\Services\Course\CategoryAssignmentService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Ip2location\IP2LocationLaravel\Facade\IP2LocationLaravel;
 
 class CourseController extends Controller
 {
+    use AuthorizesAdminCourses;
+
+    public function __construct(
+        protected CategoryAssignmentService $categoryAssignmentService,
+    ) {}
+
     public function courses(Request $request)
     {
-        $query = Course::with([
+        $query = $this->contentScope()->applyToCourses(
+            Course::with([
             'category:id,title,slug,english_title',
             'level:id,title,slug,english_title',
             'status:id,title,slug,english_title',
         ])
+        )
             ->publish($request->input('publish'))
             ->cat($request->input('category'))
             ->type($request->input('type'))
@@ -102,6 +111,8 @@ class CourseController extends Controller
 
     public function baseDetails(Request $request, $course)
     {
+        $this->authorizeCourse($course, 'view');
+
         $categories = $course->category->map(fn($cat) => [
             'id' => $cat->id,
             'title' => $cat->title,
@@ -157,6 +168,8 @@ class CourseController extends Controller
 
     public function overview(Request $request, $course)
     {
+        $this->authorizeCourse($course, 'view');
+
         $teacher = $course->teacher ? [
             'id' => $course->teacher->id,
             'first_name' => $course->teacher->first_name,
@@ -388,6 +401,8 @@ class CourseController extends Controller
 
     public function comments(Request $request, $course)
     {
+        $this->authorizeCourse($course, 'view');
+
         $perPage = (int) $request->input('perPage', 10);
         $page = (int) $request->input('page', 1);
         $approved = $request->input('approved', null);
@@ -486,6 +501,7 @@ class CourseController extends Controller
 
     public function users(Request $request, Course $course)
     {
+        $this->authorizeCourse($course, 'view');
         $perPage = (int) $request->input('perPage', 10);
         $page = (int) $request->input('page', 1);
 
@@ -546,6 +562,8 @@ class CourseController extends Controller
 
     public function assignToUser(Request $request, $course)
     {
+        $this->authorizeCourse($course, 'assign_user');
+
         $user = User::find($request->input('user_id'));
         if (!$user) {
             return response()->json(['message' => 'Error!, user not found.'], 404);
@@ -586,6 +604,8 @@ class CourseController extends Controller
 
     public function removeFromUser(Request $request, Course $course)
     {
+        $this->authorizeCourse($course, 'assign_user');
+
         $user = User::find($request->input('user_id'));
         if (! $user) {
             return response()->json(['message' => 'Error!, user not found.'], 404);
@@ -604,6 +624,8 @@ class CourseController extends Controller
 
     public function episodes(Request $request, $course)
     {
+        $this->authorizeCourse($course, 'view');
+
         $sections = $course->section?->load('episode') ?? collect([]);
 
         $sections = $sections->map(function ($section) {
@@ -642,6 +664,8 @@ class CourseController extends Controller
 
     public function reorderEpisodes(Request $request, Course $course)
     {
+        $this->authorizeCourse($course, 'reorder_episodes');
+
         $request->validate([
             'episodes' => 'required|array',
             'episodes.*.id' => 'required|integer|exists:episodes,id',
@@ -668,6 +692,8 @@ class CourseController extends Controller
     }
     public function store(Request $request)
     {
+        $this->contentScope()->authorizeAction('courses', 'create');
+
         // return $request->all();
         $validator = Validator::make($request->all(), [
             'status_id' => ['required', 'exists:statuses,id'],
@@ -725,7 +751,8 @@ class CourseController extends Controller
             }
 
             $course = $user->addCourse()->create($validData);
-            $course->category()->attach($request['categories']);
+            $manualCategoryIds = is_array($request['categories']) ? $request['categories'] : [];
+            $this->categoryAssignmentService->syncCourseAutomaticCategories($course, $manualCategoryIds);
 
             // Attach paths if provided
             if (!empty($request['paths'])) {
@@ -799,6 +826,8 @@ class CourseController extends Controller
         if (!$course) {
             return response()->json(['message' => 'Error! course not found'], 404);
         }
+
+        $this->authorizeCourse($course, 'update');
 
         $categories = $course->category->map(fn($cat) => [
             'id' => $cat->id,
@@ -908,6 +937,8 @@ class CourseController extends Controller
             return response()->json(['message' => 'Error! Course not found.'], 404);
         }
 
+        $this->authorizeCourse($course, 'update');
+
         $validator = Validator::make($request->all(), [
             'status_id' => ['required', 'exists:statuses,id'],
             'level_id' => ['required', 'exists:levels,id'],
@@ -972,7 +1003,7 @@ class CourseController extends Controller
             }
             
             $course->update($validData);
-            $course->category()->sync($validData['categories']);
+            $this->categoryAssignmentService->syncCourseAutomaticCategories($course, $validData['categories']);
             if (isset($validData['paths'])) {
                 $course->paths()->sync($validData['paths']);
             }
@@ -1005,6 +1036,7 @@ class CourseController extends Controller
             $user = auth('api')->user();
             $validData = $validator->validated();
             $course = Course::findOrFail($request->course_id);
+            $this->authorizeCourse($course, 'update');
             if (!$course) {
                 return response()->json(['message' => 'Error! course not found'], 404);
             }
@@ -1040,6 +1072,8 @@ class CourseController extends Controller
 
     public function removePoster($course)
     {
+        $this->authorizeCourse($course, 'update');
+
         if ($course->poster) {
             $disk = $this->urlDetails($course->poster)['disk'];
             $path = $this->urlDetails($course->poster)['path'];
@@ -1065,6 +1099,7 @@ class CourseController extends Controller
             $user = auth('api')->user();
             $validData = $validator->validated();
             $course = Course::findOrFail($request->course_id);
+            $this->authorizeCourse($course, 'update');
             if (!$course) {
                 return response()->json(['message' => 'Error! course not found'], 404);
             }
@@ -1102,6 +1137,8 @@ class CourseController extends Controller
 
     public function removeAttachedFile($course)
     {
+        $this->authorizeCourse($course, 'update');
+
         $attach = $course->attachs->first();
         if ($attach) {
             $disk = $this->urlDetails($attach->url)['disk'];
@@ -1115,6 +1152,8 @@ class CourseController extends Controller
 
     public function removeTrailer($course)
     {
+        $this->authorizeCourse($course, 'update');
+
         $videos = $course->videos;
         if ($videos) {
             foreach ($videos as $vid) {
@@ -1169,6 +1208,12 @@ class CourseController extends Controller
         $skipped = [];
 
         foreach ($courses as $course) {
+            if (! $this->contentScope()->canCourse($course, 'delete')) {
+                $skipped[] = ['id' => $course->id, 'reason' => 'forbidden'];
+
+                continue;
+            }
+
             try {
                 DB::transaction(function () use ($course) {
                     Cart::where('cartable_type', Course::class)
@@ -1257,6 +1302,8 @@ class CourseController extends Controller
 
     public function getCourseDetails(Request $request, Course $course)
     {
+        $this->authorizeCourse($course, 'view');
+
         // Get pagination parameters
         $dataType = $request->input('data_type', 'overview'); // overview, comments, likes, bookmarks, views, videos, attachments, analytics
         $perPage = (int) $request->input('perPage', 20);
@@ -1840,11 +1887,13 @@ class CourseController extends Controller
             ], 200);
         }
 
-        $courses = Course::query()
+        $courses = $this->contentScope()->applyToCourses(
+            Course::query()
             ->where('title', 'LIKE', "%{$key}%")
             ->orWhere('english_title', 'LIKE', "%{$key}%")
             ->orWhere('slug', 'LIKE', "%{$key}%")
             ->orWhere('short_description', 'LIKE', "%{$key}%")
+        )
             ->limit($limit)
             ->get(['id', 'title', 'english_title', 'slug', 'poster', 'type', 'publish']);
 

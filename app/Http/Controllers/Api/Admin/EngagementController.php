@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AppliesContentScope;
 use App\Models\Answer;
 use App\Models\Article;
 use App\Models\Comment;
@@ -22,6 +23,8 @@ use LaravelInteraction\Bookmark\Bookmark;
 
 class EngagementController extends Controller
 {
+    use AppliesContentScope;
+
     private const LIKE_TYPE_MAP = [
         Course::class => [
             'label' => 'دوره',
@@ -99,13 +102,13 @@ class EngagementController extends Controller
     {
         [$dateFrom, $dateTo, $periodDays, $previousFrom, $previousTo] = $this->resolveDateRange($request);
 
-        $likeQuery = Like::query();
+        $likeQuery = $this->scopedLikesQuery();
         $this->applyDateRange($likeQuery, $dateFrom, $dateTo);
-        $commentQuery = Comment::query();
+        $commentQuery = $this->scopedCommentsQuery();
         $this->applyDateRange($commentQuery, $dateFrom, $dateTo);
-        $viewQuery = View::query();
+        $viewQuery = $this->scopedViewsQuery();
         $this->applyDateRange($viewQuery, $dateFrom, $dateTo);
-        $bookmarkQuery = Bookmark::query();
+        $bookmarkQuery = $this->scopedBookmarksQuery();
         $this->applyDateRange($bookmarkQuery, $dateFrom, $dateTo);
 
         $likesTotal = (clone $likeQuery)->count();
@@ -115,10 +118,10 @@ class EngagementController extends Controller
         $viewsTotal = (clone $viewQuery)->count();
         $bookmarksTotal = (clone $bookmarkQuery)->count();
 
-        $prevLikes = Like::query()->tap(fn ($q) => $this->applyDateRange($q, $previousFrom, $previousTo))->count();
-        $prevComments = Comment::query()->tap(fn ($q) => $this->applyDateRange($q, $previousFrom, $previousTo))->count();
-        $prevViews = View::query()->tap(fn ($q) => $this->applyDateRange($q, $previousFrom, $previousTo))->count();
-        $prevBookmarks = Bookmark::query()->tap(fn ($q) => $this->applyDateRange($q, $previousFrom, $previousTo))->count();
+        $prevLikes = $this->scopedLikesQuery()->tap(fn ($q) => $this->applyDateRange($q, $previousFrom, $previousTo))->count();
+        $prevComments = $this->scopedCommentsQuery()->tap(fn ($q) => $this->applyDateRange($q, $previousFrom, $previousTo))->count();
+        $prevViews = $this->scopedViewsQuery()->tap(fn ($q) => $this->applyDateRange($q, $previousFrom, $previousTo))->count();
+        $prevBookmarks = $this->scopedBookmarksQuery()->tap(fn ($q) => $this->applyDateRange($q, $previousFrom, $previousTo))->count();
 
         $likeDailyRaw = (clone $likeQuery)
             ->select(DB::raw('DATE(created_at) as date'), DB::raw('COUNT(*) as count'))
@@ -202,14 +205,14 @@ class EngagementController extends Controller
                 'unique_like_users' => $uniqueLikeUsers,
                 'unique_comment_users' => $uniqueCommentUsers,
                 'unique_bookmark_users' => $uniqueBookmarkUsers,
-                'likes_all_time' => Like::count(),
-                'comments_all_time' => Comment::count(),
-                'views_all_time' => View::count(),
-                'bookmarks_all_time' => Bookmark::count(),
-                'likes_today' => Like::whereDate('created_at', today())->count(),
-                'comments_today' => Comment::whereDate('created_at', today())->count(),
-                'views_today' => View::whereDate('created_at', today())->count(),
-                'bookmarks_today' => Bookmark::whereDate('created_at', today())->count(),
+                'likes_all_time' => $this->scopedLikesQuery()->count(),
+                'comments_all_time' => $this->scopedCommentsQuery()->count(),
+                'views_all_time' => $this->scopedViewsQuery()->count(),
+                'bookmarks_all_time' => $this->scopedBookmarksQuery()->count(),
+                'likes_today' => $this->scopedLikesQuery()->whereDate('created_at', today())->count(),
+                'comments_today' => $this->scopedCommentsQuery()->whereDate('created_at', today())->count(),
+                'views_today' => $this->scopedViewsQuery()->whereDate('created_at', today())->count(),
+                'bookmarks_today' => $this->scopedBookmarksQuery()->whereDate('created_at', today())->count(),
                 'trend' => [
                     'likes' => $this->compareMetric($likesTotal, $prevLikes),
                     'comments' => $this->compareMetric($commentsTotal, $prevComments),
@@ -226,6 +229,7 @@ class EngagementController extends Controller
                 'top_engaged_content' => $topEngagedContent,
                 'like_ratio' => $likesTotal > 0 ? round(($likesPositive / $likesTotal) * 100, 1) : 0,
             ],
+            'capabilities' => $this->contentScope()->dashboardCapabilities(),
         ], 200);
     }
 
@@ -233,7 +237,7 @@ class EngagementController extends Controller
     {
         [$dateFrom, $dateTo, $periodDays, $previousFrom, $previousTo] = $this->resolveDateRange($request);
 
-        $periodQuery = Like::query();
+        $periodQuery = $this->scopedLikesQuery();
         $this->applyDateRange($periodQuery, $dateFrom, $dateTo);
         $this->applyLikeTypeFilter($periodQuery, $request);
         $this->applyReactionFilter($periodQuery, $request);
@@ -243,7 +247,7 @@ class EngagementController extends Controller
         $dislikesCount = (clone $periodQuery)->where('type', 'dislike')->count();
         $uniqueUsers = (clone $periodQuery)->distinct('user_id')->count('user_id');
 
-        $previousQuery = Like::query();
+        $previousQuery = $this->scopedLikesQuery();
         $this->applyDateRange($previousQuery, $previousFrom, $previousTo);
         $this->applyLikeTypeFilter($previousQuery, $request);
         $this->applyReactionFilter($previousQuery, $request);
@@ -271,9 +275,9 @@ class EngagementController extends Controller
         $stats['dislikes_count'] = $dislikesCount;
         $stats['net_score'] = $likesCount - $dislikesCount;
         $stats['unique_users'] = $uniqueUsers;
-        $stats['today'] = Like::whereDate('created_at', today())->count();
-        $stats['week'] = Like::where('created_at', '>=', now()->subDays(7))->count();
-        $stats['all_time'] = Like::count();
+        $stats['today'] = $this->scopedLikesQuery()->whereDate('created_at', today())->count();
+        $stats['week'] = $this->scopedLikesQuery()->where('created_at', '>=', now()->subDays(7))->count();
+        $stats['all_time'] = $this->scopedLikesQuery()->count();
         $stats['trend'] = [
             'previous_total' => $previousTotal,
             'change' => $total - $previousTotal,
@@ -308,9 +312,9 @@ class EngagementController extends Controller
         [$dateFrom, $dateTo] = array_slice($this->resolveDateRange($request), 0, 2);
         $user = User::query()->findOrFail($request->user_id);
 
-        $likeQuery = Like::query()->where('user_id', $user->id);
+        $likeQuery = $this->scopedLikesQuery()->where('user_id', $user->id);
         $this->applyDateRange($likeQuery, $dateFrom, $dateTo);
-        $bookmarkQuery = Bookmark::query()->where('user_id', $user->id);
+        $bookmarkQuery = $this->scopedBookmarksQuery()->where('user_id', $user->id);
         $this->applyDateRange($bookmarkQuery, $dateFrom, $dateTo);
 
         $likesTotal = (clone $likeQuery)->count();
@@ -377,7 +381,7 @@ class EngagementController extends Controller
 
     public function likeIndex(Request $request)
     {
-        $query = Like::query()->with([
+        $query = $this->scopedLikesQuery()->with([
             'user:id,first_name,last_name,username,profile_pic',
         ]);
 
@@ -415,14 +419,14 @@ class EngagementController extends Controller
     {
         [$dateFrom, $dateTo, $periodDays, $previousFrom, $previousTo] = $this->resolveDateRange($request);
 
-        $periodQuery = Bookmark::query();
+        $periodQuery = $this->scopedBookmarksQuery();
         $this->applyDateRange($periodQuery, $dateFrom, $dateTo);
         $this->applyBookmarkTypeFilter($periodQuery, $request);
 
         $total = (clone $periodQuery)->count();
         $uniqueUsers = (clone $periodQuery)->distinct('user_id')->count('user_id');
 
-        $previousQuery = Bookmark::query();
+        $previousQuery = $this->scopedBookmarksQuery();
         $this->applyDateRange($previousQuery, $previousFrom, $previousTo);
         $this->applyBookmarkTypeFilter($previousQuery, $request);
 
@@ -444,9 +448,9 @@ class EngagementController extends Controller
 
         $stats['total'] = $total;
         $stats['unique_users'] = $uniqueUsers;
-        $stats['today'] = Bookmark::whereDate('created_at', today())->count();
-        $stats['week'] = Bookmark::where('created_at', '>=', now()->subDays(7))->count();
-        $stats['all_time'] = Bookmark::count();
+        $stats['today'] = $this->scopedBookmarksQuery()->whereDate('created_at', today())->count();
+        $stats['week'] = $this->scopedBookmarksQuery()->where('created_at', '>=', now()->subDays(7))->count();
+        $stats['all_time'] = $this->scopedBookmarksQuery()->count();
         $stats['trend'] = [
             'previous_total' => $previousTotal,
             'change' => $total - $previousTotal,
@@ -467,7 +471,7 @@ class EngagementController extends Controller
 
     public function bookmarkIndex(Request $request)
     {
-        $query = Bookmark::query()->with([
+        $query = $this->scopedBookmarksQuery()->with([
             'user:id,first_name,last_name,username,profile_pic',
         ]);
 
@@ -949,7 +953,7 @@ class EngagementController extends Controller
         $results = [];
 
         foreach (self::OVERVIEW_CONTENT_TYPES as $class => $meta) {
-            $likeRows = Like::query()
+            $likeRows = $this->scopedLikesQuery()
                 ->whereDate('created_at', '>=', $dateFrom)
                 ->whereDate('created_at', '<=', $dateTo)
                 ->where(function ($q) use ($class, $meta) {
@@ -960,7 +964,7 @@ class EngagementController extends Controller
                 ->groupBy('likeable_id')
                 ->pluck('count', 'likeable_id');
 
-            $viewRows = View::query()
+            $viewRows = $this->scopedViewsQuery()
                 ->whereDate('created_at', '>=', $dateFrom)
                 ->whereDate('created_at', '<=', $dateTo)
                 ->where(function ($q) use ($class, $meta) {
@@ -971,7 +975,7 @@ class EngagementController extends Controller
                 ->groupBy('viewable_id')
                 ->pluck('count', 'viewable_id');
 
-            $commentRows = Comment::query()
+            $commentRows = $this->scopedCommentsQuery()
                 ->whereDate('created_at', '>=', $dateFrom)
                 ->whereDate('created_at', '<=', $dateTo)
                 ->where(function ($q) use ($class, $meta) {

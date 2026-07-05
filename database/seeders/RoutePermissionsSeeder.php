@@ -146,6 +146,7 @@ class RoutePermissionsSeeder extends Seeder
         $assign('api.admin.payments.export', ['payments.export', 'payments.export.any']);
         $assign('api.admin.payments.details', array_merge($paymentsView, ['payments.details']));
         $assign('api.admin.payments.update-status', ['payments.update_status', 'payments.update_status.any']);
+        $assign('api.admin.payments.update', ['payments.create']);
         $assign('api.admin.payments.delete', ['payments.delete', 'payments.delete.any']);
         $assign('api.admin.payments.create', ['payments.create']);
         $assign('api.admin.payments.search', ['payments.search']);
@@ -163,7 +164,7 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.certificates.search',
             'api.admin.certificates.users',
             'api.admin.certificates.courses',
-        ], ['certificates.view']);
+        ], ['certificates.view', 'courses.view.own']);
         $assign('api.admin.certificates.create', ['certificates.create']);
         $assign('api.admin.certificates.update', ['certificates.update']);
         $assign('api.admin.certificates.issue', ['certificates.create']);
@@ -334,7 +335,7 @@ class RoutePermissionsSeeder extends Seeder
 
         // Courses
         $assign(['api.admin.courses', 'api.admin.course.search'], $coursesList);
-        $assign(['api.admin.course.create', 'api.admin.course.layouts.init'], ['courses.create']);
+        $assign(['api.admin.course.create', 'api.admin.course.layouts.init'], ['courses.create', 'courses.create.own']);
         $assign(['api.admin.course.edit', 'api.admin.course.update'], $coursesUpdate);
         $assign('api.admin.course.delete', $coursesDelete);
         $assign([
@@ -514,6 +515,7 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.sales-report.analytics',
             'api.admin.sales-report.export',
         ], array_merge($paymentsView, ['payments.stats', 'analytics.view']));
+        $coursesView = ['courses.view', 'courses.view.own', 'courses.view.any', 'courses.overview.view'];
         $assign([
             'api.admin.views.index',
             'api.admin.views.stats',
@@ -524,7 +526,7 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.likes.index',
             'api.admin.bookmarks.stats',
             'api.admin.bookmarks.index',
-        ], ['analytics.view']);
+        ], array_merge(['analytics.view'], $coursesView));
         $assign([
             'api.admin.user-activity-report.index',
             'api.admin.user-activity-report.stats',

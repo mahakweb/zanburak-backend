@@ -61,7 +61,7 @@ class CertificateIssuanceService
         return $certificate->fresh(['template', 'course']);
     }
 
-    public function issueManually(User $user, Course $course, ?float $grade = null, ?int $timeCompleted = null): Certificate
+    public function issueManually(User $user, Course $course, ?float $grade = null, ?int $timeCompleted = null, ?int $templateId = null): Certificate
     {
         $existing = Certificate::where('user_id', $user->id)
             ->where('course_id', $course->id)
@@ -69,11 +69,11 @@ class CertificateIssuanceService
             ->first();
 
         if ($existing) {
-            return $this->finalizeIssuance($existing, $course, $grade, $timeCompleted);
+            return $this->finalizeIssuance($existing, $course, $grade, $timeCompleted, $templateId);
         }
 
         $course->loadMissing('teacher');
-        $template = $this->resolveTemplate($course);
+        $template = $this->resolveTemplateForIssuance($course, $templateId);
 
         do {
             $uuid = (string) Str::uuid();
@@ -103,9 +103,9 @@ class CertificateIssuanceService
         return $certificate->fresh(['template', 'course']);
     }
 
-    public function finalizeIssuance(Certificate $certificate, Course $course, ?float $grade, ?int $timeCompleted): Certificate
+    public function finalizeIssuance(Certificate $certificate, Course $course, ?float $grade, ?int $timeCompleted, ?int $templateId = null): Certificate
     {
-        $template = $this->resolveTemplate($course);
+        $template = $this->resolveTemplateForIssuance($course, $templateId, $certificate);
         $updates = [
             'issued_at' => $certificate->issued_at ?? now(),
             'status' => 'issued',
@@ -121,7 +121,9 @@ class CertificateIssuanceService
         if ($timeCompleted !== null) {
             $updates['time_completed'] = $timeCompleted;
         }
-        if ($template && ! $certificate->certificate_template_id) {
+        if ($templateId !== null) {
+            $updates['certificate_template_id'] = $template?->id;
+        } elseif ($template && ! $certificate->certificate_template_id) {
             $updates['certificate_template_id'] = $template->id;
         }
 
@@ -193,5 +195,22 @@ class CertificateIssuanceService
         return CertificateTemplate::where('is_default', true)
             ->where('is_active', true)
             ->first();
+    }
+
+    public function resolveTemplateForIssuance(Course $course, ?int $templateId = null, ?Certificate $certificate = null): ?CertificateTemplate
+    {
+        if ($templateId !== null) {
+            return CertificateTemplate::where('id', $templateId)
+                ->where('is_active', true)
+                ->first();
+        }
+
+        if ($certificate?->certificate_template_id) {
+            return CertificateTemplate::where('id', $certificate->certificate_template_id)
+                ->where('is_active', true)
+                ->first();
+        }
+
+        return $this->resolveTemplate($course);
     }
 }

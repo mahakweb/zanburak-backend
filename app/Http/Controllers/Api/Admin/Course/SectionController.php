@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin\Course;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesAdminCourses;
 use App\Models\Course;
 use App\Models\Section;
 use Illuminate\Http\Request;
@@ -12,8 +13,12 @@ use Illuminate\Validation\Rule;
 
 class SectionController extends Controller
 {
+    use AuthorizesAdminCourses;
+
     public function createSection(Request $request, $course)
     {
+        $this->authorizeCourse($course, 'update');
+
         $user = auth('api')->user();
         $validator = Validator::make($request->all(), [
             'title' => ['required', 'min:5', 'max:255'],
@@ -35,6 +40,8 @@ class SectionController extends Controller
 
     public function editSection(Request $request, $course, Section $section)
     {
+        $this->authorizeCourse($course, 'update');
+
         if ($course->id != $section->course_id) {
             return response()->json(['message' => 'error! this section not belong to selected course'], 422);
         }
@@ -60,6 +67,8 @@ class SectionController extends Controller
 
     public function deleteSection(Request $request, $course, Section $section)
     {
+        $this->authorizeCourse($course, 'update');
+
         if ($course->id != $section->course_id) {
             return response()->json(['message' => 'error! this section not belong to selected course'], 422);
         }

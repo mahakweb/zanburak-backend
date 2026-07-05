@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin\Course;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesAdminCourses;
 use App\Models\Course;
 use App\Models\Section;
 use App\Models\Episode;
@@ -17,10 +18,12 @@ use Ip2location\IP2LocationLaravel\Facade\IP2LocationLaravel;
 
 class EpisodeController extends Controller
 {
+    use AuthorizesAdminCourses;
 
 
     public function createEpisodeData(Course $course)
     {
+        $this->authorizeCourse($course, 'view');
         $course->load([
             'section.episode' => function ($query) {
                 $query->select('id', 'section_id', 'title', 'slug', 'order')->orderBy('order');
@@ -59,6 +62,8 @@ class EpisodeController extends Controller
 
     public function getEpisodeForEdit(Course $course, Section $section, Episode $episode)
     {
+        $this->contentScope()->authorizeAction('episodes', 'edit', $episode);
+
         // Verify the episode belongs to the section and course
         if ($episode->section_id !== $section->id || $section->course_id !== $course->id) {
             return response()->json(['message' => 'Episode not found in this course section'], 404);
@@ -152,6 +157,9 @@ class EpisodeController extends Controller
 
     public function createNullEpisode(Request $request, Course $course)
     {
+        $this->contentScope()->authorizeAction('episodes', 'create', null);
+        $this->authorizeCourse($course, 'view');
+
         $validator = Validator::make($request->all(), [
             'order' => ['required', 'numeric'],
             'section_id' => ['required', "exists:sections,id"],
@@ -184,6 +192,8 @@ class EpisodeController extends Controller
 
     public function updateEpisode(Request $request, Course $course)
     {
+        $this->authorizeCourse($course, 'view');
+
         $validator = Validator::make($request->all(), [
             'title' => ['required', 'min:5', 'max:255'],
             'english_title' => ['required', 'min:5', 'max:255', 'regex:/^[~`!@#$%^&*()_+=[\]\\{}|;":",.\/<>?a-zA-Z0-9- ]+$/'],
@@ -312,6 +322,8 @@ class EpisodeController extends Controller
 
     public function uploadAttachedFile(Request $request, Course $course)
     {
+        $this->authorizeCourse($course, 'view');
+
         $validator = Validator::make($request->all(), [
             'episode_id' => ['required', 'exists:episodes,id'],
             'filename' => ['required', 'string'],
@@ -429,6 +441,8 @@ class EpisodeController extends Controller
 
     public function deleteEpisode(Request $request, Course $course, Episode $episode)
     {
+        $this->contentScope()->authorizeAction('episodes', 'delete', $episode);
+
         // Verify the episode belongs to the course
         if ($episode->section->course_id != $course->id) {
             return response()->json(['message' => 'error! this episode not belong to selected course'], 422);
@@ -445,6 +459,7 @@ class EpisodeController extends Controller
 
     public function getEpisodeDetails(Request $request, Course $course, Episode $episode)
     {
+        $this->authorizeCourse($course, 'view');
         // Verify the episode belongs to the course
         if ($episode->section->course_id != $course->id) {
             return response()->json(['message' => 'error! this episode not belong to selected course'], 422);
@@ -966,6 +981,8 @@ class EpisodeController extends Controller
 
     public function episodeStatus(Request $request, Course $course)
     {
+        $this->authorizeCourse($course, 'view');
+
         $validator = Validator::make($request->all(), [
             'episode_id' => ['required', 'exists:episodes,id'],
             'publish' => ['nullable', 'boolean'],

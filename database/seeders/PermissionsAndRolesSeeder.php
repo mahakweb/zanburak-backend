@@ -126,6 +126,7 @@ class PermissionsAndRolesSeeder extends Seeder
             ['name' => 'courses.view', 'label' => 'مشاهده دوره‌ها', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'courses.list', 'label' => 'لیست دوره‌ها', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'courses.create', 'label' => 'ایجاد دوره', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'courses.create.own', 'label' => 'ایجاد دوره (خود)', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'courses.update', 'label' => 'ویرایش دوره', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'courses.delete', 'label' => 'حذف دوره', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'courses.publish', 'label' => 'انتشار دوره', 'created_at' => $now, 'updated_at' => $now],
@@ -467,6 +468,7 @@ class PermissionsAndRolesSeeder extends Seeder
             ],
 
             'security_admin' => [
+                'dashboard.view',
                 'users.view',
                 'users.create',
                 'users.update',
@@ -487,12 +489,14 @@ class PermissionsAndRolesSeeder extends Seeder
             ],
 
             'user_admin' => [
+                'dashboard.view',
                 'users.*',              
                 'users.sessions.*',    
                 'admin.search_user',    
             ],
 
             'user_manager' => [
+                'dashboard.view',
                 'users.view',
                 'users.create',
                 'users.update',
@@ -506,12 +510,14 @@ class PermissionsAndRolesSeeder extends Seeder
             ],
 
             'user_viewer' => [
+                'dashboard.view',
                 'users.view',
                 'users.sessions.view',
                 'admin.search_user',
             ],
 
             'user_support' => [
+                'dashboard.view',
                 'users.view',
                 'users.sessions.view',
                 'users.sessions.terminate',
@@ -520,19 +526,26 @@ class PermissionsAndRolesSeeder extends Seeder
             ],
 
             'content_admin' => [
+                'dashboard.view',
                 'articles.*',
+                'articles.view.any',
+                'articles.list.any',
                 'admin.search_user',
                 'categories.*',
                 'uploads.image.editor',
+                'comments.view.any',
+                'comments.article.view.any',
             ],
 
             'content_publisher' => [
                 'articles.publish',
                 'articles.unpublish',
                 'articles.publish.own',
+                'articles.publish.any',
             ],
 
             'course_manager' => [
+                'dashboard.view',
                 'courses.view',
                 'courses.list',
                 'courses.create',
@@ -544,13 +557,35 @@ class PermissionsAndRolesSeeder extends Seeder
                 'courses.reorder_episodes',
                 'courses.overview.view',
                 'courses.comments.manage',
+                'courses.comments.view',
+                'courses.view.any',
+                'courses.list.any',
+                'courses.update.any',
+                'courses.delete.any',
+                'courses.publish.any',
+                'courses.assign_user.any',
+                'courses.reorder_episodes.any',
                 'episodes.*',
                 'videos.*',
                 'quizzes.*',
                 'quiz_questions.*',
+                'comments.view',
+                'comments.view.any',
+                'comments.moderate',
+                'comments.moderate.any',
+                'comments.reply.any',
+                'comments.delete.any',
+                'comments.course.view.any',
+                'comments.episode.view.any',
             ],
 
             'course_manager_all' => [
+                'dashboard.view',
+                'courses.view',
+                'courses.list',
+                'courses.create',
+                'courses.overview.view',
+                'courses.comments.view',
                 'courses.view.any',
                 'courses.list.any',
                 'courses.update.any',
@@ -562,14 +597,24 @@ class PermissionsAndRolesSeeder extends Seeder
                 'episodes.edit.any',
                 'episodes.delete.any',
                 'episodes.reorder.any',
+                'episodes.get_for_edit',
+                'episodes.upload_file',
+                'episodes.status',
                 'videos.upload.any',
                 'videos.process.any',
                 'quizzes.*',
                 'quiz_questions.*',
+                'comments.view.any',
+                'comments.course.view.any',
+                'comments.episode.view.any',
             ],
 
             'course_manager_own' => [
+                'dashboard.view',
                 'courses.view.own',
+                'courses.create.own',
+                'courses.list',
+                'courses.overview.view',
                 'courses.update.own',
                 'courses.delete.own',
                 'courses.publish.own',
@@ -579,46 +624,94 @@ class PermissionsAndRolesSeeder extends Seeder
                 'episodes.edit.own',
                 'episodes.delete.own',
                 'episodes.reorder.own',
+                'episodes.get_for_edit',
+                'episodes.upload_file',
+                'episodes.status',
                 'videos.upload.own',
                 'videos.process.own',
+                'comments.view.own',
+                'comments.moderate.own',
+                'comments.reply.own',
+                'comments.delete.own',
+                'comments.course.view.own',
+                'comments.course.moderate.own',
+                'comments.course.reply.own',
+                'comments.episode.view.own',
+                'comments.episode.moderate.own',
+                'comments.episode.reply.own',
             ],
 
             'course_viewer_all' => [
+                'dashboard.view',
+                'courses.view',
+                'courses.list',
                 'courses.view.any',
                 'courses.list.any',
                 'courses.overview.view',
                 'courses.comments.view',
+                'comments.view.any',
+                'comments.course.view.any',
+                'comments.episode.view.any',
             ],
 
             'teacher' => [
+                'dashboard.view',
                 'courses.view.own',
+                'courses.create.own',
+                'courses.list',
+                'courses.update.own',
                 'courses.overview.view',
+                'courses.reorder_episodes.own',
                 'episodes.create.own',
                 'episodes.edit.own',
                 'episodes.delete.own',
+                'episodes.reorder.own',
+                'episodes.get_for_edit',
+                'episodes.upload_file',
+                'episodes.status',
                 'videos.upload.own',
                 'videos.process.own',
+                'comments.view.own',
+                'comments.moderate.own',
+                'comments.reply.own',
+                'comments.delete.own',
                 'comments.course.view.own',
+                'comments.course.moderate.own',
                 'comments.course.reply.own',
+                'comments.episode.view.own',
+                'comments.episode.moderate.own',
+                'comments.episode.reply.own',
                 'quizzes.view',
                 'quizzes.create',
                 'quizzes.update',
                 'quizzes.reports',
+                'quizzes.review',
                 'quiz_questions.view',
                 'quiz_questions.create',
                 'quiz_questions.update',
             ],
 
             'teacher_assistant' => [
+                'dashboard.view',
+                'courses.view.own',
+                'courses.overview.view',
                 'episodes.create.own',
                 'episodes.edit.own',
+                'episodes.get_for_edit',
+                'episodes.upload_file',
                 'videos.upload.own',
+                'comments.course.view.own',
                 'comments.course.reply.own',
+                'comments.episode.view.own',
+                'comments.episode.reply.own',
             ],
 
             'teacher_finance_viewer' => [
+                'dashboard.view',
                 'payments.view.own',
                 'payments.stats',
+                'payments.details',
+                'payments.search',
             ],
 
             'student' => [
@@ -646,109 +739,142 @@ class PermissionsAndRolesSeeder extends Seeder
             ],
 
             'community_manager' => [
+                'dashboard.view',
                 'comments.*',
                 'discuss.*',
             ],
 
             'community_viewer' => [
+                'dashboard.view',
                 'comments.view',
+                'comments.view.any',
+                'comments.course.view.any',
+                'comments.episode.view.any',
+                'comments.article.view.any',
                 'discuss.list',
                 'discuss.show',
             ],
 
             'comments_moderator_all' => [
+                'dashboard.view',
+                'comments.view',
                 'comments.view.any',
+                'comments.moderate',
                 'comments.moderate.any',
+                'comments.reply',
                 'comments.reply.any',
                 'comments.delete.any',
+                'comments.course.view.any',
+                'comments.course.moderate.any',
+                'comments.course.reply.any',
+                'comments.course.delete.any',
+                'comments.episode.view.any',
+                'comments.episode.moderate.any',
+                'comments.episode.reply.any',
+                'comments.episode.delete.any',
+                'comments.article.view.any',
+                'comments.article.moderate.any',
+                'comments.article.reply.any',
+                'comments.article.delete.any',
+                'comments.path.view.any',
+                'comments.path.moderate.any',
+                'comments.path.reply.any',
+                'comments.path.delete.any',
             ],
 
             'comments_moderator_own' => [
+                'dashboard.view',
                 'comments.view.own',
                 'comments.moderate.own',
                 'comments.reply.own',
                 'comments.delete.own',
+                'comments.course.view.own',
+                'comments.course.moderate.own',
+                'comments.course.reply.own',
+                'comments.course.delete.own',
+                'comments.episode.view.own',
+                'comments.episode.moderate.own',
+                'comments.episode.reply.own',
+                'comments.episode.delete.own',
+                'comments.article.view.own',
+                'comments.article.moderate.own',
+                'comments.article.reply.own',
+                'comments.article.delete.own',
             ],
 
             'moderator' => [
+                'dashboard.view',
                 'comments.view',
+                'comments.view.any',
                 'comments.moderate',
+                'comments.moderate.any',
                 'comments.reply',
+                'comments.reply.any',
                 'discuss.toggle_pin',
             ],
 
             'support' => [
+                'dashboard.view',
                 'users.view',
                 'payments.view',
+                'payments.view.any',
                 'payments.details',
+                'payments.stats',
                 'payments.search',
                 'chat.messages.view',
                 'chat.messages.send',
             ],
 
             'support_lite' => [
+                'dashboard.view',
                 'users.view',
                 'chat.messages.view',
             ],
 
             'finance_manager' => [
+                'dashboard.view',
                 'payments.*',
+                'payments.view.any',
                 'payments.search',
                 'payments.export',
+                'payments.export.any',
             ],
 
             'payments_auditor' => [
+                'dashboard.view',
                 'payments.view',
+                'payments.view.any',
                 'payments.stats',
+                'payments.details',
+                'payments.export',
                 'payments.export.any',
             ],
 
             'payments_operator' => [
+                'dashboard.view',
+                'payments.view',
+                'payments.view.any',
                 'payments.create',
                 'payments.update_status',
+                'payments.update_status.any',
                 'payments.delete.any',
             ],
 
-            'discount_manager' => [
-                'discounts.*',
-            ],
-            
-            'plan_manager' => [
-                'plans.*',
-            ],
-
-            'discount_analyst' => [
-                'discounts.view',
-                'discounts.show',
-                'discounts.search_eligibility',
-            ],
-
-            'catalog_manager' => [
+            'category_manager' => [
+                'dashboard.view',
                 'categories.*',
+            ],
+            'level_manager' => [
+                'dashboard.view',
                 'levels.*',
+            ],
+            'status_manager' => [
+                'dashboard.view',
                 'statuses.*',
-                'paths.*',
-                'missions.*',
-                'mission-categories.manage',
             ],
-
-            'mission_manager' => [
-                'missions.*',
-                'mission-categories.manage',
-            ],
-
-            'catalog_viewer' => [
-                'categories.view',
-                'levels.view',
-                'statuses.view',
-                'paths.view',
-            ],
-
-            'category_manager' => ['categories.*'],
-            'level_manager' => ['levels.*'],
-            'status_manager' => ['statuses.*'],
 
             'path_manager' => [
+                'dashboard.view',
                 'paths.view',
                 'paths.create',
                 'paths.edit',
@@ -765,16 +891,30 @@ class PermissionsAndRolesSeeder extends Seeder
             ],
 
             'article_viewer_all' => [
+                'dashboard.view',
+                'articles.view',
+                'articles.list',
                 'articles.view.any',
                 'articles.list.any',
                 'articles.overview.view',
                 'articles.comments.view',
                 'articles.stats.view',
+                'comments.article.view.any',
             ],
 
-            'article_manager_all' => ['articles.*', 'admin.search_user'],
+            'article_manager_all' => [
+                'dashboard.view',
+                'articles.*',
+                'articles.view.any',
+                'articles.list.any',
+                'admin.search_user',
+                'comments.article.view.any',
+                'comments.article.moderate.any',
+                'comments.article.reply.any',
+            ],
 
             'article_manager_own' => [
+                'dashboard.view',
                 'articles.view',
                 'articles.view.own',
                 'articles.list',
@@ -782,24 +922,38 @@ class PermissionsAndRolesSeeder extends Seeder
                 'articles.update.own',
                 'articles.delete.own',
                 'articles.publish.own',
+                'articles.overview.view',
                 'uploads.image.editor',
+                'comments.view.own',
+                'comments.article.view.own',
+                'comments.article.moderate.own',
+                'comments.article.reply.own',
+                'comments.article.delete.own',
             ],
 
             'file_manager' => [
+                'dashboard.view',
                 'files.manage',
                 'uploads.image.editor',
             ],
 
             'video_operator' => [
+                'dashboard.view',
                 'videos.upload',
                 'videos.process',
+                'videos.upload.any',
+                'videos.process.any',
                 'videos.key.view',
                 'videos.download.signed',
             ],
 
-            'notification_manager' => ['notifications.*'],
+            'notification_manager' => [
+                'dashboard.view',
+                'notifications.*',
+            ],
 
             'chat_moderator' => [
+                'dashboard.view',
                 'chat.messages.view',
                 'chat.messages.edit',
                 'chat.messages.delete',
@@ -807,30 +961,95 @@ class PermissionsAndRolesSeeder extends Seeder
             ],
 
             'chat_viewer' => [
+                'dashboard.view',
                 'chat.messages.view',
                 'chat.conversations.view',
                 'chat.contacts.view',
             ],
 
             'marketing_manager' => [
+                'dashboard.view',
                 'marketing.manage',
                 'marketing.update',
                 'marketing.view',
             ],
 
-            'marketing_editor' => ['marketing.update'],
-            'marketing_viewer' => ['marketing.view'],
+            'marketing_editor' => [
+                'dashboard.view',
+                'marketing.update',
+            ],
+            'marketing_viewer' => [
+                'dashboard.view',
+                'marketing.view',
+            ],
 
             'seo_manager' => [
+                'dashboard.view',
                 'seo.manage',
                 'seo.update',
                 'seo.view',
             ],
 
-            'seo_editor' => ['seo.update'],
-            'seo_viewer' => ['seo.view'],
+            'seo_editor' => [
+                'dashboard.view',
+                'seo.update',
+            ],
+            'seo_viewer' => [
+                'dashboard.view',
+                'seo.view',
+            ],
 
-            'analytics_viewer' => ['analytics.view'],
+            'analytics_viewer' => [
+                'dashboard.view',
+                'analytics.view',
+            ],
+
+            'editor_uploader' => [
+                'dashboard.view',
+                'uploads.image.editor',
+                'files.manage',
+            ],
+
+            'discount_manager' => [
+                'dashboard.view',
+                'discounts.*',
+            ],
+            
+            'plan_manager' => [
+                'dashboard.view',
+                'plans.*',
+            ],
+
+            'discount_analyst' => [
+                'dashboard.view',
+                'discounts.view',
+                'discounts.show',
+                'discounts.search_eligibility',
+            ],
+
+            'catalog_manager' => [
+                'dashboard.view',
+                'categories.*',
+                'levels.*',
+                'statuses.*',
+                'paths.*',
+                'missions.*',
+                'mission-categories.manage',
+            ],
+
+            'mission_manager' => [
+                'dashboard.view',
+                'missions.*',
+                'mission-categories.manage',
+            ],
+
+            'catalog_viewer' => [
+                'dashboard.view',
+                'categories.view',
+                'levels.view',
+                'statuses.view',
+                'paths.view',
+            ],
         ];
 
         /*

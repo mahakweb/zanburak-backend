@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AppliesContentScope;
 use App\Models\Answer;
 use App\Models\Article;
 use App\Models\Certificate;
@@ -20,6 +21,7 @@ use App\Models\VideoView;
 use App\Models\View;
 use App\Models\Like;
 use App\Support\SqlDialect;
+use App\Services\Security\ContentScope;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Http\Request;
@@ -28,6 +30,8 @@ use LaravelInteraction\Bookmark\Bookmark;
 
 class DashboardController extends Controller
 {
+    use AppliesContentScope;
+
     public function stats(Request $request)
     {
         $dateFrom = $request->input('date_from', now()->subDays(30)->toDateString());
@@ -55,48 +59,63 @@ class DashboardController extends Controller
         }
 
         $groupExpr = fn (string $column) => SqlDialect::groupByPeriod($column, $groupBy);
+        $scope = $this->contentScope();
+        $canGlobalUsers = $scope->canViewGlobalUserMetrics();
 
         // Users
-        $usersDailyRaw = User::whereBetween('created_at', [$start, $end])
-            ->select(DB::raw($groupExpr('created_at').' as grp'), DB::raw('COUNT(*) as count'))
-            ->groupBy('grp')
-            ->orderBy('grp')
-            ->pluck('count', 'grp');
+        if ($canGlobalUsers) {
+            $usersDailyRaw = User::whereBetween('created_at', [$start, $end])
+                ->select(DB::raw($groupExpr('created_at').' as grp'), DB::raw('COUNT(*) as count'))
+                ->groupBy('grp')
+                ->orderBy('grp')
+                ->pluck('count', 'grp');
 
-        $usersDaily = $labelDates->map(fn ($date) => (int) ($usersDailyRaw[$date] ?? 0));
-        $totalUsers = User::count();
-        $activeUsers24h = User::where('last_seen', '>=', now()->subDay())->count();
-        $registrationsInPeriod = $usersDaily->sum();
+            $usersDaily = $labelDates->map(fn ($date) => (int) ($usersDailyRaw[$date] ?? 0));
+            $totalUsers = User::count();
+            $activeUsers24h = User::where('last_seen', '>=', now()->subDay())->count();
+            $registrationsInPeriod = $usersDaily->sum();
+            $recentUsers = User::whereBetween('created_at', [$start, $end])
+                ->latest('id')
+                ->take(8)
+                ->get(['id', 'first_name', 'last_name', 'username', 'profile_pic', 'created_at']);
+        } else {
+            $usersDaily = $this->emptyDailySeries($labelDates);
+            $totalUsers = 0;
+            $activeUsers24h = 0;
+            $registrationsInPeriod = 0;
+            $recentUsers = collect();
+        }
 
         // Comments
-        $commentsDailyRaw = Comment::whereBetween('created_at', [$start, $end])
+        $commentsDailyRaw = $this->scopedCommentsQuery()
+            ->whereBetween('created_at', [$start, $end])
             ->select(DB::raw($groupExpr('created_at').' as grp'), DB::raw('COUNT(*) as count'))
             ->groupBy('grp')
             ->orderBy('grp')
             ->pluck('count', 'grp');
 
         $commentsDaily = $labelDates->map(fn ($date) => (int) ($commentsDailyRaw[$date] ?? 0));
-        $totalComments = Comment::count();
-        $approvedComments = Comment::where('approved', 1)->count();
-        $unapprovedComments = Comment::where('approved', 0)->count();
+        $totalComments = (int) $this->scopedCommentsQuery()->count();
+        $approvedComments = (int) $this->scopedCommentsQuery()->where('approved', 1)->count();
+        $unapprovedComments = (int) $this->scopedCommentsQuery()->where('approved', 0)->count();
         $commentsInPeriod = $commentsDaily->sum();
 
         // Courses
-        $totalCourses = Course::count();
+        $totalCourses = (int) $this->scopedCoursesQuery()->count();
 
         // Payments / Sales (mutually exclusive buckets)
-        $basePayments = Payment::query()->whereBetween('created_at', [$start, $end]);
-        $paidPayments = Payment::query()
+        $basePayments = $this->scopedPaymentsQuery()->whereBetween('created_at', [$start, $end]);
+        $paidPayments = $this->scopedPaymentsQuery()
             ->whereBetween('paid_at', [$start, $end])
             ->where('status', 1)
             ->whereNotNull('paid_at');
-        $expiredPayments = Payment::query()
+        $expiredPayments = $this->scopedPaymentsQuery()
             ->whereBetween('created_at', [$start, $end])
             ->where('status', 0)
             ->whereNull('paid_at')
             ->whereNotNull('expired_at')
             ->where('expired_at', '<', now());
-        $pendingPayments = Payment::query()
+        $pendingPayments = $this->scopedPaymentsQuery()
             ->whereBetween('created_at', [$start, $end])
             ->where('status', 0)
             ->whereNull('paid_at')
@@ -122,7 +141,8 @@ class DashboardController extends Controller
         $paymentsStats['aov'] = $paymentsStats['arpu']; // If each paid payment is an order
 
         // Payment methods breakdown
-        $paymentMethods = Payment::whereBetween('paid_at', [$start, $end])
+        $paymentMethods = $this->scopedPaymentsQuery()
+            ->whereBetween('paid_at', [$start, $end])
             ->where('status', 1)
             ->whereNotNull('paid_at')
             ->select('driver', DB::raw('count(*) as count'), DB::raw('sum(amount) as total'))
@@ -130,7 +150,8 @@ class DashboardController extends Controller
             ->get();
 
         // Daily paid payments (amount)
-        $dailyPaymentsAmountRaw = Payment::whereBetween('paid_at', [$start, $end])
+        $dailyPaymentsAmountRaw = $this->scopedPaymentsQuery()
+            ->whereBetween('paid_at', [$start, $end])
             ->where('status', 1)
             ->whereNotNull('paid_at')
             ->select(DB::raw($groupExpr('paid_at').' as grp'), DB::raw('sum(amount) as total'))
@@ -141,7 +162,8 @@ class DashboardController extends Controller
         $dailyPaymentsAmount = $labelDates->map(fn ($date) => (int) ($dailyPaymentsAmountRaw[$date] ?? 0));
 
         // Daily paid payments (count)
-        $dailyPaymentsCountRaw = Payment::whereBetween('paid_at', [$start, $end])
+        $dailyPaymentsCountRaw = $this->scopedPaymentsQuery()
+            ->whereBetween('paid_at', [$start, $end])
             ->where('status', 1)
             ->whereNotNull('paid_at')
             ->select(DB::raw($groupExpr('paid_at').' as grp'), DB::raw('count(*) as count'))
@@ -152,7 +174,8 @@ class DashboardController extends Controller
         $dailyPaymentsCount = $labelDates->map(fn ($date) => (int) ($dailyPaymentsCountRaw[$date] ?? 0));
 
         // Recent items (limited to period)
-        $recentPayments = Payment::with(['user:id,first_name,last_name,username,profile_pic'])
+        $recentPayments = $this->scopedPaymentsQuery()
+            ->with(['user:id,first_name,last_name,username,profile_pic'])
             ->whereBetween('paid_at', [$start, $end])
             ->where('status', 1)
             ->whereNotNull('paid_at')
@@ -160,19 +183,16 @@ class DashboardController extends Controller
             ->take(10)
             ->get(['id', 'user_id', 'amount', 'discount_amount', 'status', 'driver', 'paid_at', 'created_at']);
 
-        $recentUsers = User::whereBetween('created_at', [$start, $end])
-            ->latest('id')
-            ->take(8)
-            ->get(['id', 'first_name', 'last_name', 'username', 'profile_pic', 'created_at']);
-
-        $recentComments = Comment::with(['user:id,first_name,last_name,username,profile_pic'])
+        $recentComments = $this->scopedCommentsQuery()
+            ->with(['user:id,first_name,last_name,username,profile_pic'])
             ->whereBetween('created_at', [$start, $end])
             ->latest('id')
             ->take(8)
             ->get(['id', 'user_id', 'comment', 'approved', 'created_at']);
 
         // Paying users (unique) in period
-        $uniquePayingUsers = Payment::whereBetween('paid_at', [$start, $end])
+        $uniquePayingUsers = $this->scopedPaymentsQuery()
+            ->whereBetween('paid_at', [$start, $end])
             ->where('status', 1)
             ->whereNotNull('paid_at')
             ->distinct('user_id')
@@ -182,13 +202,15 @@ class DashboardController extends Controller
         $arppu = $uniquePayingUsers > 0 ? (int) floor($paymentsStats['total_amount'] / $uniquePayingUsers) : 0;
 
         // New vs Returning (based on user created_at)
-        $paidUserIds = Payment::whereBetween('paid_at', [$start, $end])
+        $paidUserIds = $this->scopedPaymentsQuery()
+            ->whereBetween('paid_at', [$start, $end])
             ->where('status', 1)
             ->whereNotNull('paid_at')
             ->pluck('user_id')
             ->unique();
         // returning customers are those who had a paid transaction before this period
-        $returningCustomers = Payment::where('status', 1)
+        $returningCustomers = $this->scopedPaymentsQuery()
+            ->where('status', 1)
             ->whereNotNull('paid_at')
             ->where('paid_at', '<', $start)
             ->whereIn('user_id', $paidUserIds)
@@ -204,13 +226,15 @@ class DashboardController extends Controller
         ];
 
         // Revenue breakdown by product type using payment_items
-        $basePaidItems = PaymentItem::query()
+        $basePaidItems = $scope->constrainJoinedPayments(
+            PaymentItem::query()
             ->select('payment_items.payable_type', DB::raw('COUNT(*) as count'), DB::raw('SUM(COALESCE(payment_items.final_price, payment_items.price)) as total'))
             ->join('payments', 'payments.id', '=', 'payment_items.payment_id')
             ->whereBetween('payments.paid_at', [$start, $end])
             ->where('payments.status', 1)
             ->whereNotNull('payments.paid_at')
-            ->groupBy('payment_items.payable_type');
+            ->groupBy('payment_items.payable_type')
+        );
         $revenueByType = $basePaidItems->get()->map(function ($row) {
             $type = 'other';
             if ($row->payable_type === Course::class) $type = 'course';
@@ -220,7 +244,8 @@ class DashboardController extends Controller
         });
 
         // Top products (courses, paths, plans)
-        $topCourses = PaymentItem::query()
+        $topCourses = $scope->constrainJoinedPayments(
+            PaymentItem::query()
             ->select('payment_items.payable_id', DB::raw('SUM(COALESCE(payment_items.final_price, payment_items.price)) as total'), DB::raw('COUNT(*) as count'))
             ->join('payments', 'payments.id', '=', 'payment_items.payment_id')
             ->where('payment_items.payable_type', Course::class)
@@ -230,9 +255,9 @@ class DashboardController extends Controller
             ->groupBy('payment_items.payable_id')
             ->orderByDesc('total')
             ->take(5)
-            ->get()
-            ->map(function ($row) {
-                $course = Course::find($row->payable_id, ['id', 'title', 'slug']);
+        )->get()
+            ->map(function ($row) use ($scope) {
+                $course = $scope->applyToCourses(Course::query()->where('id', $row->payable_id))->first(['id', 'title', 'slug']);
                 return [
                     'id' => $row->payable_id,
                     'title' => $course?->title,
@@ -244,56 +269,63 @@ class DashboardController extends Controller
             ->filter(fn ($x) => !is_null($x['title']))
             ->values();
 
-        $topPaths = PaymentItem::query()
-            ->select('payment_items.payable_id', DB::raw('SUM(COALESCE(payment_items.final_price, payment_items.price)) as total'), DB::raw('COUNT(*) as count'))
-            ->join('payments', 'payments.id', '=', 'payment_items.payment_id')
-            ->where('payment_items.payable_type', Path::class)
-            ->whereBetween('payments.paid_at', [$start, $end])
-            ->where('payments.status', 1)
-            ->whereNotNull('payments.paid_at')
-            ->groupBy('payment_items.payable_id')
-            ->orderByDesc('total')
-            ->take(5)
-            ->get()
-            ->map(function ($row) {
-                $path = Path::find($row->payable_id, ['id', 'title', 'slug']);
-                return [
-                    'id' => $row->payable_id,
-                    'title' => $path?->title,
-                    'slug' => $path?->slug,
-                    'total' => (int) $row->total,
-                    'count' => (int) $row->count,
-                ];
-            })
-            ->filter(fn ($x) => !is_null($x['title']))
-            ->values();
+        $topPaths = $scope->viewScope(ContentScope::ANY) === ContentScope::ANY
+            ? $scope->constrainJoinedPayments(
+                PaymentItem::query()
+                ->select('payment_items.payable_id', DB::raw('SUM(COALESCE(payment_items.final_price, payment_items.price)) as total'), DB::raw('COUNT(*) as count'))
+                ->join('payments', 'payments.id', '=', 'payment_items.payment_id')
+                ->where('payment_items.payable_type', Path::class)
+                ->whereBetween('payments.paid_at', [$start, $end])
+                ->where('payments.status', 1)
+                ->whereNotNull('payments.paid_at')
+                ->groupBy('payment_items.payable_id')
+                ->orderByDesc('total')
+                ->take(5)
+            )->get()
+                ->map(function ($row) {
+                    $path = Path::find($row->payable_id, ['id', 'title', 'slug']);
+                    return [
+                        'id' => $row->payable_id,
+                        'title' => $path?->title,
+                        'slug' => $path?->slug,
+                        'total' => (int) $row->total,
+                        'count' => (int) $row->count,
+                    ];
+                })
+                ->filter(fn ($x) => !is_null($x['title']))
+                ->values()
+            : collect();
 
-        $topPlans = PaymentItem::query()
-            ->select('payment_items.payable_id', DB::raw('SUM(COALESCE(payment_items.final_price, payment_items.price)) as total'), DB::raw('COUNT(*) as count'))
-            ->join('payments', 'payments.id', '=', 'payment_items.payment_id')
-            ->where('payment_items.payable_type', Plan::class)
-            ->whereBetween('payments.paid_at', [$start, $end])
-            ->where('payments.status', 1)
-            ->whereNotNull('payments.paid_at')
-            ->groupBy('payment_items.payable_id')
-            ->orderByDesc('total')
-            ->take(5)
-            ->get()
-            ->map(function ($row) {
-                $plan = Plan::find($row->payable_id, ['id', 'title', 'english_title']);
-                return [
-                    'id' => $row->payable_id,
-                    'title' => $plan?->title,
-                    'english_title' => $plan?->english_title,
-                    'total' => (int) $row->total,
-                    'count' => (int) $row->count,
-                ];
-            })
-            ->filter(fn ($x) => !is_null($x['title']))
-            ->values();
+        $topPlans = $scope->viewScope(ContentScope::ANY) === ContentScope::ANY
+            ? $scope->constrainJoinedPayments(
+                PaymentItem::query()
+                ->select('payment_items.payable_id', DB::raw('SUM(COALESCE(payment_items.final_price, payment_items.price)) as total'), DB::raw('COUNT(*) as count'))
+                ->join('payments', 'payments.id', '=', 'payment_items.payment_id')
+                ->where('payment_items.payable_type', Plan::class)
+                ->whereBetween('payments.paid_at', [$start, $end])
+                ->where('payments.status', 1)
+                ->whereNotNull('payments.paid_at')
+                ->groupBy('payment_items.payable_id')
+                ->orderByDesc('total')
+                ->take(5)
+            )->get()
+                ->map(function ($row) {
+                    $plan = Plan::find($row->payable_id, ['id', 'title', 'english_title']);
+                    return [
+                        'id' => $row->payable_id,
+                        'title' => $plan?->title,
+                        'english_title' => $plan?->english_title,
+                        'total' => (int) $row->total,
+                        'count' => (int) $row->count,
+                    ];
+                })
+                ->filter(fn ($x) => !is_null($x['title']))
+                ->values()
+            : collect();
 
         // Discount usage
-        $discountsUsage = PaymentItem::query()
+        $discountsUsage = $scope->constrainJoinedPayments(
+            PaymentItem::query()
             ->join('payments', 'payments.id', '=', 'payment_items.payment_id')
             ->whereBetween('payments.paid_at', [$start, $end])
             ->where('payments.status', 1)
@@ -303,7 +335,7 @@ class DashboardController extends Controller
             ->groupBy('payment_items.discount_code')
             ->orderByDesc('used_times')
             ->take(5)
-            ->get();
+        )->get();
         $totalDiscountUses = $discountsUsage->sum('used_times');
 
         // Previous period (same length, immediately before current range)
@@ -313,17 +345,20 @@ class DashboardController extends Controller
         $previousFrom = $prevStart->toDateString();
         $previousTo = $prevEnd->toDateString();
 
-        $prevPaidBase = Payment::query()
+        $prevPaidBase = $this->scopedPaymentsQuery()
             ->whereBetween('paid_at', [$prevStart, $prevEnd])
             ->where('status', 1)
             ->whereNotNull('paid_at');
-        $prevTotalPayments = Payment::query()->whereBetween('created_at', [$prevStart, $prevEnd]);
-        $prevRegistrations = (int) User::whereBetween('created_at', [$prevStart, $prevEnd])->count();
-        $prevComments = (int) Comment::whereBetween('created_at', [$prevStart, $prevEnd])->count();
+        $prevTotalPayments = $this->scopedPaymentsQuery()->whereBetween('created_at', [$prevStart, $prevEnd]);
+        $prevRegistrations = $canGlobalUsers
+            ? (int) User::whereBetween('created_at', [$prevStart, $prevEnd])->count()
+            : 0;
+        $prevComments = (int) $this->scopedCommentsQuery()->whereBetween('created_at', [$prevStart, $prevEnd])->count();
         $prevRevenue = (int) (clone $prevPaidBase)->sum('amount');
         $prevPaidCount = (int) (clone $prevPaidBase)->count();
         $prevTotalCount = (int) $prevTotalPayments->count();
-        $prevUniquePaying = (int) Payment::whereBetween('paid_at', [$prevStart, $prevEnd])
+        $prevUniquePaying = (int) $this->scopedPaymentsQuery()
+            ->whereBetween('paid_at', [$prevStart, $prevEnd])
             ->where('status', 1)
             ->whereNotNull('paid_at')
             ->distinct('user_id')
@@ -331,7 +366,7 @@ class DashboardController extends Controller
         $prevConversion = $prevTotalCount > 0 ? round(($prevPaidCount / $prevTotalCount) * 100, 2) : 0;
         $prevAov = $prevPaidCount > 0 ? (int) floor($prevRevenue / $prevPaidCount) : 0;
 
-        $platform = $this->buildPlatformStats($start, $end, $prevStart, $prevEnd, $labelDates, $groupBy);
+        $platform = $this->buildPlatformStats($start, $end, $prevStart, $prevEnd, $labelDates, $groupBy, $scope);
 
         $comparison = array_merge([
             'revenue' => $this->compareMetric((int) $paymentsStats['total_amount'], $prevRevenue),
@@ -354,7 +389,8 @@ class DashboardController extends Controller
             ];
         })->values();
 
-        $prevDailyAmountRaw = Payment::whereBetween('paid_at', [$prevStart, $prevEnd])
+        $prevDailyAmountRaw = $this->scopedPaymentsQuery()
+            ->whereBetween('paid_at', [$prevStart, $prevEnd])
             ->where('status', 1)
             ->whereNotNull('paid_at')
             ->select(DB::raw('DATE(paid_at) as grp'), DB::raw('sum(amount) as total'), DB::raw('count(*) as count'))
@@ -381,14 +417,15 @@ class DashboardController extends Controller
         ];
 
         $currentRevenueByType = $revenueByType->keyBy('type');
-        $prevRevenueByTypeRaw = PaymentItem::query()
+        $prevRevenueByTypeRaw = $scope->constrainJoinedPayments(
+            PaymentItem::query()
             ->select('payment_items.payable_type', DB::raw('SUM(COALESCE(payment_items.final_price, payment_items.price)) as total'))
             ->join('payments', 'payments.id', '=', 'payment_items.payment_id')
             ->whereBetween('payments.paid_at', [$prevStart, $prevEnd])
             ->where('payments.status', 1)
             ->whereNotNull('payments.paid_at')
             ->groupBy('payment_items.payable_type')
-            ->get()
+        )->get()
             ->mapWithKeys(function ($row) {
                 $type = 'other';
                 if ($row->payable_type === Course::class) {
@@ -416,7 +453,8 @@ class DashboardController extends Controller
         })->values();
 
         $weekdayLabels = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنجشنبه', 'جمعه', 'شنبه'];
-        $salesWeekdayRaw = Payment::whereBetween('paid_at', [$start, $end])
+        $salesWeekdayRaw = $this->scopedPaymentsQuery()
+            ->whereBetween('paid_at', [$start, $end])
             ->where('status', 1)
             ->whereNotNull('paid_at')
             ->select(DB::raw(SqlDialect::dayOfWeek('paid_at').' as weekday'), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
@@ -435,7 +473,8 @@ class DashboardController extends Controller
             ];
         })->values();
 
-        $salesHourlyRaw = Payment::whereBetween('paid_at', [$start, $end])
+        $salesHourlyRaw = $this->scopedPaymentsQuery()
+            ->whereBetween('paid_at', [$start, $end])
             ->where('status', 1)
             ->whereNotNull('paid_at')
             ->select(DB::raw(SqlDialect::hour('paid_at').' as hour'), DB::raw('SUM(amount) as total'), DB::raw('COUNT(*) as count'))
@@ -454,10 +493,12 @@ class DashboardController extends Controller
             ];
         })->values();
 
-        $registrationsWeekdayRaw = User::whereBetween('created_at', [$start, $end])
-            ->select(DB::raw(SqlDialect::dayOfWeek('created_at').' as weekday'), DB::raw('COUNT(*) as count'))
-            ->groupBy('weekday')
-            ->pluck('count', 'weekday');
+        $registrationsWeekdayRaw = $canGlobalUsers
+            ? User::whereBetween('created_at', [$start, $end])
+                ->select(DB::raw(SqlDialect::dayOfWeek('created_at').' as weekday'), DB::raw('COUNT(*) as count'))
+                ->groupBy('weekday')
+                ->pluck('count', 'weekday')
+            : collect();
 
         $registrationsByWeekday = collect(range(1, 7))->map(function ($day) use ($registrationsWeekdayRaw, $weekdayLabels) {
             return [
@@ -530,6 +571,7 @@ class DashboardController extends Controller
                     'top_codes' => $discountsUsage,
                 ],
             ],
+            'capabilities' => $scope->dashboardCapabilities(),
             'comparison' => $comparison,
             'platform' => $platform['stats'],
             'analytics' => [
@@ -568,13 +610,21 @@ class DashboardController extends Controller
         Carbon $prevStart,
         Carbon $prevEnd,
         $labelDates,
-        string $groupBy
+        string $groupBy,
+        ContentScope $scope
     ): array {
         $groupExpr = fn (string $column) => SqlDialect::groupByPeriod($column, $groupBy);
+        $canGlobalPlatform = $scope->canViewGlobalPlatformMetrics();
+        $canGlobalUsers = $scope->canViewGlobalUserMetrics();
 
         $viewQuery = View::query()->whereBetween('created_at', [$start, $end]);
         $likeQuery = Like::query()->whereBetween('created_at', [$start, $end]);
         $bookmarkQuery = Bookmark::query()->whereBetween('created_at', [$start, $end]);
+        if (! $canGlobalPlatform) {
+            $viewQuery = $scope->applyToViewableEngagement($viewQuery);
+            $likeQuery = $scope->applyToViewableEngagement($likeQuery);
+            $bookmarkQuery = $bookmarkQuery->whereRaw('1 = 0');
+        }
 
         $viewsTotal = (clone $viewQuery)->count();
         $likesTotal = (clone $likeQuery)->count();
@@ -586,24 +636,34 @@ class DashboardController extends Controller
         $uniqueViewUsers = (clone $viewQuery)->whereNotNull('user_id')->distinct('user_id')->count('user_id');
         $uniqueLikeUsers = (clone $likeQuery)->distinct('user_id')->count('user_id');
 
-        $prevViews = (int) View::whereBetween('created_at', [$prevStart, $prevEnd])->count();
-        $prevLikes = (int) Like::whereBetween('created_at', [$prevStart, $prevEnd])->count();
-        $prevBookmarks = (int) Bookmark::whereBetween('created_at', [$prevStart, $prevEnd])->count();
+        $prevViews = $canGlobalPlatform
+            ? (int) View::whereBetween('created_at', [$prevStart, $prevEnd])->count()
+            : (int) $scope->applyToViewableEngagement(View::query()->whereBetween('created_at', [$prevStart, $prevEnd]))->count();
+        $prevLikes = $canGlobalPlatform
+            ? (int) Like::whereBetween('created_at', [$prevStart, $prevEnd])->count()
+            : (int) $scope->applyToViewableEngagement(Like::query()->whereBetween('created_at', [$prevStart, $prevEnd]))->count();
+        $prevBookmarks = $canGlobalPlatform
+            ? (int) Bookmark::whereBetween('created_at', [$prevStart, $prevEnd])->count()
+            : 0;
 
-        $loginsCount = (int) UserLogin::whereBetween('logged_in_at', [$start, $end])->count();
-        $activeUsers = (int) UserLogin::whereBetween('logged_in_at', [$start, $end])->distinct('user_id')->count('user_id');
-        $videoViewsCount = (int) VideoView::whereBetween('updated_at', [$start, $end])->count();
-        $questionsCount = (int) Question::whereBetween('created_at', [$start, $end])->count();
-        $answersCount = (int) Answer::whereBetween('created_at', [$start, $end])->count();
-        $articlesCount = (int) Article::whereBetween('created_at', [$start, $end])->count();
-        $certificatesCount = (int) Certificate::whereBetween('issued_at', [$start, $end])->count();
+        $loginsCount = $canGlobalUsers ? (int) UserLogin::whereBetween('logged_in_at', [$start, $end])->count() : 0;
+        $activeUsers = $canGlobalUsers ? (int) UserLogin::whereBetween('logged_in_at', [$start, $end])->distinct('user_id')->count('user_id') : 0;
+        $videoViewsCount = (int) $scope->applyToVideoViews(VideoView::query()->whereBetween('updated_at', [$start, $end]))->count();
+        $questionsCount = $canGlobalPlatform ? (int) Question::whereBetween('created_at', [$start, $end])->count() : 0;
+        $answersCount = $canGlobalPlatform ? (int) Answer::whereBetween('created_at', [$start, $end])->count() : 0;
+        $articlesCount = $canGlobalPlatform
+            ? (int) Article::whereBetween('created_at', [$start, $end])->count()
+            : (int) $scope->applyToArticles(Article::query()->whereBetween('created_at', [$start, $end]))->count();
+        $certificatesCount = (int) $scope->applyToCertificates(Certificate::query()->whereBetween('issued_at', [$start, $end]))->count();
 
-        $prevLogins = (int) UserLogin::whereBetween('logged_in_at', [$prevStart, $prevEnd])->count();
-        $prevActiveUsers = (int) UserLogin::whereBetween('logged_in_at', [$prevStart, $prevEnd])->distinct('user_id')->count('user_id');
-        $prevVideoViews = (int) VideoView::whereBetween('updated_at', [$prevStart, $prevEnd])->count();
-        $prevQuestions = (int) Question::whereBetween('created_at', [$prevStart, $prevEnd])->count();
-        $prevAnswers = (int) Answer::whereBetween('created_at', [$prevStart, $prevEnd])->count();
-        $prevArticles = (int) Article::whereBetween('created_at', [$prevStart, $prevEnd])->count();
+        $prevLogins = $canGlobalUsers ? (int) UserLogin::whereBetween('logged_in_at', [$prevStart, $prevEnd])->count() : 0;
+        $prevActiveUsers = $canGlobalUsers ? (int) UserLogin::whereBetween('logged_in_at', [$prevStart, $prevEnd])->distinct('user_id')->count('user_id') : 0;
+        $prevVideoViews = (int) $scope->applyToVideoViews(VideoView::query()->whereBetween('updated_at', [$prevStart, $prevEnd]))->count();
+        $prevQuestions = $canGlobalPlatform ? (int) Question::whereBetween('created_at', [$prevStart, $prevEnd])->count() : 0;
+        $prevAnswers = $canGlobalPlatform ? (int) Answer::whereBetween('created_at', [$prevStart, $prevEnd])->count() : 0;
+        $prevArticles = $canGlobalPlatform
+            ? (int) Article::whereBetween('created_at', [$prevStart, $prevEnd])->count()
+            : (int) $scope->applyToArticles(Article::query()->whereBetween('created_at', [$prevStart, $prevEnd]))->count();
 
         $viewsDailyRaw = (clone $viewQuery)
             ->select(DB::raw($groupExpr('created_at').' as grp'), DB::raw('COUNT(*) as count'))
@@ -617,11 +677,15 @@ class DashboardController extends Controller
         $viewsDaily = $labelDates->map(fn ($date) => (int) ($viewsDailyRaw[$date] ?? 0))->values()->all();
         $likesDaily = $labelDates->map(fn ($date) => (int) ($likesDailyRaw[$date] ?? 0))->values()->all();
 
-        $prevViewsDailyRaw = View::whereBetween('created_at', [$prevStart, $prevEnd])
+        $prevViewsDailyRaw = $scope->applyToViewableEngagement(
+            View::query()->whereBetween('created_at', [$prevStart, $prevEnd])
+        )
             ->select(DB::raw('DATE(created_at) as grp'), DB::raw('COUNT(*) as count'))
             ->groupBy('grp')
             ->pluck('count', 'grp');
-        $prevLikesDailyRaw = Like::whereBetween('created_at', [$prevStart, $prevEnd])
+        $prevLikesDailyRaw = $scope->applyToViewableEngagement(
+            Like::query()->whereBetween('created_at', [$prevStart, $prevEnd])
+        )
             ->select(DB::raw('DATE(created_at) as grp'), DB::raw('COUNT(*) as count'))
             ->groupBy('grp')
             ->pluck('count', 'grp');
@@ -671,15 +735,17 @@ class DashboardController extends Controller
             })
             ->values();
 
-        $periodComments = (int) Comment::whereBetween('created_at', [$start, $end])->count();
+        $periodComments = (int) $scope->applyToComments(Comment::query()->whereBetween('created_at', [$start, $end]))->count();
 
-        $typeComparison = collect([Course::class, Episode::class, Question::class, Article::class])->map(function ($class) use ($viewQuery, $likeQuery, $typeMap, $start, $end) {
+        $typeComparison = collect([Course::class, Episode::class, Question::class, Article::class])->map(function ($class) use ($viewQuery, $likeQuery, $typeMap, $start, $end, $scope) {
             $short = class_basename($class);
             $views = (int) (clone $viewQuery)->where('viewable_type', $class)->count();
             $likes = (int) (clone $likeQuery)->where('likeable_type', $class)->count();
-            $comments = (int) Comment::where('commentable_type', $class)
-                ->whereBetween('created_at', [$start, $end])
-                ->count();
+            $comments = (int) $scope->applyToComments(
+                Comment::query()
+                    ->where('commentable_type', $class)
+                    ->whereBetween('created_at', [$start, $end])
+            )->count();
 
             return [
                 'type' => $short,
@@ -713,9 +779,9 @@ class DashboardController extends Controller
         $likesPer100Views = $viewsTotal > 0 ? round(($likesPositive / $viewsTotal) * 100, 2) : 0;
         $commentsPer100Views = $viewsTotal > 0 ? round(($periodComments / $viewsTotal) * 100, 2) : 0;
 
-        $vipUsers = (int) User::whereHas('plans', fn ($q) => $q->where('plan_user.expired_at', '>', now()))->count();
-        $activeAccounts = (int) User::where('active', true)->count();
-        $inactiveAccounts = (int) User::where('active', false)->count();
+        $vipUsers = $canGlobalUsers ? (int) User::whereHas('plans', fn ($q) => $q->where('plan_user.expired_at', '>', now()))->count() : 0;
+        $activeAccounts = $canGlobalUsers ? (int) User::where('active', true)->count() : 0;
+        $inactiveAccounts = $canGlobalUsers ? (int) User::where('active', false)->count() : 0;
 
         $activityDistribution = [
             'labels' => ['بازدید', 'لایک', 'کامنت', 'بوکمارک', 'لاگین', 'تماشای ویدیو', 'سوال', 'پاسخ', 'مقاله'],
@@ -756,17 +822,19 @@ class DashboardController extends Controller
             'activity_distribution' => $activityDistribution,
             'stats' => [
                 'content' => [
-                    'courses' => Course::count(),
-                    'paths' => Path::count(),
-                    'episodes' => Episode::count(),
-                    'questions' => Question::count(),
-                    'articles' => Article::count(),
-                    'plans' => Plan::count(),
-                    'certificates' => Certificate::count(),
+                    'courses' => (int) $scope->applyToCourses(Course::query())->count(),
+                    'paths' => $canGlobalPlatform ? Path::count() : 0,
+                    'episodes' => $canGlobalPlatform
+                        ? Episode::count()
+                        : (int) Episode::query()->whereHas('section.course', fn ($q) => $q->where('teacher_id', auth()->id()))->count(),
+                    'questions' => $canGlobalPlatform ? Question::count() : 0,
+                    'articles' => (int) $scope->applyToArticles(Article::query())->count(),
+                    'plans' => $canGlobalPlatform ? Plan::count() : 0,
+                    'certificates' => (int) $scope->applyToCertificates(Certificate::query())->count(),
                 ],
                 'engagement' => [
                     'views' => $viewsTotal,
-                    'views_today' => (int) View::whereDate('created_at', today())->count(),
+                    'views_today' => (int) $scope->applyToViewableEngagement(View::query()->whereDate('created_at', today()))->count(),
                     'guest_views' => $guestViews,
                     'authenticated_views' => $authViews,
                     'likes' => $likesTotal,
@@ -802,7 +870,7 @@ class DashboardController extends Controller
                     'comments_per_100_views' => $commentsPer100Views,
                 ],
                 'moderation' => [
-                    'unapproved_comments' => (int) Comment::where('approved', 0)->count(),
+                    'unapproved_comments' => (int) $scope->applyToComments(Comment::query()->where('approved', 0))->count(),
                 ],
                 'top_viewed' => $topViewed,
             ],
@@ -915,7 +983,9 @@ class DashboardController extends Controller
 
     public function unapprovedCommentsCount()
     {
-        $count = Comment::where('approved', 0)->count();
+        $count = $this->contentScope()->applyToComments(
+            Comment::where('approved', 0)
+        )->count();
         
         return response()->json([
             'message' => 'Success',

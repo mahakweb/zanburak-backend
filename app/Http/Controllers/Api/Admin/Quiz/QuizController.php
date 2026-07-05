@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin\Quiz;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AppliesContentScope;
 use App\Models\Quiz\Quiz;
 use App\Models\Quiz\QuizAttempt;
 use App\Services\Quiz\QuizAdminService;
@@ -13,14 +14,18 @@ use App\Support\Quiz\QuizConstants;
 
 class QuizController extends Controller
 {
+    use AppliesContentScope;
+
     public function __construct(protected QuizAdminService $admin) {}
 
     public function index(Request $request)
     {
         $this->authorize('viewAny', Quiz::class);
 
-        $query = Quiz::query()
+        $query = $this->contentScope()->applyToQuizzes(
+            Quiz::query()
             ->with(['quizzable'])
+        )
             ->when($request->filled('search'), function ($q) use ($request) {
                 $term = trim((string) $request->input('search'));
                 if ($term === '') {
@@ -47,6 +52,7 @@ class QuizController extends Controller
         $quizzes = $query->latest()->paginate((int) $request->input('perPage', 20));
 
         $pendingReview = QuizAttempt::query()
+            ->whereIn('quiz_id', $this->contentScope()->applyToQuizzes(Quiz::query())->select('id'))
             ->where('requires_manual_review', true)
             ->whereIn('status', ['grading', 'submitted'])
             ->count();

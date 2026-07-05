@@ -23,13 +23,15 @@ class DiscountController extends Controller
      */
     public function index(Request $request)
     {
-        $perPage = $request->get('perPage', 5);
+        $perPage = (int) $request->get('perPage', 10);
         $search = $request->get('search');
         $status = $request->get('status');
+        $type = $request->get('type');
+        $validity = $request->get('validity');
+        $sort = $request->get('sort', 'newest');
 
-        $query = Discount::query()->with(['eligibilities', 'conditions', 'usages']);
+        $query = Discount::query()->with(['eligibilities', 'conditions'])->withCount('usages');
 
-        // Apply search filter
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('code', 'LIKE', "%{$search}%")
@@ -37,7 +39,6 @@ class DiscountController extends Controller
             });
         }
 
-        // Apply status filter
         if ($status && $status !== 'all') {
             if ($status === 'active') {
                 $query->where('is_active', true);
@@ -46,7 +47,48 @@ class DiscountController extends Controller
             }
         }
 
-        $discounts = $query->orderBy('created_at', 'desc')->paginate($perPage);
+        if ($type && $type !== 'all') {
+            $query->where('type', $type);
+        }
+
+        if ($validity && $validity !== 'all') {
+            $now = now();
+            if ($validity === 'valid') {
+                $query->where(function ($q) use ($now) {
+                    $q->where(function ($q2) use ($now) {
+                        $q2->whereNull('starts_at')->orWhere('starts_at', '<=', $now);
+                    })->where(function ($q2) use ($now) {
+                        $q2->whereNull('ends_at')->orWhere('ends_at', '>=', $now);
+                    });
+                });
+            } elseif ($validity === 'expired') {
+                $query->whereNotNull('ends_at')->where('ends_at', '<', $now);
+            } elseif ($validity === 'upcoming') {
+                $query->whereNotNull('starts_at')->where('starts_at', '>', $now);
+            } elseif ($validity === 'no_expiry') {
+                $query->whereNull('ends_at');
+            }
+        }
+
+        switch ($sort) {
+            case 'oldest':
+                $query->orderBy('created_at', 'asc');
+                break;
+            case 'code_asc':
+                $query->orderBy('code', 'asc');
+                break;
+            case 'code_desc':
+                $query->orderBy('code', 'desc');
+                break;
+            case 'usage_desc':
+                $query->orderBy('usages_count', 'desc');
+                break;
+            default:
+                $query->orderBy('created_at', 'desc');
+                break;
+        }
+
+        $discounts = $query->paginate($perPage);
 
         return response()->json([
             'message' => 'Success',

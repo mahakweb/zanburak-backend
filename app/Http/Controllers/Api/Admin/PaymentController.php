@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AppliesContentScope;
 use App\Models\Payment;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentItem;
@@ -14,6 +15,8 @@ use Illuminate\Support\Str;
 
 class PaymentController extends Controller
 {
+    use AppliesContentScope;
+
     protected PaymentService $paymentService;
 
     public function __construct(PaymentService $paymentService)
@@ -25,13 +28,15 @@ class PaymentController extends Controller
      */
     public function payments(Request $request)
     {
-        $query = Payment::with([
+        $query = $this->contentScope()->applyToPayments(
+            Payment::with([
             'user:id,first_name,last_name,username,email,profile_pic',
             'items.payable',
             'attempts' => function($q) {
                 $q->latest();
             }
-        ]);
+        ])
+        );
 
         // Apply filters
         if ($request->filled('status')) {
@@ -214,6 +219,8 @@ class PaymentController extends Controller
             }
         ])->where('uuid', $uuid)->firstOrFail();
 
+        $this->contentScope()->authorizePayment($payment, 'view');
+
         $paymentData = [
             'id' => $payment->id,
             'uuid' => $payment->uuid,
@@ -223,6 +230,7 @@ class PaymentController extends Controller
             'discount_amount' => $payment->discount_amount,
             'discount_code' => $payment->discount_code,
             'driver' => $payment->driver,
+            'payment_method' => $payment->payment_method,
             'status' => $payment->status,
             'paid_at' => $payment->paid_at,
             'expired_at' => $payment->expired_at,
@@ -328,6 +336,8 @@ class PaymentController extends Controller
         ]);
 
         $payment = Payment::where('uuid', $uuid)->firstOrFail();
+        $this->contentScope()->authorizePayment($payment, 'update');
+
         $oldStatus = (bool) $payment->status;
 
         $payment->update([
@@ -388,14 +398,18 @@ class PaymentController extends Controller
         $dateFrom = $request->input('date_from', now()->subDays(30)->format('Y-m-d'));
         $dateTo = $request->input('date_to', now()->format('Y-m-d'));
 
+        $scoped = fn () => $this->contentScope()->applyToPayments(
+            Payment::query()->whereBetween('created_at', [$dateFrom, $dateTo])
+        );
+
         $stats = [
-            'total_payments' => Payment::whereBetween('created_at', [$dateFrom, $dateTo])->count(),
-            'paid_payments' => Payment::whereBetween('created_at', [$dateFrom, $dateTo])
+            'total_payments' => $scoped()->count(),
+            'paid_payments' => $scoped()
                 ->where('status', 1)
                 ->whereNotNull('paid_at')
                 ->count(),
                 // pending excludes expired
-                'pending_payments' => Payment::whereBetween('created_at', [$dateFrom, $dateTo])
+                'pending_payments' => $scoped()
                     ->where('status', 0)
                     ->whereNull('paid_at')
                     ->where(function ($q) {
@@ -403,22 +417,22 @@ class PaymentController extends Controller
                           ->orWhere('expired_at', '>=', now());
                     })
                     ->count(),
-            'expired_payments' => Payment::whereBetween('created_at', [$dateFrom, $dateTo])
+            'expired_payments' => $scoped()
                 ->where('status', 0)
                 ->where('expired_at', '<', now())
                 ->count(),
-            'total_amount' => Payment::whereBetween('created_at', [$dateFrom, $dateTo])
+            'total_amount' => $scoped()
                 ->where('status', 1)
                 ->whereNotNull('paid_at')
                 ->sum('amount'),
-            'total_discount' => Payment::whereBetween('created_at', [$dateFrom, $dateTo])
+            'total_discount' => $scoped()
                 ->where('status', 1)
                 ->whereNotNull('paid_at')
                 ->sum('discount_amount'),
         ];
 
         // Payment methods breakdown
-        $paymentMethods = Payment::whereBetween('created_at', [$dateFrom, $dateTo])
+        $paymentMethods = $scoped()
             ->where('status', 1)
             ->whereNotNull('paid_at')
             ->select('driver', DB::raw('count(*) as count'), DB::raw('sum(amount) as total'))
@@ -428,7 +442,7 @@ class PaymentController extends Controller
         $stats['payment_methods'] = $paymentMethods;
 
         // Daily payments for chart
-        $dailyPayments = Payment::whereBetween('created_at', [$dateFrom, $dateTo])
+        $dailyPayments = $scoped()
             ->where('status', 1)
             ->whereNotNull('paid_at')
             ->select(DB::raw('DATE(created_at) as date'), DB::raw('count(*) as count'), DB::raw('sum(amount) as total'))
@@ -454,6 +468,7 @@ class PaymentController extends Controller
         ]);
 
         $payment = Payment::where('uuid', $uuid)->firstOrFail();
+        $this->contentScope()->authorizePayment($payment, 'delete');
 
         if ($request->force_delete) {
             // Hard delete - remove all related data
@@ -496,7 +511,7 @@ class PaymentController extends Controller
      */
     public function exportPayments(Request $request)
     {
-        $query = Payment::with(['user', 'items.payable']);
+        $query = $this->contentScope()->applyToPayments(Payment::with(['user', 'items.payable']));
 
         // Apply same filters as payments method
         if ($request->filled('status')) {
@@ -666,8 +681,10 @@ class PaymentController extends Controller
      */
     public function getCourses(Request $request)
     {
-        $query = \App\Models\Course::select('id', 'title', 'english_title', 'price', 'type', 'poster')
-            ->where('publish', 1);
+        $query = $this->contentScope()->applyToCourses(
+            \App\Models\Course::select('id', 'title', 'english_title', 'price', 'type', 'poster')
+            ->where('publish', 1)
+        );
 
         if ($request->filled('search')) {
             $search = $request->search;
@@ -936,6 +953,118 @@ class PaymentController extends Controller
             return response()->json([
                 'message' => 'Failed to create payment',
                 'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Update pending payment (admin manual payments only)
+     */
+    public function updatePayment(Request $request, $uuid)
+    {
+        $payment = Payment::with('items')->where('uuid', $uuid)->firstOrFail();
+
+        if ($payment->status) {
+            return response()->json([
+                'message' => 'پرداخت تأیید‌شده قابل ویرایش نیست',
+            ], 422);
+        }
+
+        $request->validate([
+            'user_id' => 'required|exists:users,id',
+            'payment_method' => 'required|in:wallet,bank',
+            'items' => 'required|array|min:1',
+            'items.*.payable_type' => 'required|in:course,plan,path,wallet',
+            'items.*.payable_id' => 'required_unless:items.*.payable_type,wallet|nullable|integer',
+            'items.*.price' => 'required|numeric|min:0',
+            'items.*.discount_amount' => 'nullable|numeric|min:0',
+            'amount' => 'required|numeric|min:0',
+            'discount_amount' => 'nullable|numeric|min:0',
+            'discount_code' => 'nullable|string|max:50',
+            'driver' => 'required_if:payment_method,bank|string|max:50',
+            'description' => 'nullable|string|max:1000',
+            'expired_at' => 'nullable|date',
+        ]);
+
+        $hasWalletItem = collect($request->items)->contains('payable_type', 'wallet');
+        if ($hasWalletItem && $request->payment_method === 'wallet') {
+            return response()->json([
+                'message' => 'نمی‌توانید از کیف پول برای افزایش موجودی کیف پول استفاده کنید',
+                'errors' => [
+                    'payment_method' => ['نمی‌توانید از کیف پول برای افزایش موجودی کیف پول استفاده کنید'],
+                ],
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $payment->update([
+                'user_id' => $request->user_id,
+                'driver' => $request->driver ?? null,
+                'payment_method' => $request->payment_method,
+                'amount' => $request->amount,
+                'discount_amount' => $request->discount_amount ?? 0,
+                'discount_code' => $request->discount_code,
+                'expired_at' => $request->expired_at,
+                'description' => $request->description ?? $payment->description,
+            ]);
+
+            $payment->items()->delete();
+
+            $hasWalletItem = false;
+            foreach ($request->items as $item) {
+                if ($item['payable_type'] === 'wallet') {
+                    $hasWalletItem = true;
+                    continue;
+                }
+
+                $payableType = 'App\\Models\\' . ucfirst($item['payable_type']);
+                if (!class_exists($payableType)) {
+                    throw new \Exception("Invalid payable type: {$item['payable_type']}");
+                }
+
+                $payable = $payableType::find($item['payable_id']);
+                if (!$payable) {
+                    throw new \Exception("{$item['payable_type']} not found with ID: {$item['payable_id']}");
+                }
+
+                $finalPrice = max(0, $item['price'] - ($item['discount_amount'] ?? 0));
+
+                PaymentItem::create([
+                    'payment_id' => $payment->id,
+                    'payable_type' => $payableType,
+                    'payable_id' => $item['payable_id'],
+                    'price' => $item['price'],
+                    'discount_amount' => $item['discount_amount'] ?? 0,
+                    'final_price' => $finalPrice,
+                ]);
+            }
+
+            if ($hasWalletItem) {
+                $currentDescription = $payment->description ?? '';
+                $walletText = 'افزایش موجودی کیف پول';
+                if (!str_contains($currentDescription, $walletText)) {
+                    $payment->update([
+                        'description' => $currentDescription
+                            ? $currentDescription . ' + ' . $walletText
+                            : $walletText,
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Payment updated successfully',
+                'payment' => $payment->fresh(['user', 'items.payable', 'attempts']),
+            ], 200);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'message' => 'Failed to update payment',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }

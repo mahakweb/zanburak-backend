@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AppliesContentScope;
 use App\Models\Payment;
 use App\Models\PaymentItem;
 use App\Models\Course;
@@ -13,6 +14,7 @@ use App\Models\Category;
 use App\Models\Level;
 use App\Models\Discount;
 use App\Support\SqlDialect;
+use App\Services\Security\ContentScope;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Illuminate\Database\Eloquent\Builder;
@@ -21,17 +23,21 @@ use Illuminate\Support\Facades\DB;
 
 class SalesReportController extends Controller
 {
+    use AppliesContentScope;
+
     /**
      * Get sales report with filters and pagination
      */
     public function salesReport(Request $request)
     {
         // Only get paid payments
-        $query = Payment::with([
+        $query = $this->contentScope()->applyToPayments(
+            Payment::with([
             'user:id,first_name,last_name,username,email,profile_pic',
             'items.payable',
         ])->where('status', 1)
-          ->whereNotNull('paid_at');
+          ->whereNotNull('paid_at')
+        );
 
         // Filter by date range
         if ($request->filled('date_from')) {
@@ -197,7 +203,7 @@ class SalesReportController extends Controller
     {
         [$dateFrom, $dateTo, $periodDays, $previousFrom, $previousTo] = $this->resolveDateRange($request);
 
-        $query = Payment::where('status', 1)->whereNotNull('paid_at');
+        $query = $this->scopedPaidPaymentsQuery();
         $this->applyPaymentFilters($query, $request);
         $this->applyDateRangeOnPaidAt($query, $dateFrom, $dateTo);
 
@@ -210,7 +216,7 @@ class SalesReportController extends Controller
         $uniqueBuyers = (clone $baseQuery)->distinct('user_id')->count('user_id');
         $averageTransaction = $totalTransactions > 0 ? $netSales / $totalTransactions : 0;
 
-        $previousQuery = Payment::where('status', 1)->whereNotNull('paid_at');
+        $previousQuery = $this->scopedPaidPaymentsQuery();
         $this->applyPaymentFilters($previousQuery, $request);
         $this->applyDateRangeOnPaidAt($previousQuery, $previousFrom, $previousTo);
 
@@ -243,6 +249,7 @@ class SalesReportController extends Controller
 
         $salesByType = PaymentItem::whereHas('payment', function ($q) use ($request, $dateFrom, $dateTo) {
                 $q->where('status', 1)->whereNotNull('paid_at');
+                $this->contentScope()->applyToPayments($q);
                 $this->applyPaymentFilters($q, $request);
                 $this->applyDateRangeOnPaidAt($q, $dateFrom, $dateTo);
             })
@@ -311,8 +318,8 @@ class SalesReportController extends Controller
                 'insights' => $insights,
                 'comparison' => $comparisonStats,
                 'today' => [
-                    'net_sales' => (int) Payment::where('status', 1)->whereNotNull('paid_at')->whereDate('paid_at', today())->sum('amount'),
-                    'transactions' => Payment::where('status', 1)->whereNotNull('paid_at')->whereDate('paid_at', today())->count(),
+                    'net_sales' => (int) $this->scopedPaidPaymentsQuery()->whereDate('paid_at', today())->sum('amount'),
+                    'transactions' => $this->scopedPaidPaymentsQuery()->whereDate('paid_at', today())->count(),
                 ],
             ],
         ], 200);
@@ -324,11 +331,13 @@ class SalesReportController extends Controller
     public function export(Request $request)
     {
         // Similar to salesReport but without pagination
-        $query = Payment::with([
+        $query = $this->contentScope()->applyToPayments(
+            Payment::with([
             'user:id,first_name,last_name,username,email',
             'items.payable',
         ])->where('status', 1)
-          ->whereNotNull('paid_at');
+          ->whereNotNull('paid_at')
+        );
 
         // Apply same filters as salesReport
         if ($request->filled('date_from')) {
@@ -390,7 +399,7 @@ class SalesReportController extends Controller
      */
     public function analytics(Request $request)
     {
-        $baseQuery = Payment::where('status', 1)->whereNotNull('paid_at');
+        $baseQuery = $this->scopedPaidPaymentsQuery();
 
         // Apply filters
         if ($request->filled('date_from')) {
@@ -582,6 +591,9 @@ class SalesReportController extends Controller
                 DB::raw('COUNT(payment_items.id) as sales_count')
             )
             ->whereNotNull('courses.teacher_id')
+            ->when($this->contentScope()->viewScope('payments') === ContentScope::OWN, function ($q) {
+                $q->where('users.id', auth()->id());
+            })
             ->groupBy('users.id', 'users.first_name', 'users.last_name', 'users.username', 'users.email')
             ->orderBy('total_revenue', 'desc')
             ->limit(10)
@@ -886,6 +898,13 @@ class SalesReportController extends Controller
             'peak_hour' => $byHour ? sprintf('%02d:00', $byHour->hour) : '—',
             'peak_hour_count' => (int) ($byHour->count ?? 0),
         ];
+    }
+
+    private function scopedPaidPaymentsQuery(): Builder
+    {
+        return $this->contentScope()->applyToPayments(
+            Payment::query()->where('status', 1)->whereNotNull('paid_at')
+        );
     }
 }
 

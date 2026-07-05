@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AppliesContentScope;
 use App\Models\Article;
 use App\Models\ArticleCategory;
 use App\Models\Comment;
@@ -23,6 +24,8 @@ use LaravelInteraction\Bookmark\Bookmark;
 
 class ArticleController extends Controller
 {
+    use AppliesContentScope;
+
     public function index(Request $request)
     {
         $perPage = (int) $request->input('perPage', 15);
@@ -33,7 +36,8 @@ class ArticleController extends Controller
         $isFeatured = $request->input('is_featured');
         $trashed = $request->boolean('trashed');
 
-        $query = Article::with([
+        $query = $this->contentScope()->applyToArticles(
+            Article::with([
             'user:id,first_name,last_name,username,profile_pic',
             'category:id,title,english_title,slug',
         ])->withCount([
@@ -42,7 +46,8 @@ class ArticleController extends Controller
             'comments as comments_count',
             'views as views_count',
             'ratings as ratings_count',
-        ])->withAvg('ratings as average_rating', 'rating');
+        ])->withAvg('ratings as average_rating', 'rating')
+        );
 
         if ($trashed) {
             $query->onlyTrashed();
@@ -143,6 +148,7 @@ class ArticleController extends Controller
 
     public function show(Article $article)
     {
+        $this->contentScope()->authorizeArticle($article, 'view');
         $article->load([
             'user:id,first_name,last_name,username,profile_pic',
             'category:id,title,english_title,slug',
@@ -169,6 +175,7 @@ class ArticleController extends Controller
 
     public function create(Request $request)
     {
+        $this->contentScope()->authorizeAction('articles', 'create');
         $validator = Validator::make($request->all(), [
             'user_id' => 'required|exists:users,id',
             'category_id' => 'required|exists:article_categories,id',
@@ -232,6 +239,7 @@ class ArticleController extends Controller
 
     public function update(Request $request, Article $article)
     {
+        $this->contentScope()->authorizeArticle($article, 'update');
         $validator = Validator::make($request->all(), [
             'user_id' => 'sometimes|exists:users,id',
             'category_id' => 'sometimes|exists:article_categories,id',
@@ -290,6 +298,7 @@ class ArticleController extends Controller
 
     public function delete(Article $article)
     {
+        $this->contentScope()->authorizeArticle($article, 'delete');
         $article->delete();
 
         return response()->json(['message' => 'Article moved to trash']);
@@ -298,6 +307,7 @@ class ArticleController extends Controller
     public function restore(int $id)
     {
         $article = Article::onlyTrashed()->findOrFail($id);
+        $this->contentScope()->authorizeArticle($article, 'update');
         $article->restore();
 
         return response()->json(['message' => 'Article restored', 'article' => $article]);
@@ -306,6 +316,7 @@ class ArticleController extends Controller
     public function forceDelete(int $id)
     {
         $article = Article::onlyTrashed()->findOrFail($id);
+        $this->contentScope()->authorizeArticle($article, 'delete');
         $article->detag();
         $article->forceDelete();
 
@@ -314,6 +325,8 @@ class ArticleController extends Controller
 
     public function togglePublish(Article $article)
     {
+        $this->contentScope()->authorizeArticle($article, 'publish');
+
         $article->publish = ! $article->publish;
         $article->status = $article->publish ? 'published' : 'draft';
         if ($article->publish && ! $article->published_at) {
@@ -343,20 +356,22 @@ class ArticleController extends Controller
         $ids = $request->ids;
         $action = $request->action;
         $count = 0;
+        $articles = $this->contentScope()->applyToArticles(Article::query()->whereIn('id', $ids))->get();
+        $scopedIds = $articles->pluck('id')->all();
 
         match ($action) {
-            'publish' => $count = Article::whereIn('id', $ids)->update([
+            'publish' => $count = Article::whereIn('id', $scopedIds)->update([
                 'publish' => true,
                 'status' => 'published',
                 'published_at' => now(),
             ]),
-            'unpublish' => $count = Article::whereIn('id', $ids)->update(['publish' => false, 'status' => 'draft']),
-            'archive' => $count = Article::whereIn('id', $ids)->update(['publish' => false, 'status' => 'archived']),
-            'feature' => $count = Article::whereIn('id', $ids)->update(['is_featured' => true]),
-            'unfeature' => $count = Article::whereIn('id', $ids)->update(['is_featured' => false]),
-            'delete' => $count = Article::whereIn('id', $ids)->delete(),
-            'restore' => $count = Article::onlyTrashed()->whereIn('id', $ids)->restore(),
-            'force_delete' => $count = tap(Article::onlyTrashed()->whereIn('id', $ids)->get(), function ($articles) {
+            'unpublish' => $count = Article::whereIn('id', $scopedIds)->update(['publish' => false, 'status' => 'draft']),
+            'archive' => $count = Article::whereIn('id', $scopedIds)->update(['publish' => false, 'status' => 'archived']),
+            'feature' => $count = Article::whereIn('id', $scopedIds)->update(['is_featured' => true]),
+            'unfeature' => $count = Article::whereIn('id', $scopedIds)->update(['is_featured' => false]),
+            'delete' => $count = Article::whereIn('id', $scopedIds)->delete(),
+            'restore' => $count = Article::onlyTrashed()->whereIn('id', $scopedIds)->restore(),
+            'force_delete' => $count = tap(Article::onlyTrashed()->whereIn('id', $scopedIds)->get(), function ($articles) {
                 foreach ($articles as $article) {
                     $article->detag();
                     $article->forceDelete();
@@ -607,6 +622,8 @@ class ArticleController extends Controller
 
     public function articleAnalytics(Article $article, Request $request)
     {
+        $this->contentScope()->authorizeArticle($article, 'view');
+
         [$dateFrom, $dateTo] = array_slice($this->resolveAnalyticsDateRange($request), 0, 2);
         $period = CarbonPeriod::create($dateFrom, $dateTo);
 

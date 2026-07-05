@@ -4,39 +4,44 @@ namespace App\Policies;
 
 use App\Models\Quiz\Quiz;
 use App\Models\Quiz\QuizAttempt;
-use App\Models\Quiz\QuizQuestion;
 use App\Models\User;
+use App\Services\Security\ContentScope;
 
 class QuizPolicy
 {
     public function viewAny(User $user): bool
     {
-        return $this->canManage($user, 'quizzes.view');
+        if ($user->isSuperUser()) {
+            return true;
+        }
+
+        return $user->hasPermissionName('quizzes.view')
+            || ContentScope::for($user)->viewScope('courses') !== ContentScope::NONE;
     }
 
     public function view(User $user, Quiz $quiz): bool
     {
-        return $this->canManage($user, 'quizzes.view');
+        return ContentScope::for($user)->canQuiz($quiz, 'view');
     }
 
     public function create(User $user): bool
     {
-        return $this->canManage($user, 'quizzes.create');
+        return ContentScope::for($user)->canAction('quizzes', 'create');
     }
 
     public function update(User $user, Quiz $quiz): bool
     {
-        return $this->canManage($user, 'quizzes.update');
+        return ContentScope::for($user)->canQuiz($quiz, 'update');
     }
 
     public function delete(User $user, Quiz $quiz): bool
     {
-        return $this->canManage($user, 'quizzes.delete');
+        return ContentScope::for($user)->canQuiz($quiz, 'delete');
     }
 
     public function viewReports(User $user, Quiz $quiz): bool
     {
-        return $this->canManage($user, 'quizzes.reports');
+        return ContentScope::for($user)->canQuiz($quiz, 'reports');
     }
 
     public function take(User $user, Quiz $quiz): bool
@@ -51,16 +56,16 @@ class QuizPolicy
 
     public function viewAttempt(User $user, QuizAttempt $attempt): bool
     {
-        return $attempt->user_id === $user->id || $this->canManage($user, 'quizzes.view');
+        return $attempt->user_id === $user->id || ContentScope::for($user)->canQuiz($attempt->quiz, 'view');
     }
 
     public function reviewAttempt(User $user, QuizAttempt $attempt): bool
     {
-        return $this->canManage($user, 'quizzes.review');
+        return ContentScope::for($user)->canQuiz($attempt->quiz, 'review');
     }
 
-    protected function canManage(User $user, string $permission): bool
+    public function review(User $user, QuizAttempt $attempt): bool
     {
-        return $user->isSuperUser() || $user->hasPermissionName($permission);
+        return $this->reviewAttempt($user, $attempt);
     }
 }

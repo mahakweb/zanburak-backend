@@ -17,6 +17,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
         Route::get('/export', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'exportPayments'])->name('export');
         Route::get('/{uuid}/details', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'paymentDetails'])->name('details');
         Route::post('/{uuid}/update-status', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'updatePaymentStatus'])->name('update-status');
+        Route::post('/{uuid}/update', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'updatePayment'])->name('update');
         Route::delete('/{uuid}/delete', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'deletePayment'])->name('delete');
         Route::post('/create', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'createPayment'])->name('create');
         Route::get('/search', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'search'])->name('search');
@@ -189,6 +190,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/category/update', [\App\Http\Controllers\Api\Admin\Course\CategoryController::class, 'update'])->name('category.update');
     Route::post('/category/delete', [\App\Http\Controllers\Api\Admin\Course\CategoryController::class, 'deleteCategories'])->name('category.delete');
     Route::post('/category/uploadIcon', [\App\Http\Controllers\Api\Admin\Course\CategoryController::class, 'uploadIcon'])->name('category.upload-icon');
+    Route::post('/category/preview-courses', [\App\Http\Controllers\Api\Admin\Course\CategoryController::class, 'previewCourses'])->name('category.preview-courses');
 
     // Admin Comments
     Route::post('/comments', [\App\Http\Controllers\Api\Admin\Comment\CommentController::class, 'index'])->name('comments.index');

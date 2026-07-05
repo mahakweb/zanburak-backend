@@ -25,6 +25,7 @@ Route::middleware('auth:sanctum')->group(function () {
             'is_superuser' => $user->is_superuser,
             'permissions' => $user->getAllPermissions()->pluck('name'),
             'roles' => $user->roles->pluck('name'),
+            'scopes' => $user->contentScope()->resolvedScopes(),
         ];
     })->name('api.auth.user');
 

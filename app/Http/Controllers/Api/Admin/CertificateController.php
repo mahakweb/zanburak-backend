@@ -3,15 +3,19 @@
 namespace App\Http\Controllers\Api\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AppliesContentScope;
 use App\Models\Certificate;
 use App\Models\Course;
 use App\Models\User;
 use App\Services\Certificate\CertificateIssuanceService;
+use App\Support\Certificate\CertificateAssetHelper;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class CertificateController extends Controller
 {
+    use AppliesContentScope;
+
     public function __construct(
         protected CertificateIssuanceService $issuance,
     ) {}
@@ -20,10 +24,13 @@ class CertificateController extends Controller
      */
     public function certificates(Request $request)
     {
-        $query = Certificate::with([
+        $query = $this->contentScope()->applyToCertificates(
+            Certificate::with([
             'user:id,first_name,last_name,username,email,profile_pic',
             'course:id,title,english_title,slug,poster',
-        ]);
+            'template:id,name,orientation,background_image,logo_image,is_default',
+        ])
+        );
 
         // Apply filters
         if ($request->filled('user_id')) {
@@ -143,6 +150,8 @@ class CertificateController extends Controller
                     'slug' => $certificate->course->slug,
                     'poster' => $certificate->course->poster,
                 ] : null,
+
+                'template' => $this->formatTemplateSummary($certificate->template),
             ];
         });
 
@@ -169,7 +178,10 @@ class CertificateController extends Controller
             'user:id,first_name,last_name,username,email,profile_pic,mobile,created_at',
             'course:id,title,english_title,slug,poster,description,teacher_id',
             'course.teacher:id,first_name,last_name,username,profile_pic',
+            'template:id,name,orientation,background_image,logo_image,is_default',
         ])->where('uuid', $uuid)->firstOrFail();
+
+        $this->contentScope()->authorizeCertificate($certificate, 'view');
 
         $certificateData = [
             'id' => $certificate->id,
@@ -208,6 +220,8 @@ class CertificateController extends Controller
                     'profile_pic' => $certificate->course->teacher->profile_pic,
                 ] : null,
             ] : null,
+
+            'template' => $this->formatTemplateSummary($certificate->template),
         ];
 
         return response()->json([
@@ -230,6 +244,7 @@ class CertificateController extends Controller
             'grade' => 'nullable|numeric|min:0|max:100',
             'issued_at' => 'nullable|date',
             'auto_issue' => 'boolean',
+            'certificate_template_id' => 'nullable|exists:certificate_templates,id',
         ]);
 
         try {
@@ -237,6 +252,9 @@ class CertificateController extends Controller
 
             $user = User::findOrFail($request->user_id);
             $course = Course::findOrFail($request->course_id);
+            $templateId = $request->filled('certificate_template_id')
+                ? (int) $request->certificate_template_id
+                : null;
 
             if ($request->boolean('auto_issue', true)) {
                 $certificate = $this->issuance->issueManually(
@@ -244,6 +262,7 @@ class CertificateController extends Controller
                     $course,
                     $request->input('grade'),
                     $request->input('time_completed'),
+                    $templateId,
                 );
 
                 if ($request->filled('user_name')) {
@@ -276,6 +295,7 @@ class CertificateController extends Controller
                 $certificate = Certificate::create([
                     'user_id' => $request->user_id,
                     'course_id' => $request->course_id,
+                    'certificate_template_id' => $templateId,
                     'uuid' => (string) \Illuminate\Support\Str::uuid(),
                     'user_name' => $userName,
                     'course_title' => $courseTitle,
@@ -310,9 +330,11 @@ class CertificateController extends Controller
             'course_title' => 'nullable|string|max:255',
             'time_completed' => 'nullable|integer|min:0',
             'issued_at' => 'nullable|date',
+            'certificate_template_id' => 'nullable|exists:certificate_templates,id',
         ]);
 
         $certificate = Certificate::where('uuid', $uuid)->firstOrFail();
+        $this->contentScope()->authorizeCertificate($certificate, 'update');
 
         $updateData = [];
         
@@ -332,11 +354,15 @@ class CertificateController extends Controller
             $updateData['issued_at'] = $request->issued_at ? $request->issued_at : null;
         }
 
+        if ($request->has('certificate_template_id')) {
+            $updateData['certificate_template_id'] = $request->certificate_template_id;
+        }
+
         $certificate->update($updateData);
 
         return response()->json([
             'message' => 'گواهینامه با موفقیت به‌روزرسانی شد',
-            'certificate' => $certificate->fresh(['user', 'course'])
+            'certificate' => $certificate->fresh(['user', 'course', 'template'])
         ], 200);
     }
 
@@ -350,6 +376,7 @@ class CertificateController extends Controller
         ]);
 
         $certificate = Certificate::with(['user', 'course'])->where('uuid', $uuid)->firstOrFail();
+        $this->contentScope()->authorizeCertificate($certificate, 'update');
 
         $certificate = $this->issuance->finalizeIssuance(
             $certificate,
@@ -374,6 +401,7 @@ class CertificateController extends Controller
     public function revokeCertificate(Request $request, $uuid)
     {
         $certificate = Certificate::where('uuid', $uuid)->firstOrFail();
+        $this->contentScope()->authorizeCertificate($certificate, 'update');
 
         if ($certificate->isRevoked()) {
             return response()->json(['message' => 'گواهینامه قبلاً لغو شده است'], 422);
@@ -397,6 +425,7 @@ class CertificateController extends Controller
         ]);
 
         $certificate = Certificate::where('uuid', $uuid)->firstOrFail();
+        $this->contentScope()->authorizeCertificate($certificate, 'delete');
 
         $forceDelete = $request->boolean('force_delete', false);
 
@@ -419,7 +448,7 @@ class CertificateController extends Controller
     public function certificateStats(Request $request)
     {
         // Get all certificates (no date filter by default, or use provided dates)
-        $query = Certificate::query();
+        $query = $this->contentScope()->applyToCertificates(Certificate::query());
         
         if ($request->filled('date_from') && $request->filled('date_to')) {
             $dateFrom = $request->input('date_from');
@@ -489,7 +518,9 @@ class CertificateController extends Controller
      */
     public function exportCertificates(Request $request)
     {
-        $query = Certificate::with(['user', 'course']);
+        $query = $this->contentScope()->applyToCertificates(
+            Certificate::with(['user', 'course'])
+        );
 
         // Apply same filters as certificates method
         if ($request->filled('user_id')) {
@@ -599,8 +630,10 @@ class CertificateController extends Controller
      */
     public function getCourses(Request $request)
     {
-        $query = Course::select('id', 'title', 'english_title', 'slug', 'poster')
-            ->where('publish', 1);
+        $query = $this->contentScope()->applyToCourses(
+            Course::select('id', 'title', 'english_title', 'slug', 'poster')
+            ->where('publish', 1)
+        );
 
         if ($request->filled('search')) {
             $search = $request->search;
@@ -666,6 +699,22 @@ class CertificateController extends Controller
             'message' => 'Success',
             'results' => $results
         ], 200);
+    }
+
+    protected function formatTemplateSummary($template): ?array
+    {
+        if (! $template) {
+            return null;
+        }
+
+        return [
+            'id' => $template->id,
+            'name' => $template->name,
+            'orientation' => $template->orientation,
+            'is_default' => (bool) $template->is_default,
+            'background_image_url' => CertificateAssetHelper::publicUrl($template->background_image),
+            'logo_image_url' => CertificateAssetHelper::publicUrl($template->logo_image),
+        ];
     }
 }
 

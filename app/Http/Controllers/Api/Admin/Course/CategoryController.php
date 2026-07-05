@@ -3,9 +3,8 @@
 namespace App\Http\Controllers\Api\Admin\Course;
 
 use App\Http\Controllers\Controller;
-use App\Models\AutomationRule;
 use App\Models\Category;
-use App\Models\Course;
+use App\Services\Course\CategoryAssignmentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -14,6 +13,10 @@ use Illuminate\Validation\Rule;
 
 class CategoryController extends Controller
 {
+    public function __construct(
+        protected CategoryAssignmentService $assignmentService,
+    ) {}
+
     public function categories(Request $request)
     {
         $view = $request->input('view', 'list');
@@ -201,7 +204,7 @@ class CategoryController extends Controller
                 }
             }
 
-            $this->syncCategoryAssignments($category);
+            $this->assignmentService->syncCategory($category->fresh('automationRules'));
 
             return response()->json(['message' => "Success, category created successfully.", 'category' => $category], 200);
         }
@@ -235,6 +238,15 @@ class CategoryController extends Controller
         ] : null;
 
 
+        $matchedCourses = $category->assignment_type === 'automatic'
+            ? $this->assignmentService->getMatchingCourses($category)->map(fn ($course) => [
+                'id' => $course->id,
+                'title' => $course->title,
+                'slug' => $course->slug,
+                'poster' => $course->poster,
+            ])->values()
+            : collect();
+
         $response = [
             'id' => $category->id,
             'title' => $category->title,
@@ -248,6 +260,8 @@ class CategoryController extends Controller
             'rules' => $automationRules,
             'assignment_type' => $category->assignment_type,
             'match_type' => $category->match_type,
+            'matched_courses' => $matchedCourses,
+            'matched_courses_count' => $matchedCourses->count(),
         ];
 
         return response()->json([
@@ -301,151 +315,52 @@ class CategoryController extends Controller
                 }
             }
 
-            $category->course()->detach();
-
-            $this->syncCategoryAssignments($category);
-
+            if ($category->assignment_type === 'automatic') {
+                $this->assignmentService->syncCategory($category->fresh('automationRules'));
+            }
 
             return response()->json(['message' => "Category updated successfully", 'category' => $category], 200);
         }
     }
 
 
-    public function syncCategoryAssignments(Category $category)
+    public function previewCourses(Request $request)
     {
-        if ($category->assignment_type !== 'automatic') {
-            return;
+        $validator = Validator::make($request->all(), [
+            'match_type' => ['required', 'in:all,any'],
+            'rules' => ['required', 'array', 'min:1'],
+            'rules.*.field' => ['required', 'string'],
+            'rules.*.operator' => ['required', 'string'],
+            'rules.*.value' => ['required'],
+        ]);
+
+        if (!$validator->passes()) {
+            return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
         }
 
-        $matchedCourses = $this->getMatchingCourses($category);
+        $validData = $validator->validated();
+        $category = new Category([
+            'match_type' => $validData['match_type'],
+            'assignment_type' => 'automatic',
+        ]);
 
-        foreach ($matchedCourses as $course) {
-            if (!$course->category()->where('categories.id', $category->id)->exists()) {
-                $course->category()->attach($category->id);
-            }
-        }
+        $courses = $this->assignmentService
+            ->getMatchingCourses($category, $validData['match_type'], $validData['rules'])
+            ->map(fn ($course) => [
+                'id' => $course->id,
+                'title' => $course->title,
+                'english_title' => $course->english_title,
+                'slug' => $course->slug,
+                'poster' => $course->poster,
+            ])
+            ->values();
+
+        return response()->json([
+            'message' => 'Success',
+            'courses' => $courses,
+            'count' => $courses->count(),
+        ]);
     }
-
-    protected function getMatchingCourses(Category $category)
-    {
-        $rules = $category->automationRules;
-        $query = Course::query();
-        $phpFilteredRules = [];
-
-        if ($category->match_type === 'all') {
-            // foreach ($rules as $rule) {
-            //     if ($rule->field === 'totalTime') {
-            //         $phpFilteredRules[] = $rule;
-            //         continue;
-            //     }
-            //     $this->applyRule($query, $rule);
-            // }
-            $query->where(function ($q) use ($rules, &$phpFilteredRules) {
-                foreach ($rules as $rule) {
-                    if ($rule->field === 'totalTime') {
-                        $phpFilteredRules[] = $rule;
-                        continue;
-                    }
-                    // برای همه شروط AND
-                    $q->where(function ($subQuery) use ($rule) {
-                        $this->applyRule($subQuery, $rule);
-                    });
-                }
-            });
-        } else {
-            $query->where(function ($q) use ($rules, &$phpFilteredRules) {
-                foreach ($rules as $rule) {
-                    if ($rule->field === 'totalTime') {
-                        $phpFilteredRules[] = $rule;
-                        continue;
-                    }
-                    $q->orWhere(function ($subQuery) use ($rule) {
-                        $this->applyRule($subQuery, $rule);
-                    });
-                }
-            });
-        }
-
-        $courses = $query->get();
-
-        foreach ($phpFilteredRules as $rule) {
-            $courses = $this->filterByTotalTime($courses, $rule, $category->match_type);
-        }
-
-        return $courses;
-    }
-
-
-
-    protected function applyRule($query, AutomationRule $rule)
-    {
-        switch ($rule->field) {
-            case 'status':
-                return $query->whereHas('status', function ($q) use ($rule) {
-                    $this->applyMultiColumnComparison($q, ['title', 'english_title', 'slug'], $rule);
-                });
-
-            case 'level':
-                return $query->whereHas('level', function ($q) use ($rule) {
-                    $this->applyMultiColumnComparison($q, ['title', 'english_title', 'slug'], $rule);
-                });
-
-            case 'totalTime':
-                return $query;
-
-            default:
-                return $this->applyBasicComparison($query, $rule->field, $rule);
-        }
-    }
-
-
-
-    protected function applyMultiColumnComparison($query, array $columns, AutomationRule $rule)
-    {
-        return $query->where(function ($q) use ($columns, $rule) {
-            foreach ($columns as $column) {
-                $q->orWhere(function ($sub) use ($column, $rule) {
-                    $this->applyBasicComparison($sub, $column, $rule);
-                });
-            }
-        });
-    }
-
-
-
-    protected function applyBasicComparison($query, $column, AutomationRule $rule)
-    {
-        return match ($rule->operator) {
-            'is_equal_to' => $query->where($column, '=', $rule->value),
-            'not_equal_to' => $query->where($column, '!=', $rule->value),
-            'less_than' => $query->where($column, '<', $rule->value),
-            'greater_than' => $query->where($column, '>', $rule->value),
-            'contains' => $query->where($column, 'LIKE', "%{$rule->value}%"),
-            'not_contains' => $query->where($column, 'NOT LIKE', "%{$rule->value}%"),
-            'starts_with' => $query->where($column, 'LIKE', "{$rule->value}%"),
-            'ends_with' => $query->where($column, 'LIKE', "%{$rule->value}"),
-            default => $query,
-        };
-    }
-
-
-    protected function filterByTotalTime($courses, AutomationRule $rule, $matchType)
-    {
-        return $courses->filter(function ($course) use ($rule) {
-            $value = $course->totalTime() ?? 0;
-            $target = intval($rule->value);
-
-            return match ($rule->operator) {
-                'is_equal_to' => $value == $target,
-                'not_equal_to' => $value != $target,
-                'less_than' => $value < $target,
-                'greater_than' => $value > $target,
-                default => true,
-            };
-        })->values();
-    }
-
-
 
     public function uploadIcon(Request $request)
     {
