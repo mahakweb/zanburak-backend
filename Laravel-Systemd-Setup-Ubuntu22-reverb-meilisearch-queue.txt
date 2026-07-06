@@ -1,0 +1,62 @@
+راهنمای راه‌اندازی دائمی Laravel Queue، Laravel Reverb و Meilisearch با
+systemd (Ubuntu 22.04)
+
+فرض: - پروژه: /var/www/project - PHP: /usr/bin/php - کاربر وب‌سرور:
+www-data
+
+1)  Laravel Queue sudo nano /etc/systemd/system/laravel-queue.service
+
+محتوا: [Unit] Description=Laravel Queue Worker After=network.target
+
+[Service] User=www-data Group=www-data WorkingDirectory=/var/www/project
+ExecStart=/usr/bin/php artisan queue:work –sleep=3 –tries=3 –timeout=300
+Restart=always RestartSec=5
+
+[Install] WantedBy=multi-user.target
+
+2)  Laravel Reverb sudo nano /etc/systemd/system/laravel-reverb.service
+
+محتوا: [Unit] Description=Laravel Reverb After=network.target
+
+[Service] User=www-data Group=www-data WorkingDirectory=/var/www/project
+ExecStart=/usr/bin/php artisan reverb:start Restart=always RestartSec=5
+
+[Install] WantedBy=multi-user.target
+
+3)  Meilisearch پوشه داده: sudo mkdir -p /var/lib/meilisearch sudo chown
+    -R www-data:www-data /var/lib/meilisearch
+
+فایل: sudo nano /etc/systemd/system/meilisearch.service
+
+محتوا: [Unit] Description=Meilisearch After=network.target
+
+[Service] User=www-data Group=www-data
+WorkingDirectory=/var/lib/meilisearch
+ExecStart=/usr/local/bin/meilisearch –db-path /var/lib/meilisearch –env
+production –master-key YOUR_REAL_MASTER_KEY Restart=always RestartSec=5
+
+[Install] WantedBy=multi-user.target
+
+4)  بارگذاری سرویس‌ها sudo systemctl daemon-reload
+
+5)  فعال‌سازی خودکار sudo systemctl enable laravel-queue sudo systemctl
+    enable laravel-reverb sudo systemctl enable meilisearch
+
+6)  اجرا sudo systemctl start laravel-queue sudo systemctl start
+    laravel-reverb sudo systemctl start meilisearch
+
+7)  بررسی وضعیت sudo systemctl status laravel-queue sudo systemctl
+    status laravel-reverb sudo systemctl status meilisearch
+
+اگر Active: active (running) بود، سرویس درست اجرا شده است.
+
+8)  مشاهده لاگ journalctl -u laravel-queue -f journalctl -u
+    laravel-reverb -f journalctl -u meilisearch -f
+
+9)  ری‌استارت پس از تغییر تنظیمات sudo systemctl restart laravel-queue
+    sudo systemctl restart laravel-reverb sudo systemctl restart
+    meilisearch
+
+نکات: - مسیر پروژه را با مسیر واقعی خود جایگزین کنید. - مسیر meilisearch
+را با خروجی which meilisearch بررسی کنید. - به جای YOUR_REAL_MASTER_KEY
+کلید واقعی Meilisearch را قرار دهید.
