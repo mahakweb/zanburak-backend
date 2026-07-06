@@ -13,15 +13,35 @@ class QuizPermissionsSeeder extends Seeder
 
         $permissions = [
             ['name' => 'quizzes.view', 'label' => 'مشاهده آزمون‌ها'],
+            ['name' => 'quizzes.view.own', 'label' => 'مشاهده آزمون‌های مرتبط با خود'],
+            ['name' => 'quizzes.view.any', 'label' => 'مشاهده همه آزمون‌ها'],
             ['name' => 'quizzes.create', 'label' => 'ایجاد آزمون'],
+            ['name' => 'quizzes.create.own', 'label' => 'ایجاد آزمون برای دوره‌های خود'],
+            ['name' => 'quizzes.create.any', 'label' => 'ایجاد آزمون برای هر دوره‌ای'],
             ['name' => 'quizzes.update', 'label' => 'ویرایش آزمون'],
+            ['name' => 'quizzes.update.own', 'label' => 'ویرایش آزمون‌های مرتبط با خود'],
+            ['name' => 'quizzes.update.any', 'label' => 'ویرایش هر آزمونی'],
             ['name' => 'quizzes.delete', 'label' => 'حذف آزمون'],
+            ['name' => 'quizzes.delete.own', 'label' => 'حذف آزمون‌های مرتبط با خود'],
+            ['name' => 'quizzes.delete.any', 'label' => 'حذف هر آزمونی'],
             ['name' => 'quizzes.reports', 'label' => 'گزارش آزمون'],
+            ['name' => 'quizzes.reports.own', 'label' => 'گزارش آزمون‌های مرتبط با خود'],
+            ['name' => 'quizzes.reports.any', 'label' => 'گزارش همه آزمون‌ها'],
             ['name' => 'quizzes.review', 'label' => 'تصحیح دستی آزمون'],
+            ['name' => 'quizzes.review.own', 'label' => 'تصحیح دستی آزمون‌های مرتبط با خود'],
+            ['name' => 'quizzes.review.any', 'label' => 'تصحیح دستی همه آزمون‌ها'],
             ['name' => 'quiz_questions.view', 'label' => 'مشاهده بانک سوال'],
+            ['name' => 'quiz_questions.view.own', 'label' => 'مشاهده بانک سوال (خود)'],
+            ['name' => 'quiz_questions.view.any', 'label' => 'مشاهده همه بانک سوال'],
             ['name' => 'quiz_questions.create', 'label' => 'ایجاد سوال'],
+            ['name' => 'quiz_questions.create.own', 'label' => 'ایجاد سوال (خود)'],
+            ['name' => 'quiz_questions.create.any', 'label' => 'ایجاد سوال برای همه'],
             ['name' => 'quiz_questions.update', 'label' => 'ویرایش سوال'],
+            ['name' => 'quiz_questions.update.own', 'label' => 'ویرایش سوال (خود)'],
+            ['name' => 'quiz_questions.update.any', 'label' => 'ویرایش هر سوالی'],
             ['name' => 'quiz_questions.delete', 'label' => 'حذف سوال'],
+            ['name' => 'quiz_questions.delete.own', 'label' => 'حذف سوال (خود)'],
+            ['name' => 'quiz_questions.delete.any', 'label' => 'حذف هر سوالی'],
         ];
 
         foreach ($permissions as $perm) {
@@ -30,53 +50,6 @@ class QuizPermissionsSeeder extends Seeder
                 ['name'],
                 ['label', 'updated_at']
             );
-        }
-
-        $permNames = array_column($permissions, 'name');
-        $permIds = DB::table('permissions')->whereIn('name', $permNames)->pluck('id', 'name');
-
-        $rolePermissionMap = [
-            'administrator' => $permNames,
-            'course_manager' => $permNames,
-            'course_manager_all' => $permNames,
-            'teacher' => [
-                'quizzes.view',
-                'quizzes.create',
-                'quizzes.update',
-                'quizzes.reports',
-                'quizzes.review',
-                'quiz_questions.view',
-                'quiz_questions.create',
-                'quiz_questions.update',
-            ],
-            'teacher_assistant' => [
-                'quizzes.view',
-                'quiz_questions.view',
-            ],
-        ];
-
-        $rows = [];
-        foreach ($rolePermissionMap as $roleName => $names) {
-            $role = DB::table('roles')->where('name', $roleName)->first();
-            if (! $role) {
-                continue;
-            }
-
-            foreach ($names as $name) {
-                if (! isset($permIds[$name])) {
-                    continue;
-                }
-                $rows[] = [
-                    'role_id' => $role->id,
-                    'permission_id' => $permIds[$name],
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-            }
-        }
-
-        if ($rows !== []) {
-            DB::table('permission_role')->upsert($rows, ['role_id', 'permission_id'], ['updated_at']);
         }
     }
 }

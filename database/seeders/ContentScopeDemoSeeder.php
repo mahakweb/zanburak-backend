@@ -35,7 +35,6 @@ class ContentScopeDemoSeeder extends Seeder
         }
 
         $teacherRoleId = DB::table('roles')->where('name', 'teacher')->value('id');
-        $financeRoleId = DB::table('roles')->where('name', 'teacher_finance_viewer')->value('id');
 
         $extraTeachers = [
             [
@@ -162,14 +161,6 @@ class ContentScopeDemoSeeder extends Seeder
 
                 $allDemoCourses->push(Course::query()->find($courseId));
             }
-        }
-
-        // مدرس اصلی هم دسترسی مالی scoped بگیرد (برای تست گزارش فروش)
-        if ($financeRoleId) {
-            DB::table('role_user')->updateOrInsert(
-                ['role_id' => $financeRoleId, 'user_id' => $mainTeacher->id],
-                ['created_at' => $now, 'updated_at' => $now]
-            );
         }
 
         $mainTeacherCourses = Course::query()->where('teacher_id', $mainTeacher->id)->take(2)->get();

@@ -11,12 +11,7 @@ class QuizPolicy
 {
     public function viewAny(User $user): bool
     {
-        if ($user->isSuperUser()) {
-            return true;
-        }
-
-        return $user->hasPermissionName('quizzes.view')
-            || ContentScope::for($user)->viewScope('courses') !== ContentScope::NONE;
+        return ContentScope::for($user)->viewScope('quizzes') !== ContentScope::NONE;
     }
 
     public function view(User $user, Quiz $quiz): bool

@@ -91,16 +91,26 @@ class RoutePermissionsSeeder extends Seeder
             }
         };
 
-        $coursesList = ['courses.list', 'courses.list.any', 'courses.view', 'courses.view.own', 'courses.view.any'];
-        $coursesView = ['courses.view', 'courses.view.own', 'courses.view.any', 'courses.overview.view'];
-        $coursesUpdate = ['courses.update', 'courses.update.own', 'courses.update.any'];
+        $coursesList = ['courses.list', 'courses.list.own', 'courses.list.any', 'courses.view', 'courses.view.own', 'courses.view.any'];
+        $coursesView = ['courses.view', 'courses.view.own', 'courses.view.any', 'courses.overview.view', 'courses.overview.view.own', 'courses.overview.view.any'];
+        $coursesUpdate = ['courses.update', 'courses.update.own', 'courses.update.any', 'courses.overview.update', 'courses.overview.update.own', 'courses.overview.update.any'];
+        $sectionsCreate = ['sections.create', 'sections.create.own', 'sections.create.any', 'courses.update', 'courses.update.own', 'courses.update.any'];
+        $sectionsUpdate = ['sections.update', 'sections.update.own', 'sections.update.any', 'courses.update', 'courses.update.own', 'courses.update.any'];
+        $sectionsDelete = ['sections.delete', 'sections.delete.own', 'sections.delete.any', 'courses.update', 'courses.update.own', 'courses.update.any'];
+        $dashboardView = ['dashboard.view', 'dashboard.view.own', 'dashboard.view.any'];
+        $paymentsStats = ['payments.stats', 'payments.stats.own', 'payments.stats.any'];
+        $paymentsExport = ['payments.export', 'payments.export.own', 'payments.export.any'];
+        $paymentsDetails = ['payments.details', 'payments.details.own', 'payments.details.any'];
+        $paymentsCreate = ['payments.create', 'payments.create.own', 'payments.create.any'];
+        $paymentsDelete = ['payments.delete', 'payments.delete.own', 'payments.delete.any'];
+        $paymentsUpdateStatus = ['payments.update_status', 'payments.update_status.own', 'payments.update_status.any'];
         $coursesDelete = ['courses.delete', 'courses.delete.own', 'courses.delete.any'];
         $coursesAssign = ['courses.assign_user', 'courses.assign_user.own', 'courses.assign_user.any'];
         $coursesReorder = ['courses.reorder_episodes', 'courses.reorder_episodes.own', 'courses.reorder_episodes.any'];
         $episodesCreate = ['episodes.create', 'episodes.create.own', 'episodes.create.any'];
         $episodesEdit = ['episodes.edit', 'episodes.edit.own', 'episodes.edit.any', 'episodes.get_for_edit'];
         $episodesDelete = ['episodes.delete', 'episodes.delete.own', 'episodes.delete.any'];
-        $episodesManage = ['episodes.upload_file', 'episodes.status', 'episodes.reorder', 'episodes.reorder.own', 'episodes.reorder.any'];
+        $episodesManage = ['episodes.upload_file', 'episodes.upload_file.own', 'episodes.upload_file.any', 'episodes.status', 'episodes.status.own', 'episodes.status.any', 'episodes.reorder', 'episodes.reorder.own', 'episodes.reorder.any'];
         $videosUpload = ['videos.upload', 'videos.upload.own', 'videos.upload.any'];
         $videosProcess = ['videos.process', 'videos.process.own', 'videos.process.any'];
         $commentsView = ['comments.view', 'comments.view.own', 'comments.view.any', 'comments.course.view.own', 'comments.course.view.any'];
@@ -108,11 +118,33 @@ class RoutePermissionsSeeder extends Seeder
         $commentsReply = ['comments.reply', 'comments.reply.own', 'comments.reply.any'];
         $commentsDelete = ['comments.delete.own', 'comments.delete.any'];
         $paymentsView = ['payments.view', 'payments.view.own', 'payments.view.any'];
+        $analyticsView = ['analytics.view', 'analytics.view.own', 'analytics.view.any'];
+        $certificatesView = ['certificates.view', 'certificates.view.own', 'certificates.view.any'];
+        $certificatesCreate = ['certificates.create', 'certificates.create.own', 'certificates.create.any'];
+        $certificatesUpdate = ['certificates.update', 'certificates.update.own', 'certificates.update.any'];
+        $certificatesDelete = ['certificates.delete', 'certificates.delete.own', 'certificates.delete.any'];
+        $certificatesExport = ['certificates.export', 'certificates.export.own', 'certificates.export.any'];
+        $sectionsView = ['sections.view', 'sections.view.own', 'sections.view.any'];
+        $episodesView = ['episodes.view', 'episodes.view.own', 'episodes.view.any'];
+        $certificateTemplatesView = ['certificates.templates.view', 'certificates.templates.view.any'];
+        $certificateTemplatesCreate = ['certificates.templates.create', 'certificates.templates.create.any'];
+        $certificateTemplatesUpdate = ['certificates.templates.update', 'certificates.templates.update.any'];
+        $certificateTemplatesDelete = ['certificates.templates.delete', 'certificates.templates.delete.any'];
+        $quizzesView = ['quizzes.view', 'quizzes.view.own', 'quizzes.view.any'];
+        $quizzesCreate = ['quizzes.create', 'quizzes.create.own', 'quizzes.create.any'];
+        $quizzesUpdate = ['quizzes.update', 'quizzes.update.own', 'quizzes.update.any'];
+        $quizzesDelete = ['quizzes.delete', 'quizzes.delete.own', 'quizzes.delete.any'];
+        $quizzesReports = ['quizzes.reports', 'quizzes.reports.own', 'quizzes.reports.any'];
+        $quizzesReview = ['quizzes.review', 'quizzes.review.own', 'quizzes.review.any'];
+        $quizQuestionsView = ['quiz_questions.view', 'quiz_questions.view.own', 'quiz_questions.view.any'];
+        $quizQuestionsCreate = ['quiz_questions.create', 'quiz_questions.create.own', 'quiz_questions.create.any'];
+        $quizQuestionsUpdate = ['quiz_questions.update', 'quiz_questions.update.own', 'quiz_questions.update.any'];
+        $quizQuestionsDelete = ['quiz_questions.delete', 'quiz_questions.delete.own', 'quiz_questions.delete.any'];
         $usersView = ['users.view'];
         $discussRead = ['discuss.list', 'discuss.show'];
         $discussWrite = ['discuss.create', 'discuss.update', 'discuss.delete', 'discuss.answer.create'];
-        $articlesRead = ['articles.view', 'articles.list', 'articles.view.own', 'articles.view.any', 'articles.list.any'];
-        $articlesWrite = ['articles.create', 'articles.update', 'articles.update.own', 'articles.update.any', 'articles.delete', 'articles.delete.own', 'articles.delete.any'];
+        $articlesRead = ['articles.view', 'articles.list', 'articles.view.own', 'articles.view.any', 'articles.list.own', 'articles.list.any', 'articles.overview.view', 'articles.overview.view.own', 'articles.overview.view.any'];
+        $articlesWrite = ['articles.create', 'articles.create.own', 'articles.create.any', 'articles.update', 'articles.update.own', 'articles.update.any', 'articles.delete', 'articles.delete.own', 'articles.delete.any'];
         $notificationsRead = ['notifications.view', 'notifications.details'];
         $notificationsWrite = ['notifications.view', 'notifications.delete'];
         $marketingAccess = ['marketing.view', 'marketing.manage', 'marketing.update'];
@@ -132,7 +164,7 @@ class RoutePermissionsSeeder extends Seeder
         $assign([
             'api.admin.dashboard.stats',
             'api.admin.dashboard.unapproved-comments-count',
-        ], ['dashboard.view']);
+        ], $dashboardView);
 
         // System resources
         $assign([
@@ -142,13 +174,13 @@ class RoutePermissionsSeeder extends Seeder
 
         // Payments
         $assign('api.admin.payments.index', $paymentsView);
-        $assign('api.admin.payments.stats', ['payments.stats']);
-        $assign('api.admin.payments.export', ['payments.export', 'payments.export.any']);
-        $assign('api.admin.payments.details', array_merge($paymentsView, ['payments.details']));
-        $assign('api.admin.payments.update-status', ['payments.update_status', 'payments.update_status.any']);
-        $assign('api.admin.payments.update', ['payments.create']);
-        $assign('api.admin.payments.delete', ['payments.delete', 'payments.delete.any']);
-        $assign('api.admin.payments.create', ['payments.create']);
+        $assign('api.admin.payments.stats', array_merge($paymentsView, $paymentsStats));
+        $assign('api.admin.payments.export', array_merge($paymentsView, $paymentsExport));
+        $assign('api.admin.payments.details', array_merge($paymentsView, $paymentsDetails));
+        $assign('api.admin.payments.update-status', $paymentsUpdateStatus);
+        $assign('api.admin.payments.update', $paymentsCreate);
+        $assign('api.admin.payments.delete', $paymentsDelete);
+        $assign('api.admin.payments.create', $paymentsCreate);
         $assign('api.admin.payments.search', ['payments.search']);
         $assign('api.admin.payments.users', ['payments.search.users']);
         $assign('api.admin.payments.courses', ['payments.search.courses']);
@@ -159,32 +191,32 @@ class RoutePermissionsSeeder extends Seeder
         $assign([
             'api.admin.certificates.index',
             'api.admin.certificates.stats',
-            'api.admin.certificates.export',
             'api.admin.certificates.details',
             'api.admin.certificates.search',
             'api.admin.certificates.users',
             'api.admin.certificates.courses',
-        ], ['certificates.view', 'courses.view.own']);
-        $assign('api.admin.certificates.create', ['certificates.create']);
-        $assign('api.admin.certificates.update', ['certificates.update']);
-        $assign('api.admin.certificates.issue', ['certificates.create']);
-        $assign('api.admin.certificates.revoke', ['certificates.update']);
-        $assign('api.admin.certificates.delete', ['certificates.delete']);
+        ], $certificatesView);
+        $assign('api.admin.certificates.export', array_merge($certificatesView, $certificatesExport));
+        $assign('api.admin.certificates.create', $certificatesCreate);
+        $assign('api.admin.certificates.update', $certificatesUpdate);
+        $assign('api.admin.certificates.issue', $certificatesCreate);
+        $assign('api.admin.certificates.revoke', $certificatesUpdate);
+        $assign('api.admin.certificates.delete', $certificatesDelete);
 
         // Certificate Templates
         $assign([
             'api.admin.certificate-templates.index',
             'api.admin.certificate-templates.show',
-        ], ['certificates.templates.view']);
+        ], $certificateTemplatesView);
         $assign([
             'api.admin.certificate-templates.store',
             'api.admin.certificate-templates.duplicate',
-        ], ['certificates.templates.create']);
+        ], $certificateTemplatesCreate);
         $assign([
             'api.admin.certificate-templates.update',
             'api.admin.certificate-templates.upload',
-        ], ['certificates.templates.update']);
-        $assign('api.admin.certificate-templates.delete', ['certificates.templates.delete']);
+        ], $certificateTemplatesUpdate);
+        $assign('api.admin.certificate-templates.delete', $certificateTemplatesDelete);
 
         // Plans
         $assign('api.admin.plans.index', ['plans.view']);
@@ -354,11 +386,9 @@ class RoutePermissionsSeeder extends Seeder
         $assign('api.admin.course.users.assign', $coursesAssign);
         $assign('api.admin.course.users.remove', $coursesAssign);
         $assign('api.admin.course.episodes.reorder', $coursesReorder);
-        $assign([
-            'api.admin.course.section.create',
-            'api.admin.course.section.edit',
-            'api.admin.course.section.delete',
-        ], $coursesUpdate);
+        $assign('api.admin.course.section.create', array_merge($sectionsCreate, $sectionsView));
+        $assign('api.admin.course.section.edit', array_merge($sectionsUpdate, $sectionsView));
+        $assign('api.admin.course.section.delete', array_merge($sectionsDelete, $sectionsView));
         $assign([
             'api.admin.course.data-for-create-episode',
             'api.admin.course.create-null-episode',
@@ -368,7 +398,7 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.course.update-episode',
             'api.admin.course.episode.edit',
             'api.admin.course.episode.details',
-        ], $episodesEdit);
+        ], array_merge($episodesEdit, $episodesView));
         $assign('api.admin.course.episode.delete', $episodesDelete);
         $assign([
             'api.admin.course.episode.upload-file',
@@ -508,13 +538,13 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.report.deactivate-content',
             'api.admin.report.activate-content',
             'api.admin.report.delete-content',
-        ], ['analytics.view']);
+        ], $analyticsView);
         $assign([
             'api.admin.sales-report.index',
             'api.admin.sales-report.stats',
             'api.admin.sales-report.analytics',
             'api.admin.sales-report.export',
-        ], array_merge($paymentsView, ['payments.stats', 'analytics.view']));
+        ], array_merge($paymentsView, $paymentsStats, $analyticsView));
         $coursesView = ['courses.view', 'courses.view.own', 'courses.view.any', 'courses.overview.view'];
         $assign([
             'api.admin.views.index',
@@ -526,13 +556,13 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.likes.index',
             'api.admin.bookmarks.stats',
             'api.admin.bookmarks.index',
-        ], array_merge(['analytics.view'], $coursesView));
+        ], array_merge($analyticsView, $coursesView));
         $assign([
             'api.admin.user-activity-report.index',
             'api.admin.user-activity-report.stats',
             'api.admin.user-activity-report.analytics',
             'api.admin.user-activity-report.export',
-        ], array_merge($usersView, ['analytics.view']));
+        ], array_merge($usersView, $analyticsView));
 
         // Notification management
         $assign([
@@ -554,17 +584,17 @@ class RoutePermissionsSeeder extends Seeder
         ], ['notifications.delete']);
 
         // Quizzes (LMS)
-        $assign('api.admin.quizzes.index', ['quizzes.view']);
-        $assign('api.admin.quizzes.store', ['quizzes.create']);
+        $assign('api.admin.quizzes.index', $quizzesView);
+        $assign('api.admin.quizzes.store', $quizzesCreate);
         $assign([
             'api.admin.quizzes.search.courses',
             'api.admin.quizzes.search.sections',
             'api.admin.quizzes.search.episodes',
             'api.admin.quizzes.search.questions',
-        ], ['quizzes.view']);
-        $assign('api.admin.quizzes.show', ['quizzes.view']);
-        $assign('api.admin.quizzes.update', ['quizzes.update']);
-        $assign('api.admin.quizzes.delete', ['quizzes.delete']);
+        ], $quizzesView);
+        $assign('api.admin.quizzes.show', $quizzesView);
+        $assign('api.admin.quizzes.update', $quizzesUpdate);
+        $assign('api.admin.quizzes.delete', $quizzesDelete);
         $assign([
             'api.admin.quizzes.reports.summary',
             'api.admin.quizzes.reports.passed',
@@ -573,20 +603,20 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.quizzes.for-course',
             'api.admin.quizzes.for-section',
             'api.admin.quizzes.for-episode',
-        ], ['quizzes.reports']);
+        ], $quizzesReports);
         $assign([
             'api.admin.quizzes.answers.grade',
             'api.admin.quizzes.attempts.grade-answers',
             'api.admin.quizzes.attempts.complete-review',
-        ], ['quizzes.review']);
-        $assign('api.admin.quiz-questions.index', ['quiz_questions.view']);
-        $assign('api.admin.quiz-questions.store', ['quiz_questions.create']);
-        $assign('api.admin.quiz-questions.categories', ['quiz_questions.view']);
-        $assign('api.admin.quiz-questions.categories.store', ['quiz_questions.create']);
-        $assign('api.admin.quiz-questions.tags', ['quiz_questions.view']);
-        $assign('api.admin.quiz-questions.show', ['quiz_questions.view']);
-        $assign('api.admin.quiz-questions.update', ['quiz_questions.update']);
-        $assign('api.admin.quiz-questions.delete', ['quiz_questions.delete']);
+        ], $quizzesReview);
+        $assign('api.admin.quiz-questions.index', $quizQuestionsView);
+        $assign('api.admin.quiz-questions.store', $quizQuestionsCreate);
+        $assign('api.admin.quiz-questions.categories', $quizQuestionsView);
+        $assign('api.admin.quiz-questions.categories.store', $quizQuestionsCreate);
+        $assign('api.admin.quiz-questions.tags', $quizQuestionsView);
+        $assign('api.admin.quiz-questions.show', $quizQuestionsView);
+        $assign('api.admin.quiz-questions.update', $quizQuestionsUpdate);
+        $assign('api.admin.quiz-questions.delete', $quizQuestionsDelete);
 
         return $map;
     }

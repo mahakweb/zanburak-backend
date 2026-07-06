@@ -603,7 +603,7 @@ class PanelController extends Controller
         $user = auth('api')->user();
 
         $query = match ($filter) {
-            'online' => $user->certificates(),
+            'online' => $user->certificates()->where('status', 'issued'),
             'tech' => $user->certificates()->where('id', null), // for send null
         };
 

@@ -10,8 +10,7 @@ class CertificatePolicy
 {
     public function viewAny(User $user): bool
     {
-        return ContentScope::for($user)->viewScope('certificates') !== ContentScope::NONE
-            || ContentScope::for($user)->viewScope('courses') === ContentScope::OWN;
+        return ContentScope::for($user)->viewScope('certificates') !== ContentScope::NONE;
     }
 
     public function view(User $user, Certificate $certificate): bool

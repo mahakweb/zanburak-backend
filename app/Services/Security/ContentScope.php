@@ -30,7 +30,7 @@ class ContentScope
     protected static array $viewScopes = [
         'courses' => [
             'any' => ['courses.view.any', 'courses.list.any', 'courses.view', 'courses.list'],
-            'own' => ['courses.view.own'],
+            'own' => ['courses.view.own', 'courses.list.own'],
         ],
         'comments' => [
             'any' => [
@@ -49,28 +49,30 @@ class ContentScope
                 'comments.course.view.own',
                 'comments.episode.view.own',
                 'comments.article.view.own',
+                'comments.path.view.own',
                 'comments.reply.own',
+                'comments.delete.own',
             ],
         ],
         'articles' => [
             'any' => ['articles.view.any', 'articles.list.any', 'articles.view', 'articles.list'],
-            'own' => ['articles.view.own'],
+            'own' => ['articles.view.own', 'articles.list.own'],
         ],
         'payments' => [
-            'any' => ['payments.view.any', 'payments.view', 'payments.export', 'payments.export.any'],
-            'own' => ['payments.view.own'],
+            'any' => ['payments.view.any', 'payments.view', 'payments.export', 'payments.export.any', 'payments.stats.any'],
+            'own' => ['payments.view.own', 'payments.stats.own', 'payments.export.own'],
         ],
         'certificates' => [
-            'any' => ['certificates.view', 'certificates.create', 'certificates.update', 'certificates.delete'],
+            'any' => ['certificates.view.any', 'certificates.view'],
             'own' => ['certificates.view.own'],
         ],
         'quizzes' => [
-            'any' => ['quizzes.view', 'quizzes.create', 'quizzes.update', 'quizzes.delete', 'quizzes.reports', 'quizzes.review'],
-            'own' => [],
+            'any' => ['quizzes.view.any', 'quizzes.view'],
+            'own' => ['quizzes.view.own'],
         ],
         'analytics' => [
-            'any' => ['analytics.view'],
-            'own' => ['payments.view.own', 'payments.stats'],
+            'any' => ['analytics.view.any', 'analytics.view'],
+            'own' => ['analytics.view.own', 'payments.view.own'],
         ],
     ];
 
@@ -84,7 +86,7 @@ class ContentScope
                 'own' => ['courses.view.own'],
             ],
             'create' => [
-                'any' => ['courses.create'],
+                'any' => ['courses.create.any', 'courses.create'],
                 'own' => ['courses.create.own'],
             ],
             'update' => [
@@ -96,8 +98,8 @@ class ContentScope
                 'own' => ['courses.delete.own'],
             ],
             'publish' => [
-                'any' => ['courses.publish.any', 'courses.publish', 'courses.unpublish'],
-                'own' => ['courses.publish.own'],
+                'any' => ['courses.publish.any', 'courses.publish', 'courses.unpublish', 'courses.unpublish.any'],
+                'own' => ['courses.publish.own', 'courses.unpublish.own'],
             ],
             'assign_user' => [
                 'any' => ['courses.assign_user.any', 'courses.assign_user'],
@@ -109,6 +111,10 @@ class ContentScope
             ],
         ],
         'episodes' => [
+            'view' => [
+                'any' => ['episodes.view.any', 'episodes.view', 'episodes.edit.any', 'episodes.edit', 'episodes.get_for_edit'],
+                'own' => ['episodes.view.own', 'episodes.edit.own'],
+            ],
             'create' => [
                 'any' => ['episodes.create.any', 'episodes.create'],
                 'own' => ['episodes.create.own'],
@@ -160,8 +166,8 @@ class ContentScope
                 'own' => ['articles.view.own'],
             ],
             'create' => [
-                'any' => ['articles.create'],
-                'own' => [],
+                'any' => ['articles.create.any', 'articles.create'],
+                'own' => ['articles.create.own'],
             ],
             'update' => [
                 'any' => ['articles.update.any', 'articles.update'],
@@ -172,8 +178,26 @@ class ContentScope
                 'own' => ['articles.delete.own'],
             ],
             'publish' => [
-                'any' => ['articles.publish.any', 'articles.publish', 'articles.unpublish'],
-                'own' => ['articles.publish.own'],
+                'any' => ['articles.publish.any', 'articles.publish', 'articles.unpublish', 'articles.unpublish.any'],
+                'own' => ['articles.publish.own', 'articles.unpublish.own'],
+            ],
+        ],
+        'sections' => [
+            'view' => [
+                'any' => ['sections.view.any', 'sections.view'],
+                'own' => ['sections.view.own'],
+            ],
+            'create' => [
+                'any' => ['sections.create.any', 'sections.create'],
+                'own' => ['sections.create.own'],
+            ],
+            'update' => [
+                'any' => ['sections.update.any', 'sections.update'],
+                'own' => ['sections.update.own'],
+            ],
+            'delete' => [
+                'any' => ['sections.delete.any', 'sections.delete'],
+                'own' => ['sections.delete.own'],
             ],
         ],
         'payments' => [
@@ -181,61 +205,73 @@ class ContentScope
                 'any' => ['payments.view.any', 'payments.view'],
                 'own' => ['payments.view.own'],
             ],
+            'export' => [
+                'any' => ['payments.export.any', 'payments.export'],
+                'own' => ['payments.export.own'],
+            ],
+            'stats' => [
+                'any' => ['payments.stats.any', 'payments.stats'],
+                'own' => ['payments.stats.own'],
+            ],
             'create' => [
-                'any' => ['payments.create'],
-                'own' => [],
+                'any' => ['payments.create.any', 'payments.create'],
+                'own' => ['payments.create.own'],
             ],
             'update' => [
-                'any' => ['payments.update', 'payments.update_status'],
-                'own' => [],
+                'any' => ['payments.update_status.any', 'payments.update', 'payments.update_status'],
+                'own' => ['payments.update_status.own'],
             ],
             'delete' => [
-                'any' => ['payments.delete.any'],
-                'own' => [],
+                'any' => ['payments.delete.any', 'payments.delete'],
+                'own' => ['payments.delete.own'],
             ],
         ],
         'certificates' => [
             'view' => [
-                'any' => ['certificates.view'],
+                'any' => ['certificates.view.any', 'certificates.view'],
                 'own' => ['certificates.view.own'],
             ],
             'create' => [
-                'any' => ['certificates.create'],
-                'own' => [],
+                'any' => ['certificates.create.any', 'certificates.create'],
+                'own' => ['certificates.create.own'],
             ],
             'update' => [
-                'any' => ['certificates.update'],
-                'own' => [],
+                'any' => ['certificates.update.any', 'certificates.update'],
+                'own' => ['certificates.update.own'],
             ],
             'delete' => [
-                'any' => ['certificates.delete'],
-                'own' => [],
+                'any' => ['certificates.delete.any', 'certificates.delete'],
+                'own' => ['certificates.delete.own'],
+            ],
+            'export' => [
+                'any' => ['certificates.export.any', 'certificates.export'],
+                'own' => ['certificates.export.own'],
             ],
         ],
         'quizzes' => [
             'view' => [
-                'any' => ['quizzes.view'],
-                'own' => [],
+                'any' => ['quizzes.view.any', 'quizzes.view'],
+                'own' => ['quizzes.view.own'],
             ],
             'create' => [
-                'any' => ['quizzes.create'],
-                'own' => [],
+                'any' => ['quizzes.create.any', 'quizzes.create'],
+                'own' => ['quizzes.create.own'],
             ],
             'update' => [
-                'any' => ['quizzes.update'],
-                'own' => [],
+                'any' => ['quizzes.update.any', 'quizzes.update'],
+                'own' => ['quizzes.update.own'],
             ],
             'delete' => [
-                'any' => ['quizzes.delete'],
-                'own' => [],
+                'any' => ['quizzes.delete.any', 'quizzes.delete'],
+                'own' => ['quizzes.delete.own'],
             ],
             'reports' => [
-                'any' => ['quizzes.reports'],
-                'own' => [],
+                'any' => ['quizzes.reports.any', 'quizzes.reports'],
+                'own' => ['quizzes.reports.own'],
             ],
             'review' => [
-                'any' => ['quizzes.review'],
-                'own' => [],
+                'any' => ['quizzes.review.any', 'quizzes.review'],
+                'own' => ['quizzes.review.own'],
             ],
         ],
     ];
@@ -263,14 +299,6 @@ class ContentScope
         }
 
         if ($this->user->hasAnyPermissionName($config['own'])) {
-            return self::OWN;
-        }
-
-        if ($domain === 'quizzes') {
-            return $this->viewScope('courses');
-        }
-
-        if ($domain === 'certificates' && $this->viewScope('courses') === self::OWN) {
             return self::OWN;
         }
 
@@ -312,11 +340,12 @@ class ContentScope
     {
         return [
             'users' => $this->canViewGlobalUserMetrics(),
-            'platform' => $this->canViewGlobalPlatformMetrics() || $this->viewScope('courses') === self::OWN,
+            'platform' => $this->viewScope('analytics') !== self::NONE || $this->viewScope('courses') === self::OWN,
             'payments' => $this->viewScope('payments') !== self::NONE,
             'comments' => $this->viewScope('comments') !== self::NONE,
             'courses' => $this->viewScope('courses') !== self::NONE,
-            'certificates' => $this->viewScope('certificates') !== self::NONE || $this->viewScope('courses') === self::OWN,
+            'certificates' => $this->viewScope('certificates') !== self::NONE,
+            'quizzes' => $this->viewScope('quizzes') !== self::NONE,
         ];
     }
 
@@ -426,25 +455,17 @@ class ContentScope
             return false;
         }
 
-        $hasAnyPerm = $this->user->hasAnyPermissionName($permissions['any']);
-        $hasOwnCourseScope = $this->viewScope('courses') === self::OWN
-            && $this->user->hasAnyPermissionName(array_merge($permissions['any'], ['quizzes.view', 'quizzes.create', 'quizzes.update', 'quizzes.reports']));
-
-        if ($hasAnyPerm && $this->viewScope('quizzes') === self::ANY) {
+        if ($this->user->hasAnyPermissionName($permissions['any'])) {
             return true;
         }
 
-        if (! $hasAnyPerm && ! $hasOwnCourseScope) {
+        if (! $this->user->hasAnyPermissionName($permissions['own'])) {
             return false;
         }
 
         $course = $quiz->relatedCourse();
         if ($course === null) {
-            return $hasAnyPerm;
-        }
-
-        if ($this->viewScope('courses') === self::ANY) {
-            return $hasAnyPerm;
+            return false;
         }
 
         return (int) $course->teacher_id === (int) $this->user->id;
@@ -550,7 +571,7 @@ class ContentScope
             return $query;
         }
 
-        if ($scope === self::NONE && $this->viewScope('courses') !== self::OWN) {
+        if ($scope === self::NONE) {
             return $query->whereRaw('1 = 0');
         }
 
@@ -564,7 +585,7 @@ class ContentScope
                 return $query;
             }
 
-            if ($this->viewScope('courses') !== self::OWN) {
+            if ($this->viewScope('analytics') === self::NONE && $this->viewScope('courses') !== self::OWN) {
                 return $query->whereRaw('1 = 0');
             }
 
@@ -605,17 +626,18 @@ class ContentScope
             return $query;
         }
 
+        $hasAnalyticsOwn = $this->viewScope('analytics') === self::OWN;
         $hasCourseOwn = $this->viewScope('courses') === self::OWN;
         $hasArticleOwn = $this->viewScope('articles') === self::OWN;
 
-        if (! $hasCourseOwn && ! $hasArticleOwn) {
+        if (! $hasAnalyticsOwn && ! $hasCourseOwn && ! $hasArticleOwn) {
             return $query->whereRaw('1 = 0');
         }
 
         $userId = $this->user->id;
 
-        return $query->where(function (Builder $q) use ($typeColumn, $idColumn, $hasCourseOwn, $hasArticleOwn, $userId) {
-            if ($hasCourseOwn) {
+        return $query->where(function (Builder $q) use ($typeColumn, $idColumn, $hasCourseOwn, $hasAnalyticsOwn, $hasArticleOwn, $userId) {
+            if ($hasCourseOwn || $hasAnalyticsOwn) {
                 $courseIds = Course::query()->where('teacher_id', $userId)->select('id');
                 $episodeIds = Episode::query()
                     ->whereHas('section.course', fn (Builder $c) => $c->where('teacher_id', $userId))
@@ -658,7 +680,7 @@ class ContentScope
             return $query;
         }
 
-        if ($this->viewScope('courses') !== self::OWN) {
+        if ($this->viewScope('analytics') === self::NONE && $this->viewScope('courses') !== self::OWN) {
             return $query->whereRaw('1 = 0');
         }
 

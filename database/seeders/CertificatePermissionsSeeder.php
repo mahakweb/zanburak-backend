@@ -13,13 +13,28 @@ class CertificatePermissionsSeeder extends Seeder
 
         $permissions = [
             ['name' => 'certificates.view', 'label' => 'مشاهده گواهینامه‌ها'],
+            ['name' => 'certificates.view.own', 'label' => 'مشاهده گواهینامه‌های مرتبط با خود'],
+            ['name' => 'certificates.view.any', 'label' => 'مشاهده همه گواهینامه‌ها'],
             ['name' => 'certificates.create', 'label' => 'صدور گواهینامه'],
+            ['name' => 'certificates.create.own', 'label' => 'صدور گواهینامه برای دوره‌های خود'],
+            ['name' => 'certificates.create.any', 'label' => 'صدور گواهینامه برای هر دوره‌ای'],
             ['name' => 'certificates.update', 'label' => 'ویرایش گواهینامه'],
+            ['name' => 'certificates.update.own', 'label' => 'ویرایش گواهینامه‌های مرتبط با خود'],
+            ['name' => 'certificates.update.any', 'label' => 'ویرایش هر گواهینامه‌ای'],
             ['name' => 'certificates.delete', 'label' => 'حذف/ابطال گواهینامه'],
+            ['name' => 'certificates.delete.own', 'label' => 'حذف/ابطال گواهینامه‌های مرتبط با خود'],
+            ['name' => 'certificates.delete.any', 'label' => 'حذف/ابطال هر گواهینامه‌ای'],
+            ['name' => 'certificates.export', 'label' => 'خروجی گواهینامه‌ها'],
+            ['name' => 'certificates.export.own', 'label' => 'خروجی گواهینامه‌های مرتبط با خود'],
+            ['name' => 'certificates.export.any', 'label' => 'خروجی همه گواهینامه‌ها'],
             ['name' => 'certificates.templates.view', 'label' => 'مشاهده قالب گواهینامه'],
+            ['name' => 'certificates.templates.view.any', 'label' => 'مشاهده همه قالب‌های گواهینامه'],
             ['name' => 'certificates.templates.create', 'label' => 'ایجاد قالب گواهینامه'],
+            ['name' => 'certificates.templates.create.any', 'label' => 'ایجاد قالب گواهینامه (همه)'],
             ['name' => 'certificates.templates.update', 'label' => 'ویرایش قالب گواهینامه'],
+            ['name' => 'certificates.templates.update.any', 'label' => 'ویرایش هر قالب گواهینامه'],
             ['name' => 'certificates.templates.delete', 'label' => 'حذف قالب گواهینامه'],
+            ['name' => 'certificates.templates.delete.any', 'label' => 'حذف هر قالب گواهینامه'],
         ];
 
         foreach ($permissions as $perm) {
@@ -28,42 +43,6 @@ class CertificatePermissionsSeeder extends Seeder
                 ['name'],
                 ['label', 'updated_at']
             );
-        }
-
-        $permNames = array_column($permissions, 'name');
-        $permIds = DB::table('permissions')->whereIn('name', $permNames)->pluck('id', 'name');
-
-        $rolePermissionMap = [
-            'administrator' => $permNames,
-            'course_manager' => $permNames,
-            'course_manager_all' => $permNames,
-            'teacher' => [
-                'certificates.view',
-                'certificates.templates.view',
-            ],
-        ];
-
-        $rows = [];
-        foreach ($rolePermissionMap as $roleName => $names) {
-            $role = DB::table('roles')->where('name', $roleName)->first();
-            if (! $role) {
-                continue;
-            }
-            foreach ($names as $name) {
-                if (! isset($permIds[$name])) {
-                    continue;
-                }
-                $rows[] = [
-                    'role_id' => $role->id,
-                    'permission_id' => $permIds[$name],
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-            }
-        }
-
-        if ($rows !== []) {
-            DB::table('permission_role')->upsert($rows, ['role_id', 'permission_id'], ['updated_at']);
         }
     }
 }
