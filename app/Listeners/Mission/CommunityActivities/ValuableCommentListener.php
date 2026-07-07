@@ -3,7 +3,7 @@
 namespace App\Listeners\Mission\CommunityActivities;
 
 use App\Events\Mission\CommunityActivityEvent;
-use Illuminate\Support\Facades\DB;
+use App\Models\Comment;
 
 class ValuableCommentListener
 {
@@ -26,12 +26,12 @@ class ValuableCommentListener
         $comment = $event->comment;
         
         // بررسی اینکه آیا این اولین کامنت تایید شده در این دوره است که لایک گرفته
-        $isFirstValuable = DB::table('comments')
-            ->where('commentable_type', get_class($comment->commentable))
+        $isFirstValuable = Comment::query()
+            ->where('commentable_type', $comment->commentable_type)
             ->where('commentable_id', $comment->commentable_id)
             ->where('approved', true)
             ->where('id', '!=', $comment->id)
-            ->whereHas('likes', function($q) {
+            ->whereHas('likes', function ($q) {
                 $q->where('type', 'like');
             })
             ->where('created_at', '<', $comment->created_at)

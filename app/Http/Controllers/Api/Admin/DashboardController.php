@@ -622,8 +622,8 @@ class DashboardController extends Controller
         $bookmarkQuery = Bookmark::query()->whereBetween('created_at', [$start, $end]);
         if (! $canGlobalPlatform) {
             $viewQuery = $scope->applyToViewableEngagement($viewQuery);
-            $likeQuery = $scope->applyToViewableEngagement($likeQuery);
-            $bookmarkQuery = $bookmarkQuery->whereRaw('1 = 0');
+            $likeQuery = $scope->applyToLikes($likeQuery);
+            $bookmarkQuery = $scope->applyToBookmarks($bookmarkQuery);
         }
 
         $viewsTotal = (clone $viewQuery)->count();
@@ -641,10 +641,10 @@ class DashboardController extends Controller
             : (int) $scope->applyToViewableEngagement(View::query()->whereBetween('created_at', [$prevStart, $prevEnd]))->count();
         $prevLikes = $canGlobalPlatform
             ? (int) Like::whereBetween('created_at', [$prevStart, $prevEnd])->count()
-            : (int) $scope->applyToViewableEngagement(Like::query()->whereBetween('created_at', [$prevStart, $prevEnd]))->count();
+            : (int) $scope->applyToLikes(Like::query()->whereBetween('created_at', [$prevStart, $prevEnd]))->count();
         $prevBookmarks = $canGlobalPlatform
             ? (int) Bookmark::whereBetween('created_at', [$prevStart, $prevEnd])->count()
-            : 0;
+            : (int) $scope->applyToBookmarks(Bookmark::query()->whereBetween('created_at', [$prevStart, $prevEnd]))->count();
 
         $loginsCount = $canGlobalUsers ? (int) UserLogin::whereBetween('logged_in_at', [$start, $end])->count() : 0;
         $activeUsers = $canGlobalUsers ? (int) UserLogin::whereBetween('logged_in_at', [$start, $end])->distinct('user_id')->count('user_id') : 0;
@@ -683,9 +683,8 @@ class DashboardController extends Controller
             ->select(DB::raw('DATE(created_at) as grp'), DB::raw('COUNT(*) as count'))
             ->groupBy('grp')
             ->pluck('count', 'grp');
-        $prevLikesDailyRaw = $scope->applyToViewableEngagement(
-            Like::query()->whereBetween('created_at', [$prevStart, $prevEnd])
-        )
+        $prevLikesDailyRaw = ($canGlobalPlatform ? Like::query() : $scope->applyToLikes(Like::query()))
+            ->whereBetween('created_at', [$prevStart, $prevEnd])
             ->select(DB::raw('DATE(created_at) as grp'), DB::raw('COUNT(*) as count'))
             ->groupBy('grp')
             ->pluck('count', 'grp');
@@ -856,8 +855,12 @@ class DashboardController extends Controller
                     'today' => [
                         'logins' => (int) UserLogin::whereDate('logged_in_at', today())->count(),
                         'video_views' => (int) VideoView::whereDate('updated_at', today())->count(),
-                        'views' => (int) View::whereDate('created_at', today())->count(),
-                        'likes' => (int) Like::whereDate('created_at', today())->count(),
+                        'views' => $canGlobalPlatform
+                            ? (int) View::whereDate('created_at', today())->count()
+                            : (int) $scope->applyToViewableEngagement(View::query()->whereDate('created_at', today()))->count(),
+                        'likes' => $canGlobalPlatform
+                            ? (int) Like::whereDate('created_at', today())->count()
+                            : (int) $scope->applyToLikes(Like::query()->whereDate('created_at', today()))->count(),
                     ],
                 ],
                 'users' => [

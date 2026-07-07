@@ -11,6 +11,8 @@ Route::middleware('auth:sanctum')->prefix('panel')->as('api.panel.')->group(func
     Route::post('/missions', [\App\Http\Controllers\Api\PanelController::class, 'missions'])->name('missions');
     Route::post('/questions', [\App\Http\Controllers\Api\PanelController::class, 'questions'])->name('questions');
     Route::post('/certifications', [\App\Http\Controllers\Api\PanelController::class, 'certifications'])->name('certifications');
+    Route::get('/certificate-templates', [\App\Http\Controllers\Api\PanelController::class, 'certificateTemplates'])->name('certificate-templates');
+    Route::post('/certificates/{uuid}/template', [\App\Http\Controllers\Api\PanelController::class, 'updateCertificateTemplate'])->name('certificates.template');
     Route::post('/followed', [\App\Http\Controllers\Api\PanelController::class, 'followed'])->name('followed');
     Route::post('/comments', [\App\Http\Controllers\Api\PanelController::class, 'comments'])->name('comments');
 

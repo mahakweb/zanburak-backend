@@ -5,7 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Answer;
 use App\Models\Article;
+use App\Models\Certificate;
+use App\Models\CertificateTemplate;
 use App\Models\Course;
+use App\Support\Certificate\CertificateAssetHelper;
 use App\Models\Path;
 use App\Models\Mission;
 use App\Models\MissionCategory;
@@ -603,7 +606,10 @@ class PanelController extends Controller
         $user = auth('api')->user();
 
         $query = match ($filter) {
-            'online' => $user->certificates()->where('status', 'issued'),
+            'online' => $user->certificates()
+                ->where('status', 'issued')
+                ->whereNotNull('issued_at')
+                ->whereNull('revoked_at'),
             'tech' => $user->certificates()->where('id', null), // for send null
         };
 
@@ -626,10 +632,13 @@ class PanelController extends Controller
                 return [
                     'id' => $item->id,
                     'uuid' => $item->uuid,
+                    'serial_number' => $item->serial_number,
+                    'certificate_template_id' => $item->certificate_template_id,
                     'issued_at' => $item->issued_at,
                     'user_name' => $item->user_name,
                     'course_title' => $item->course_title,
                     'time_completed' => $item->time_completed,
+                    'status' => $item->status,
                     'created_at' => $item->created_at,
                     'updated_at' => $item->updated_at,
                     'user' => [
@@ -663,6 +672,61 @@ class PanelController extends Controller
                 'prev_page' => $prevPage,
                 'next_page' => $nextPage
             ]
+        ], 200);
+    }
+
+    public function certificateTemplates(Request $request)
+    {
+        $templates = CertificateTemplate::query()
+            ->where('is_active', true)
+            ->orderByDesc('is_default')
+            ->orderBy('name')
+            ->get()
+            ->map(fn (CertificateTemplate $template) => [
+                'id' => $template->id,
+                'uuid' => $template->uuid,
+                'name' => $template->name,
+                'orientation' => $template->orientation,
+                'is_default' => (bool) $template->is_default,
+                'is_active' => true,
+                'background_image_url' => CertificateAssetHelper::publicUrl($template->background_image),
+                'logo_image_url' => CertificateAssetHelper::publicUrl($template->logo_image),
+            ]);
+
+        return response()->json([
+            'message' => 'Success',
+            'templates' => $templates,
+        ], 200);
+    }
+
+    public function updateCertificateTemplate(Request $request, string $uuid)
+    {
+        $request->validate([
+            'certificate_template_id' => 'required|exists:certificate_templates,id',
+        ]);
+
+        $user = auth('api')->user();
+        $certificate = Certificate::where('uuid', $uuid)
+            ->where('user_id', $user->id)
+            ->firstOrFail();
+
+        if (! $certificate->isIssued()) {
+            return response()->json(['message' => 'Certificate not available'], 404);
+        }
+
+        $template = CertificateTemplate::query()
+            ->where('id', $request->certificate_template_id)
+            ->where('is_active', true)
+            ->firstOrFail();
+
+        $certificate->update(['certificate_template_id' => $template->id]);
+
+        return response()->json([
+            'message' => 'Success',
+            'certificate' => [
+                'uuid' => $certificate->uuid,
+                'certificate_template_id' => $certificate->certificate_template_id,
+            ],
         ], 200);
     }
 

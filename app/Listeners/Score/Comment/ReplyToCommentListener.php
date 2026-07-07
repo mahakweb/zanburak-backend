@@ -20,7 +20,7 @@ class ReplyToCommentListener
         $title = $commentable->title ?? $commentable->subject ?? 'محتوا';
         
         $this->scoresService->awardScores(
-            $event->user,
+            $event->replier,
             "پاسخ به نظر روی: {$title}",
             15
         );

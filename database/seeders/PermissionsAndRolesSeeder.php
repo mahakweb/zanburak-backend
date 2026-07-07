@@ -131,8 +131,6 @@ class PermissionsAndRolesSeeder extends Seeder
             ['name' => 'courses.list', 'label' => 'لیست دوره‌ها', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'courses.list.own', 'label' => 'لیست دوره‌های خود', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'courses.create', 'label' => 'ایجاد دوره', 'created_at' => $now, 'updated_at' => $now],
-            ['name' => 'courses.create.own', 'label' => 'ایجاد دوره (خود)', 'created_at' => $now, 'updated_at' => $now],
-            ['name' => 'courses.create.any', 'label' => 'ایجاد هر دوره‌ای', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'courses.update', 'label' => 'ویرایش دوره', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'courses.delete', 'label' => 'حذف دوره', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'courses.publish', 'label' => 'انتشار دوره', 'created_at' => $now, 'updated_at' => $now],
@@ -322,8 +320,6 @@ class PermissionsAndRolesSeeder extends Seeder
             ['name' => 'articles.list', 'label' => 'لیست مقالات', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'articles.list.own', 'label' => 'لیست مقالات خود', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'articles.create', 'label' => 'ایجاد مقاله', 'created_at' => $now, 'updated_at' => $now],
-            ['name' => 'articles.create.own', 'label' => 'ایجاد مقاله (خود)', 'created_at' => $now, 'updated_at' => $now],
-            ['name' => 'articles.create.any', 'label' => 'ایجاد مقاله برای همه', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'articles.update', 'label' => 'ویرایش مقاله', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'articles.delete', 'label' => 'حذف مقاله', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'articles.publish', 'label' => 'انتشار مقاله', 'created_at' => $now, 'updated_at' => $now],
@@ -631,7 +627,7 @@ class PermissionsAndRolesSeeder extends Seeder
                 'analytics.view.any',
                 'articles.view.any',
                 'articles.list.any',
-                'articles.create.any',
+                'articles.create',
                 'articles.update.any',
                 'articles.delete.any',
                 'articles.publish.any',
@@ -667,7 +663,7 @@ class PermissionsAndRolesSeeder extends Seeder
                 'analytics.view.any',
                 'courses.view.any',
                 'courses.list.any',
-                'courses.create.any',
+                'courses.create',
                 'courses.update.any',
                 'courses.delete.any',
                 'courses.publish.any',
@@ -732,7 +728,7 @@ class PermissionsAndRolesSeeder extends Seeder
                 'analytics.view.any',
                 'courses.view.any',
                 'courses.list.any',
-                'courses.create.any',
+                'courses.create',
                 'courses.overview.view.any',
                 'courses.comments.view.any',
                 'courses.update.any',
@@ -777,7 +773,7 @@ class PermissionsAndRolesSeeder extends Seeder
                 'analytics.view.own',
                 'courses.view.own',
                 'courses.list.own',
-                'courses.create.own',
+                'courses.create',
                 'courses.overview.view.own',
                 'courses.overview.update.own',
                 'courses.comments.view.own',
@@ -856,7 +852,7 @@ class PermissionsAndRolesSeeder extends Seeder
                 'analytics.view.own',
                 'courses.view.own',
                 'courses.list.own',
-                'courses.create.own',
+                'courses.create',
                 'courses.update.own',
                 'courses.delete.own',
                 'courses.publish.own',
@@ -1167,7 +1163,7 @@ class PermissionsAndRolesSeeder extends Seeder
                 'analytics.view.any',
                 'articles.view.any',
                 'articles.list.any',
-                'articles.create.any',
+                'articles.create',
                 'articles.update.any',
                 'articles.delete.any',
                 'articles.publish.any',
@@ -1189,7 +1185,7 @@ class PermissionsAndRolesSeeder extends Seeder
                 'analytics.view.own',
                 'articles.view.own',
                 'articles.list.own',
-                'articles.create.own',
+                'articles.create',
                 'articles.update.own',
                 'articles.delete.own',
                 'articles.publish.own',
@@ -1402,6 +1398,95 @@ class PermissionsAndRolesSeeder extends Seeder
                 ['role_id', 'permission_id'],
                 ['updated_at']
             );
+
+        $this->removeObsoletePermissions([
+            'courses.create.own',
+            'courses.create.any',
+            'articles.create.own',
+            'articles.create.any',
+        ]);
+
+        $this->exportPermissionsCatalog();
+    }
+
+    /**
+     * @param  string[]  $names
+     */
+    private function removeObsoletePermissions(array $names): void
+    {
+        $ids = DB::table('permissions')->whereIn('name', $names)->pluck('id');
+        if ($ids->isEmpty()) {
+            return;
+        }
+
+        DB::table('permission_role')->whereIn('permission_id', $ids)->delete();
+        DB::table('permission_routes')->whereIn('permission_id', $ids)->delete();
+        DB::table('permissions')->whereIn('id', $ids)->delete();
+    }
+
+    private function exportPermissionsCatalog(): void
+    {
+        $perms = DB::table('permissions')->orderBy('name')->get(['name', 'label']);
+        $grouped = [];
+
+        foreach ($perms as $perm) {
+            $root = explode('.', $perm->name)[0];
+            $grouped[$root][] = $perm;
+        }
+
+        $contentScopedRoots = [
+            'dashboard', 'analytics', 'courses', 'sections', 'episodes', 'videos',
+            'certificates', 'quizzes', 'quiz_questions', 'articles', 'comments', 'payments',
+        ];
+
+        $baseOnlyCreate = ['courses.create', 'articles.create'];
+
+        $lines = [
+            '# فهرست دسترسی‌ها',
+            '',
+            'این فایل پس از اجرای `PermissionsAndRolesSeeder` به‌روز می‌شود.',
+            '',
+            '## قوانین اسکوپ',
+            '',
+            '- **ایجاد دوره/مقاله:** فقط پرمیشن پایه (`courses.create`, `articles.create`) — بدون `.own` / `.any`',
+            '- **سایر عملیات محتوایی:** سه‌تایی `base` + `.own` + `.any` (در صورت نیاز)',
+            '- **مدرس:** فقط `.own` برای مشاهده/ویرایش/حذف + `courses.create` / بدون دسترسی سراسری',
+            '',
+        ];
+
+        ksort($grouped);
+
+        foreach ($grouped as $root => $items) {
+            $lines[] = '## '.$root;
+            $lines[] = '';
+            $lines[] = '| پرمیشن | برچسب | own | any |';
+            $lines[] = '|--------|-------|-----|-----|';
+
+            $names = collect($items)->pluck('name');
+            $bases = $names->filter(function ($name) {
+                return ! str_ends_with($name, '.own') && ! str_ends_with($name, '.any');
+            })->sort()->values();
+
+            foreach ($bases as $base) {
+                if (! $names->contains($base)) {
+                    continue;
+                }
+                $label = collect($items)->firstWhere('name', $base)?->label ?? '';
+                $hasOwn = $names->contains($base.'.own') ? '✓' : '—';
+                $hasAny = $names->contains($base.'.any') ? '✓' : '—';
+
+                if (in_array($base, $baseOnlyCreate, true)) {
+                    $hasOwn = '—';
+                    $hasAny = '—';
+                }
+
+                $lines[] = sprintf('| `%s` | %s | %s | %s |', $base, $label, $hasOwn, $hasAny);
+            }
+
+            $lines[] = '';
+        }
+
+        file_put_contents(database_path('permissions-catalog.md'), implode(PHP_EOL, $lines).PHP_EOL);
     }
 }
 

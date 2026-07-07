@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Certificate;
+use App\Models\CertificateTemplate;
 use App\Services\Certificate\CertificateQrCodeService;
 use App\Services\Certificate\CertificateRenderService;
 use App\Services\Certificate\CertificateVerificationService;
@@ -34,7 +35,7 @@ class CertificateController extends Controller
         ]);
     }
 
-    public function renderData($uuid)
+    public function renderData(Request $request, $uuid)
     {
         $certificate = Certificate::with(['course.teacher', 'template'])
             ->where('uuid', $uuid)
@@ -44,7 +45,20 @@ class CertificateController extends Controller
             return response()->json(['message' => 'Certificate not available'], 404);
         }
 
-        $payload = $this->render->buildPayload($certificate);
+        $template = null;
+        if ($request->filled('template_id')) {
+            $user = auth('api')->user();
+            if (! $user || $user->id !== $certificate->user_id) {
+                return response()->json(['message' => 'Forbidden'], 403);
+            }
+
+            $template = CertificateTemplate::query()
+                ->where('id', $request->input('template_id'))
+                ->where('is_active', true)
+                ->first();
+        }
+
+        $payload = $this->render->buildPayload($certificate, $template);
 
         return response()->json([
             'message' => 'Success',
@@ -150,7 +164,10 @@ class CertificateController extends Controller
         $user = auth('api')->user();
 
         $query = match ($filter) {
-            'online' => $user->certificates()->where('status', 'issued'),
+            'online' => $user->certificates()
+                ->where('status', 'issued')
+                ->whereNotNull('issued_at')
+                ->whereNull('revoked_at'),
             'tech' => $user->certificates()->where('id', null),
         };
 

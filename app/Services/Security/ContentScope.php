@@ -86,8 +86,8 @@ class ContentScope
                 'own' => ['courses.view.own'],
             ],
             'create' => [
-                'any' => ['courses.create.any', 'courses.create'],
-                'own' => ['courses.create.own'],
+                'any' => ['courses.create'],
+                'own' => ['courses.create'],
             ],
             'update' => [
                 'any' => ['courses.update.any', 'courses.update'],
@@ -166,8 +166,8 @@ class ContentScope
                 'own' => ['articles.view.own'],
             ],
             'create' => [
-                'any' => ['articles.create.any', 'articles.create'],
-                'own' => ['articles.create.own'],
+                'any' => ['articles.create'],
+                'own' => ['articles.create'],
             ],
             'update' => [
                 'any' => ['articles.update.any', 'articles.update'],

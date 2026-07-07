@@ -144,7 +144,7 @@ class RoutePermissionsSeeder extends Seeder
         $discussRead = ['discuss.list', 'discuss.show'];
         $discussWrite = ['discuss.create', 'discuss.update', 'discuss.delete', 'discuss.answer.create'];
         $articlesRead = ['articles.view', 'articles.list', 'articles.view.own', 'articles.view.any', 'articles.list.own', 'articles.list.any', 'articles.overview.view', 'articles.overview.view.own', 'articles.overview.view.any'];
-        $articlesWrite = ['articles.create', 'articles.create.own', 'articles.create.any', 'articles.update', 'articles.update.own', 'articles.update.any', 'articles.delete', 'articles.delete.own', 'articles.delete.any'];
+        $articlesWrite = ['articles.create', 'articles.update', 'articles.update.own', 'articles.update.any', 'articles.delete', 'articles.delete.own', 'articles.delete.any'];
         $notificationsRead = ['notifications.view', 'notifications.details'];
         $notificationsWrite = ['notifications.view', 'notifications.delete'];
         $marketingAccess = ['marketing.view', 'marketing.manage', 'marketing.update'];
@@ -367,7 +367,7 @@ class RoutePermissionsSeeder extends Seeder
 
         // Courses
         $assign(['api.admin.courses', 'api.admin.course.search'], $coursesList);
-        $assign(['api.admin.course.create', 'api.admin.course.layouts.init'], ['courses.create', 'courses.create.own']);
+        $assign(['api.admin.course.create', 'api.admin.course.layouts.init'], ['courses.create']);
         $assign(['api.admin.course.edit', 'api.admin.course.update'], $coursesUpdate);
         $assign('api.admin.course.delete', $coursesDelete);
         $assign([
