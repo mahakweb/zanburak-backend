@@ -618,6 +618,27 @@ class RoutePermissionsSeeder extends Seeder
         $assign('api.admin.quiz-questions.update', $quizQuestionsUpdate);
         $assign('api.admin.quiz-questions.delete', $quizQuestionsDelete);
 
+        $supportInboxView = ['support.inbox.view'];
+        $supportInboxReply = ['support.inbox.reply'];
+        $supportInboxSend = ['support.inbox.send'];
+        $supportInboxDelete = ['support.inbox.delete'];
+        $supportInboxMove = ['support.inbox.move'];
+
+        $assign([
+            'api.admin.mail.accounts',
+            'api.admin.mail.folders',
+            'api.admin.mail.stats',
+            'api.admin.mail.messages.index',
+            'api.admin.mail.messages.show',
+            'api.admin.mail.messages.attachments.download',
+            'api.admin.mail.messages.mark-read',
+            'api.admin.mail.messages.mark-unread',
+        ], $supportInboxView);
+        $assign('api.admin.mail.messages.reply', $supportInboxReply);
+        $assign('api.admin.mail.compose', $supportInboxSend);
+        $assign('api.admin.mail.messages.delete', array_merge($supportInboxView, $supportInboxDelete));
+        $assign('api.admin.mail.messages.move', array_merge($supportInboxView, $supportInboxMove));
+
         return $map;
     }
 }

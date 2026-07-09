@@ -412,4 +412,20 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
         Route::post('/{question}/update', [\App\Http\Controllers\Api\Admin\Quiz\QuizQuestionController::class, 'update'])->name('update');
         Route::delete('/{question}', [\App\Http\Controllers\Api\Admin\Quiz\QuizQuestionController::class, 'destroy'])->name('delete');
     });
+
+    // Mail client (live IMAP — no local message storage)
+    Route::prefix('mail')->as('mail.')->group(function () {
+        Route::get('/accounts', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'accounts'])->name('accounts');
+        Route::get('/{account}/folders', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'folders'])->name('folders');
+        Route::get('/{account}/stats', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'stats'])->name('stats');
+        Route::post('/{account}/messages', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'index'])->name('messages.index');
+        Route::get('/{account}/messages/{uid}', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'show'])->name('messages.show');
+        Route::get('/{account}/messages/{uid}/attachments/{part}', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'downloadAttachment'])->name('messages.attachments.download');
+        Route::post('/{account}/messages/{uid}/mark-read', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'markRead'])->name('messages.mark-read');
+        Route::post('/{account}/messages/{uid}/mark-unread', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'markUnread'])->name('messages.mark-unread');
+        Route::post('/{account}/messages/{uid}/move', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'move'])->name('messages.move');
+        Route::delete('/{account}/messages/{uid}', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'destroy'])->name('messages.delete');
+        Route::post('/{account}/messages/{uid}/reply', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'reply'])->name('messages.reply');
+        Route::post('/{account}/compose', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'compose'])->name('compose');
+    });
 });

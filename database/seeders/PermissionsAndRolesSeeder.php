@@ -507,6 +507,13 @@ class PermissionsAndRolesSeeder extends Seeder
             ['name' => 'seo.manage', 'label' => 'مدیریت SEO', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'seo.view', 'label' => 'مشاهده SEO', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'seo.update', 'label' => 'ویرایش SEO', 'created_at' => $now, 'updated_at' => $now],
+
+            // Support inbox (site mailboxes)
+            ['name' => 'support.inbox.view', 'label' => 'مشاهده صندوق ایمیل', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'support.inbox.reply', 'label' => 'پاسخ به ایمیل‌های دریافتی', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'support.inbox.send', 'label' => 'ارسال ایمیل جدید', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'support.inbox.delete', 'label' => 'حذف ایمیل', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'support.inbox.move', 'label' => 'انتقال ایمیل بین پوشه‌ها', 'created_at' => $now, 'updated_at' => $now],
         ];
 
         DB::table('permissions')->upsert($permissions, ['name'], ['label', 'updated_at']);
@@ -619,6 +626,11 @@ class PermissionsAndRolesSeeder extends Seeder
                 'users.sessions.terminate',
                 'users.reset_password',
                 'admin.search_user',
+                'support.inbox.view',
+                'support.inbox.reply',
+                'support.inbox.send',
+                'support.inbox.delete',
+                'support.inbox.move',
             ],
 
             'content_admin' => [
@@ -1242,6 +1254,11 @@ class PermissionsAndRolesSeeder extends Seeder
                 'marketing.manage',
                 'marketing.update',
                 'marketing.view',
+                'support.inbox.view',
+                'support.inbox.reply',
+                'support.inbox.send',
+                'support.inbox.delete',
+                'support.inbox.move',
             ],
 
             'marketing_editor' => [

@@ -54,6 +54,18 @@ MAIL_ENCRYPTION=ssl
 MAIL_FROM_ADDRESS="info@zanburak.ir"
 MAIL_FROM_NAME="${APP_NAME}"
 
+# Admin mail inbox (live IMAP — cPanel: mail.zanburak.ir:993 SSL, SMTP :465 SSL)
+# Username = full email (e.g. admin@zanburak.ir), same password as webmail
+MAIL_INBOX_IMAP_HOST=mail.zanburak.ir
+MAIL_INBOX_IMAP_PORT=993
+MAIL_INBOX_IMAP_ENCRYPTION=ssl
+MAIL_INBOX_IMAP_VALIDATE_CERT=true
+MAIL_INBOX_DEFAULT_PASSWORD="Milad@4970"
+
+# Per-mailbox overrides (username defaults to the address)
+# MAIL_INBOX_ADMIN_PASSWORD=
+# MAIL_INBOX_SUPPORT_PASSWORD=
+
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
 AWS_DEFAULT_REGION=us-east-1

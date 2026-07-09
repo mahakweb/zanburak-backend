@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
             CertificatePermissionsSeeder::class,
             TagPermissionsSeeder::class,
             RoutePermissionsSeeder::class,
+            MailInboxAccountsSeeder::class,
             LevelsTableSeeder::class,
             StatusesTableSeeder::class,
             CategoriesAndQuestionCategoriesSeeder::class,

@@ -351,6 +351,17 @@
 | `statuses.update` | ویرایش وضعیت | — | — |
 | `statuses.view` | مشاهده وضعیت‌ها | — | — |
 
+## support
+
+| پرمیشن | برچسب | own | any |
+|--------|-------|-----|-----|
+| `support.inbox.delete` | حذف ایمیل | — | — |
+| `support.inbox.move` | انتقال ایمیل بین پوشه‌ها | — | — |
+| `support.inbox.reply` | پاسخ به ایمیل‌های دریافتی | — | — |
+| `support.inbox.send` | ارسال ایمیل جدید | — | — |
+| `support.inbox.sync` | همگام‌سازی صندوق ایمیل | — | — |
+| `support.inbox.view` | مشاهده صندوق ایمیل | — | — |
+
 ## system
 
 | پرمیشن | برچسب | own | any |
