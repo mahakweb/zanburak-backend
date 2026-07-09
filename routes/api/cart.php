@@ -20,7 +20,7 @@ Route::middleware('auth:sanctum')->prefix('payment')->as('api.payment.')->group(
     Route::post('/retry/{uuid}', [\App\Http\Controllers\Api\PaymentController::class, 'retry'])->name('retry');
     Route::post('/receipt/detail', [\App\Http\Controllers\Api\PaymentController::class, 'receipt'])->name('receipt.detail');
 });
-Route::get('/payment/verify/{uuid}', [\App\Http\Controllers\Api\PaymentController::class, 'callback'])->name('api.payment.callback');
+Route::match(['get', 'post'], '/payment/verify/{uuid}', [\App\Http\Controllers\Api\PaymentController::class, 'callback'])->name('api.payment.callback');
 
 // Legacy cart payment callback
 Route::get('/cart/payment/callback', [\App\Http\Controllers\Api\CartController::class, 'callback'])->name('api.payment-callback');

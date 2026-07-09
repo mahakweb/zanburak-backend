@@ -121,6 +121,10 @@ class PaymentService
 
         $driver = $options['driver'] ?? $payment->driver ?? config('payment.default', 'zarinpal');
 
+        if ($driver === 'digipay') {
+            $options = $this->mergeDigipayPurchaseOptions($payment, $options);
+        }
+
         $gateway = new PaymentGateway($driver);
         $result = $gateway->purchase((int) $payment->amount, $callbackUrl, $options);
 
@@ -160,17 +164,23 @@ class PaymentService
     }
 
 
-    public function verify(Payment $payment): array
+    public function verify(Payment $payment, array $callbackData = []): array
     {
         try {
+            $verifyOptions = $this->buildDigipayVerifyOptions($payment, $callbackData);
             $gateway = new PaymentGateway($payment->driver);
-            $result = $gateway->verify((int) $payment->amount, $payment->tracking_number);
+            $result = $gateway->verify((int) $payment->amount, $payment->tracking_number, $verifyOptions);
 
             $payment->update([
                 'status'       => true,
                 'paid_at'      => now(),
                 'expired_at'   => null,
+                'reference_id' => $result['reference_id'] ?? $payment->reference_id,
             ]);
+
+            if ($payment->driver === 'digipay' && !empty($result['digipay_type'])) {
+                $this->handleDigipayPostVerify($payment, $result);
+            }
 
             // Create receipt-like object for compatibility
             $receipt = new class($result) {
@@ -441,6 +451,10 @@ class PaymentService
 		$callbackUrl = $callbackUrl ?? route('api.wallet-callback');
 		$driver = $options['driver'] ?? $payment->driver ?? config('payment.default', 'zarinpal');
 
+		if ($driver === 'digipay') {
+			$options = $this->mergeDigipayPurchaseOptions($payment, $options);
+		}
+
 		$gateway = new PaymentGateway($driver);
 		$result = $gateway->purchase((int) $payment->amount, $callbackUrl, $options);
 
@@ -482,16 +496,18 @@ class PaymentService
 	/**
 	 * تایید پرداخت کیف پول و ایجاد رکورد wallet
 	 */
-	public function verifyWalletPayment(Payment $payment): array
+	public function verifyWalletPayment(Payment $payment, array $callbackData = []): array
 	{
 		try {
+			$verifyOptions = $this->buildDigipayVerifyOptions($payment, $callbackData);
 			$gateway = new PaymentGateway($payment->driver);
-			$result = $gateway->verify((int) $payment->amount, $payment->tracking_number);
+			$result = $gateway->verify((int) $payment->amount, $payment->tracking_number, $verifyOptions);
 
 			$payment->update([
 				'status'       => true,
 				'paid_at'      => now(),
 				'expired_at'   => null,
+				'reference_id' => $result['reference_id'] ?? $payment->reference_id,
 			]);
 
 			// Create receipt-like object for compatibility
@@ -540,4 +556,141 @@ class PaymentService
 			'wallet_balance' => $wallet->after_balance,
 		]);
 	}
+
+    public function buildPurchaseOptionsFromRequest(array $data): array
+    {
+        $options = [];
+
+        if (!empty($data['driver'])) {
+            $options['driver'] = $data['driver'];
+        }
+
+        if (!empty($data['gateway'])) {
+            $options['driver'] = $data['gateway'];
+        }
+
+        if (array_key_exists('digipay_preferred_gateway', $data) && $data['digipay_preferred_gateway'] !== null) {
+            $options['digipay_preferred_gateway'] = (int) $data['digipay_preferred_gateway'];
+        }
+
+        if (!empty($data['digipay_mode'])) {
+            $options['digipay_mode'] = $data['digipay_mode'];
+        }
+
+        return $options;
+    }
+
+    protected function mergeDigipayPurchaseOptions(Payment $payment, array $options): array
+    {
+        $payment->loadMissing(['user', 'items.payable']);
+
+        $options = array_merge($options, [
+            'mobile' => $payment->user->mobile ?? null,
+            'provider_id' => $payment->uuid,
+        ]);
+
+        if (isset($options['digipay_preferred_gateway'])) {
+            $options['preferredGateway'] = (int) $options['digipay_preferred_gateway'];
+            unset($options['digipay_preferred_gateway']);
+        }
+
+        $digipayMode = $options['digipay_mode'] ?? null;
+        $needsBasket = in_array($digipayMode, ['credit', 'facilities'], true) || $payment->items->isNotEmpty();
+
+        if ($needsBasket) {
+            $options['basketDetailsDto'] = $payment->items->isNotEmpty()
+                ? $this->buildDigipayBasketDetails($payment)
+                : $this->buildDigipayWalletBasketDetails($payment);
+        }
+
+        return $options;
+    }
+
+    protected function buildDigipayWalletBasketDetails(Payment $payment): array
+    {
+        return [
+            'basketId' => $payment->uuid,
+            'items' => [[
+                'sellerId' => 'zanburak',
+                'supplierId' => 'zanburak',
+                'productCode' => 'wallet-topup',
+                'brand' => 'zanburak',
+                'productType' => 3,
+                'count' => 1,
+                'categoryId' => 'service',
+            ]],
+        ];
+    }
+
+    protected function buildDigipayBasketDetails(Payment $payment): array
+    {
+        $items = [];
+
+        foreach ($payment->items as $index => $item) {
+            $payable = $item->payable;
+            $items[] = [
+                'sellerId' => 'zanburak',
+                'supplierId' => 'zanburak',
+                'productCode' => (string) ($payable->id ?? ('item-' . ($index + 1))),
+                'brand' => 'zanburak',
+                'productType' => 3,
+                'count' => 1,
+                'categoryId' => 'service',
+            ];
+        }
+
+        return [
+            'basketId' => $payment->uuid,
+            'items' => $items,
+        ];
+    }
+
+    protected function buildDigipayVerifyOptions(Payment $payment, array $callbackData): array
+    {
+        if ($payment->driver !== 'digipay') {
+            return [];
+        }
+
+        return [
+            'trackingCode' => $callbackData['trackingCode'] ?? null,
+            'providerId' => $callbackData['providerId'] ?? $payment->uuid,
+            'type' => $callbackData['type'] ?? null,
+            'result' => $callbackData['result'] ?? null,
+            'callback_amount' => $callbackData['amount'] ?? null,
+        ];
+    }
+
+    protected function handleDigipayPostVerify(Payment $payment, array $verifyResult): void
+    {
+        $type = (int) ($verifyResult['digipay_type'] ?? 0);
+
+        if (!in_array($type, [5, 13], true)) {
+            return;
+        }
+
+        $trackingCode = $verifyResult['reference_id'] ?? null;
+        if (empty($trackingCode)) {
+            return;
+        }
+
+        $products = $payment->items
+            ->map(fn ($item) => (string) ($item->payable_id ?? $item->id))
+            ->filter()
+            ->values()
+            ->all();
+
+        if ($products === []) {
+            $products = [$payment->uuid];
+        }
+
+        try {
+            $gateway = new PaymentGateway('digipay');
+            $gateway->deliverDigipay($trackingCode, $type, $products, $payment->reference_id);
+        } catch (Exception $e) {
+            Log::warning('DigiPay deliver failed after verify', [
+                'payment_id' => $payment->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
 }

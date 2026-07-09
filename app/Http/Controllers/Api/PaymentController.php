@@ -28,6 +28,8 @@ class PaymentController extends Controller
 			'payment_method' => ['nullable', 'in:wallet,bank'],
             'discount_code'  => ['nullable', 'string'],
             'discount_amount' => ['nullable', 'integer'],
+            'digipay_preferred_gateway' => ['nullable', 'integer'],
+            'digipay_mode' => ['nullable', 'string', 'in:credit,facilities'],
             // 'expired_at'     => ['nullable', 'date'],
         ]);
 
@@ -129,7 +131,8 @@ class PaymentController extends Controller
                 ], 200);
             }
 
-            $response = $this->service->startPurchase($payment, $attempt, null, [])->pay()->toJson();
+            $purchaseOptions = $this->service->buildPurchaseOptionsFromRequest($data);
+            $response = $this->service->startPurchase($payment, $attempt, null, $purchaseOptions)->pay()->toJson();
             // clear user cart
             $user->carts()->delete();
 
@@ -161,9 +164,11 @@ class PaymentController extends Controller
         $options = $request->validate([
             'driver' => ['nullable', 'string', new ValidGateway()],
             'payment_method' => ['nullable', 'in:wallet,bank'],
+            'digipay_preferred_gateway' => ['nullable', 'integer'],
+            'digipay_mode' => ['nullable', 'string', 'in:credit,facilities'],
         ]);
 
-
+        $purchaseOptions = $this->service->buildPurchaseOptionsFromRequest($options);
         try {
             $payment->visited_at = null;
             $payment->save();
@@ -276,7 +281,7 @@ class PaymentController extends Controller
                 ], 200);
             }
 
-            $response = $this->service->startPurchase($payment, $attempt, null, $options)->pay()->toJson();
+            $response = $this->service->startPurchase($payment, $attempt, null, $purchaseOptions)->pay()->toJson();
 
             return response()->json(['message' => 'Success!', 'payment_uuid'  => $payment->uuid, 'redirect_url' => json_decode($response)->action], 200);
         } catch (\Throwable $e) {
@@ -302,7 +307,7 @@ class PaymentController extends Controller
             }
 
             // تایید پرداخت (حالا خودکار تشخیص می‌دهد wallet یا cart)
-            $result = $this->service->verify($payment);
+            $result = $this->service->verify($payment, $request->all());
 
             // آپدیت وضعیت PaymentAttempt
             if ($attempt) {

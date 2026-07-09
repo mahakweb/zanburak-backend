@@ -362,6 +362,8 @@ class PanelController extends Controller
         $validData = Validator::make($request->all(), [
             'amount' => ['required', 'numeric', 'min:1000', 'max:100000000'],
             'gateway' => ['required', 'string', new ValidGateway],
+            'digipay_preferred_gateway' => ['nullable', 'integer'],
+            'digipay_mode' => ['nullable', 'string', 'in:credit,facilities'],
         ]);
 
         if (!$validData->passes()) {
@@ -390,8 +392,11 @@ class PanelController extends Controller
                 ]),
             ]);
 
+            $purchaseOptions = $this->paymentService->buildPurchaseOptionsFromRequest($request->all());
+            $purchaseOptions['driver'] = $request->input('gateway');
+
             // شروع پرداخت (استفاده از callback یکپارچه)
-            $response = $this->paymentService->startPurchase($payment, $attempt, route('api.payment.callback', $payment->uuid))->pay()->toJson();
+            $response = $this->paymentService->startPurchase($payment, $attempt, route('api.payment.callback', $payment->uuid), $purchaseOptions)->pay()->toJson();
             
             return response()->json([
                 'message' => 'Successfully', 
