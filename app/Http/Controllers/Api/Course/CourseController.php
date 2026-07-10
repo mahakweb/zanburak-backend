@@ -36,6 +36,7 @@ class CourseController extends Controller
         $type = $request->input('type', []);
         $status = $request->input('status', []);
         $order = $request->input('order', 'newest');
+        $installment = $request->input('installment');
 
         $query = Course::where('publish', '1')
             ->notArchived()
@@ -43,6 +44,7 @@ class CourseController extends Controller
             ->cat($cat)
             ->type($type)
             ->status($status)
+            ->installment($installment)
             ->order($order);
 
         $availability = app(CourseAvailabilityService::class);
@@ -62,6 +64,7 @@ class CourseController extends Controller
                 'english_title' => $course->english_title,
                 'slug' => $course->slug,
                 'price' => $course->price,
+                'allows_installment' => (bool) $course->allows_installment,
                 'poster' => $course->poster,
                 'description' => $course->description,
                 'short_description' => $course->short_description,

@@ -265,7 +265,12 @@ class PaymentGateway
             $data['basketDetailsDto'] = $options['basketDetailsDto'];
         }
 
-        if (isset($options['preferredGateway'])) {
+        // Basket-based installment flow: let DigiPay show credit/BNPL/wallet choices.
+        // Sending preferredGateway (especially 0 = wallet) forces wallet cash-in instead.
+        if (
+            empty($data['basketDetailsDto'])
+            && isset($options['preferredGateway'])
+        ) {
             $data['additionalInfo'] = [
                 'preferredGateway' => (int) $options['preferredGateway'],
             ];

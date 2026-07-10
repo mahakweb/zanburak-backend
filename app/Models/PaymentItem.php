@@ -17,6 +17,8 @@ class PaymentItem extends Model
         'discount_amount',
         'discount_code',
         'final_price',
+        'gateway_fee_amount',
+        'charged_price',
     ];
 
     public function payment()

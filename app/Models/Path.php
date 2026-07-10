@@ -23,10 +23,12 @@ class Path extends Model
         'trailer',
         'faqs',
         'status',
+        'allows_installment',
     ];
 
     protected $casts = [
         'status' => 'boolean',
+        'allows_installment' => 'boolean',
         'faqs' => 'array',
     ];
 
@@ -157,5 +159,18 @@ class Path extends Model
     public function viewsCount()
     {
         return $this->views()->count();
+    }
+
+    public function scopeInstallment($query, $value)
+    {
+        if ($value === null || $value === '' || $value === 'all') {
+            return $query;
+        }
+
+        if (in_array($value, [1, '1', true, 'yes', 'true'], true)) {
+            return $query->where('allows_installment', true);
+        }
+
+        return $query;
     }
 }

@@ -213,7 +213,7 @@ class PanelController extends Controller
         $user = auth('api')->user();
 
         $query = $user->payments()
-            ->select('id', 'uuid', 'payment_method', 'tracking_number', 'reference_id', 'amount', 'driver', 'discount_amount', 'discount_code', 'status', 'paid_at', 'expired_at', 'created_at', 'updated_at', 'description')
+            ->select('id', 'uuid', 'payment_method', 'tracking_number', 'reference_id', 'amount', 'driver', 'gateway_variant', 'digipay_mode', 'digipay_preferred_gateway', 'wallet_paid_amount', 'gateway_paid_amount', 'digipay_credit_amount', 'digipay_cash_amount', 'base_amount', 'gateway_fee_amount', 'gateway_fee_percent', 'discount_amount', 'discount_code', 'status', 'paid_at', 'expired_at', 'created_at', 'updated_at', 'description')
             ->with(['attempts', 'items.payable']);
 
         $query = match ($filter) {
@@ -272,6 +272,16 @@ class PanelController extends Controller
                 'tracking_number' => $payment->tracking_number,
                 'reference_id' => $payment->reference_id,
                 'driver' => $payment->driver,
+                'gateway_variant' => $payment->gateway_variant,
+                'digipay_mode' => $payment->digipay_mode,
+                'digipay_preferred_gateway' => $payment->digipay_preferred_gateway,
+                'wallet_paid_amount' => $payment->wallet_paid_amount,
+                'gateway_paid_amount' => $payment->gateway_paid_amount,
+                'digipay_credit_amount' => $payment->digipay_credit_amount,
+                'digipay_cash_amount' => $payment->digipay_cash_amount,
+                'base_amount' => $payment->base_amount,
+                'gateway_fee_amount' => $payment->gateway_fee_amount,
+                'gateway_fee_percent' => $payment->gateway_fee_percent,
                 'amount' => $payment->amount,
                 'discount_amount' => $payment->discount_amount,
                 'discount_code' => $payment->discount_code,
@@ -285,6 +295,7 @@ class PanelController extends Controller
                 'is_wallet' => $isWallet,
                 'attempts' => $payment->attempts()->latest()->get(),
                 'items' => $payment->items->map(function ($item) {
+                    $payable = $item->relationLoaded('payable') ? $item->payable : null;
                     $base = [
                         'id' => $item->id,
                         'payable_type' => class_basename($item->payable_type),
@@ -293,10 +304,12 @@ class PanelController extends Controller
                         'discount_amount' => $item->discount_amount,
                         'discount_code' => $item->discount_code,
                         'final_price' => $item->final_price,
+                        'charged_price' => $item->charged_price,
+                        'gateway_fee_amount' => $item->gateway_fee_amount,
+                        'allows_installment' => (bool) ($payable?->allows_installment ?? false),
                     ];
 
-                    if ($item->relationLoaded('payable') && $item->payable) {
-                        $payable = $item->payable;
+                    if ($payable) {
 
                         if ($payable instanceof \App\Models\Course) {
                             $base['payable'] = [
@@ -370,6 +383,23 @@ class PanelController extends Controller
             return response()->json(['message' => 'Error', 'errors' => $validData->errors()->toArray()], 422);
         }
 
+        if ($request->input('gateway') === 'digipay') {
+            if ($request->filled('digipay_mode')) {
+                return response()->json([
+                    'message' => 'Error',
+                    'errors' => ['gateway' => ['برای شارژ کیف پول فقط درگاه‌های بانکی مجاز هستند.']],
+                ], 422);
+            }
+
+            $preferredGateway = $request->input('digipay_preferred_gateway');
+            if ($preferredGateway !== null && (int) $preferredGateway !== 2) {
+                return response()->json([
+                    'message' => 'Error',
+                    'errors' => ['gateway' => ['برای شارژ کیف پول فقط درگاه‌های بانکی مجاز هستند.']],
+                ], 422);
+            }
+        }
+
         try {
             // ایجاد پرداخت با استفاده از PaymentService
             $payment = $this->paymentService->createWalletPayment($user, [
@@ -394,6 +424,10 @@ class PanelController extends Controller
 
             $purchaseOptions = $this->paymentService->buildPurchaseOptionsFromRequest($request->all());
             $purchaseOptions['driver'] = $request->input('gateway');
+
+            if ($request->input('gateway') === 'digipay') {
+                $purchaseOptions['digipay_preferred_gateway'] = 2;
+            }
 
             // شروع پرداخت (استفاده از callback یکپارچه)
             $response = $this->paymentService->startPurchase($payment, $attempt, route('api.payment.callback', $payment->uuid), $purchaseOptions)->pay()->toJson();

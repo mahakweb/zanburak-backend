@@ -30,7 +30,7 @@ class PathController extends Controller
         $sort = $request->input('sort', 'newest'); // newest | oldest | courses_high
 
         $query = Path::query()
-            ->select(['id', 'title', 'english_title', 'slug', 'icon', 'poster', 'faqs', 'status', 'created_at'])
+            ->select(['id', 'title', 'english_title', 'slug', 'icon', 'poster', 'faqs', 'status', 'allows_installment', 'created_at'])
             ->with([
                 'courses:id,title,slug',
                 'prerequisites:id,title,slug',
@@ -42,6 +42,10 @@ class PathController extends Controller
             $query->where('status', 1);
         } elseif ($statusFilter === 'inactive') {
             $query->where('status', 0);
+        }
+
+        if ($request->input('installment') === 'yes') {
+            $query->where('allows_installment', true);
         }
 
         if (!empty($search)) {
@@ -75,6 +79,7 @@ class PathController extends Controller
                 'poster' => $path->poster,
                 'faqs' => $path->faqs,
                 'status' => (bool) $path->status,
+                'allows_installment' => (bool) $path->allows_installment,
                 'created_at' => $path->created_at,
                 'courses_count' => $path->courses_count,
                 'prerequisites_count' => $path->prerequisites_count,
@@ -167,6 +172,7 @@ class PathController extends Controller
                 'trailer_video_id' => $trailerVideoId,
                 'faqs' => $path->faqs,
                 'status' => (bool) $path->status,
+                'allows_installment' => (bool) $path->allows_installment,
                 'slug' => $path->slug,
                 // associations
                 'courses' => $path->courses->map(fn($c) => ['id' => $c->id, 'title' => $c->title, 'slug' => $c->slug])->values(),
@@ -233,6 +239,7 @@ class PathController extends Controller
             'faqs.*.question' => ['required_with:faqs', 'string', 'max:500'],
             'faqs.*.answer' => ['required_with:faqs', 'string', 'max:2000'],
             'status' => ['nullable', 'boolean'],
+            'allows_installment' => ['nullable', 'boolean'],
             'assignment_type' => ['nullable', Rule::in(['manual', 'automatic'])],
             'match_type' => ['nullable', Rule::in(['all', 'any'])],
             'rules' => ['nullable', 'array'],
@@ -270,6 +277,9 @@ class PathController extends Controller
         if (array_key_exists('trailer', $valid)) $path->trailer = $valid['trailer'];
         $path->faqs = $valid['faqs'] ?? null;
         if (array_key_exists('status', $valid)) $path->status = (bool) $valid['status'];
+        if (array_key_exists('allows_installment', $valid)) {
+            $path->allows_installment = (bool) $valid['allows_installment'];
+        }
 
         $path->save();
 
@@ -579,6 +589,7 @@ class PathController extends Controller
             'faqs.*.question' => ['required_with:faqs', 'string', 'max:500'],
             'faqs.*.answer' => ['required_with:faqs', 'string', 'max:2000'],
             'status' => ['nullable', 'boolean'],
+            'allows_installment' => ['nullable', 'boolean'],
 
             // assignment details
             'assignment_type' => ['required', Rule::in(['manual', 'automatic'])],
@@ -625,6 +636,7 @@ class PathController extends Controller
             'trailer' => $valid['trailer'] ?? null,
             'faqs' => $valid['faqs'] ?? null,
             'status' => array_key_exists('status', $valid) ? (bool) $valid['status'] : true,
+            'allows_installment' => (bool) ($valid['allows_installment'] ?? false),
         ]);
 
         // Manual associations

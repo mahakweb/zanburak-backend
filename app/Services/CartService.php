@@ -35,6 +35,7 @@ class CartService
                 return [
                     'id' => $cart->id,
                     'type' => 'course',
+                    'allows_installment' => (bool) ($item->allows_installment ?? false),
                     'course' => [
                         'id' => $item->id,
                         'title' => $item->title,
@@ -72,6 +73,7 @@ class CartService
                 return [
                     'id' => $cart->id,
                     'type' => 'path',
+                    'allows_installment' => (bool) ($item->allows_installment ?? false),
                     'path' => [
                         'id' => $item->id,
                         'title' => $item->title,
@@ -103,6 +105,7 @@ class CartService
                 return [
                     'id' => $cart->id,
                     'type' => 'vip',
+                    'allows_installment' => (bool) ($item->allows_installment ?? false),
                     'vip' => [
                         'id' => $item->id,
                         'title' => $item->title,
@@ -127,6 +130,7 @@ class CartService
             'total_price' => $totalPriceOfCart,
             'total_discount' => $totalDiscountCart,
             'final_price' => $totalPriceOfCart - $totalDiscountCart,
+            'has_installment_eligible_items' => $cartItems->contains(fn ($item) => (bool) ($item['allows_installment'] ?? false)),
         ];
     }
 

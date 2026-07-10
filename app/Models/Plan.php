@@ -13,6 +13,7 @@ class Plan extends Model
         'english_title',
         'period_time',
         'price',
+        'allows_installment',
         'icon',
         'status',
         'popular',
@@ -23,6 +24,7 @@ class Plan extends Model
     protected $casts = [
         'status' => 'boolean',
         'popular' => 'boolean',
+        'allows_installment' => 'boolean',
         'features' => 'array',
     ];
 
@@ -37,5 +39,18 @@ class Plan extends Model
         return $this->belongsToMany(User::class)
             ->withPivot(["payment_id", "tracking_number", "price", "status", "started_at", "expired_at"])
             ->wherePivot('expired_at', '>', now());
+    }
+
+    public function scopeInstallment($query, $value)
+    {
+        if ($value === null || $value === '' || $value === 'all') {
+            return $query;
+        }
+
+        if (in_array($value, [1, '1', true, 'yes', 'true'], true)) {
+            return $query->where('allows_installment', true);
+        }
+
+        return $query;
     }
 }

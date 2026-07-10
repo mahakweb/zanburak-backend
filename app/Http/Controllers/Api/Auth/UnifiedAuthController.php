@@ -56,7 +56,17 @@ class UnifiedAuthController extends Controller
             $query->where('mobile', $identifier);
         }
 
-        $exists = $query->exists();
+        $user = $query->first();
+
+        if ($user && $user->isDeactivated()) {
+            return response()->json(array_merge([
+                'exists' => true,
+                'identifier_type' => $isEmail ? 'email' : 'mobile',
+                'deactivated' => true,
+            ], $user->deactivationPayload()), 200);
+        }
+
+        $exists = $user !== null;
 
         return response()->json([
             'exists' => $exists,
@@ -85,6 +95,14 @@ class UnifiedAuthController extends Controller
                 'message' => 'لطفاً یک ایمیل یا شماره موبایل معتبر وارد کنید.',
                 'errors' => ['identifier' => ['فرمت وارد شده صحیح نیست.']]
             ], 422);
+        }
+
+        $user = $isEmail
+            ? User::where('email', $identifier)->first()
+            : User::where('mobile', $identifier)->first();
+
+        if ($user && $user->isDeactivated()) {
+            return $this->deactivationResponse($user);
         }
 
         $activeCode = new ActiveCode();
@@ -174,11 +192,7 @@ class UnifiedAuthController extends Controller
 
         if ($user) {
             if ($user->isDeactivated()) {
-                return response()->json([
-                    'error_message' => $user->deactivationMessage(),
-                    'error_reason' => $user->deactivation_reason,
-                    'error_until' => $user->isTemporarilyDeactivated() ? $user->deactivated_until : null,
-                ], 403);
+                return $this->deactivationResponse($user);
             }
 
             // reset failed attempts and deactivation flags on successful OTP login
@@ -279,11 +293,7 @@ class UnifiedAuthController extends Controller
         }
 
         if ($user->isDeactivated()) {
-            return response()->json([
-                'error_message' => $user->deactivationMessage(),
-                'error_reason' => $user->deactivation_reason,
-                'error_until' => $user->isTemporarilyDeactivated() ? $user->deactivated_until : null,
-            ], 403);
+            return $this->deactivationResponse($user);
         }
 
         // reset failed attempts and deactivation flags on successful password login
@@ -672,6 +682,14 @@ class UnifiedAuthController extends Controller
         return response()->json([
             'message' => 'رمز عبور با موفقیت تغییر یافت.',
         ], 200);
+    }
+
+    protected function deactivationResponse(User $user)
+    {
+        return response()->json(array_merge([
+            'message' => $user->deactivationMessage(),
+            'deactivated' => true,
+        ], $user->deactivationPayload()), 403);
     }
 
     /**

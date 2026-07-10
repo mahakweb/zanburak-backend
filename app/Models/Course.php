@@ -37,6 +37,7 @@ class Course extends Model implements Likeable
         'start_date',
         'end_date',
         'price',
+        'allows_installment',
         'publish',
         'status_id',
         'level_id',
@@ -51,6 +52,7 @@ class Course extends Model implements Likeable
     protected $casts = [
         'publish' => 'boolean',
         'certificate_enabled' => 'boolean',
+        'allows_installment' => 'boolean',
     ];
 
     public function getCascadeRelations(): array
@@ -339,6 +341,19 @@ class Course extends Model implements Likeable
         }
 
         // return $query->where('publish', $publish);
+    }
+
+    public function scopeInstallment($query, $value)
+    {
+        if ($value === null || $value === '' || $value === 'all') {
+            return $query;
+        }
+
+        if (in_array($value, [1, '1', true, 'yes', 'true'], true)) {
+            return $query->where('allows_installment', true);
+        }
+
+        return $query;
     }
 
 

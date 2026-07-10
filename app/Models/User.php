@@ -925,16 +925,73 @@ class User extends Authenticatable implements MustVerifyEmail
         return !$this->active;
     }
 
+    public static function deactivationReasonLabels(): array
+    {
+        return [
+            'spam' => 'ارسال اسپم یا پیام‌های تبلیغاتی مکرر',
+            'abuse' => 'سوءاستفاده از امکانات سایت یا توهین به سایر کاربران',
+            'inactive' => 'عدم فعالیت طولانی‌مدت و بلااستفاده بودن حساب',
+            'policy_violation' => 'نقض قوانین و مقررات سایت (مانند تقلب یا دستکاری داده‌ها)',
+            'security' => 'مشکلات امنیتی یا احتمال نفوذ از طریق حساب کاربری',
+            'fraud' => 'اقدام به کلاهبرداری یا فعالیت‌های مشکوک مالی',
+            'duplicate' => 'ساخت چند حساب کاربری تکراری یا جعلی',
+            'payment_issue' => 'مشکل در پرداخت‌ها یا بازگشت وجه‌های مشکوک',
+            'legal' => 'درخواست قانونی یا مسائل حقوقی مرتبط با حساب',
+            'underage' => 'عدم رعایت محدودیت سنی (کاربر زیر سن مجاز)',
+            'other' => 'سایر دلایل',
+            'Too many failed login attempts' => 'تلاش‌های مکرر ناموفق برای ورود',
+        ];
+    }
+
+    public function deactivationReasonLabel(): ?string
+    {
+        if (!$this->deactivation_reason) {
+            return null;
+        }
+
+        $labels = self::deactivationReasonLabels();
+
+        return $labels[$this->deactivation_reason] ?? $this->deactivation_reason;
+    }
+
+    public function deactivationPayload(): array
+    {
+        if (!$this->isDeactivated()) {
+            return [];
+        }
+
+        $isPermanent = $this->isPermanentlyDeactivated();
+        $isTemporary = $this->isTemporarilyDeactivated();
+        $reasonLabel = $this->deactivationReasonLabel();
+
+        if ($isPermanent) {
+            $type = 'permanent';
+            $message = 'حساب کاربری شما به‌صورت دائمی غیرفعال شده و امکان ورود وجود ندارد.';
+        } elseif ($this->deactivation_reason === 'Too many failed login attempts') {
+            $type = 'failed_attempts';
+            $message = 'به دلیل تلاش‌های مکرر ناموفق برای ورود، حساب شما به‌صورت موقت قفل شده است.';
+        } else {
+            $type = 'temporary';
+            $message = 'حساب کاربری شما به‌صورت موقت غیرفعال شده و فعلاً امکان ورود وجود ندارد.';
+        }
+
+        return [
+            'deactivation_type' => $type,
+            'error_message' => $message,
+            'error_reason' => $this->deactivation_reason,
+            'error_reason_label' => $reasonLabel,
+            'error_until' => $isTemporary ? $this->deactivated_until : null,
+            'is_permanent' => $isPermanent,
+            'is_temporary' => $isTemporary,
+        ];
+    }
+
 
     public function deactivationMessage(): ?string
     {
-        if (!$this->active)
-            return "Your account is permanently deactivated.";
-        if ($this->deactivated_until && now()->lessThan($this->deactivated_until)) {
-            $minutes = now()->diffInMinutes($this->deactivated_until);
-            return "Your account is temporarily locked for {$minutes} minutes.";
-        }
-        return null;
+        $payload = $this->deactivationPayload();
+
+        return $payload['error_message'] ?? null;
     }
 }
 

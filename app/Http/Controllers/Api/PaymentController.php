@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Rules\ValidGateway;
 use App\Services\PaymentService;
+use App\Support\PaymentGatewayMetadata;
 use App\Models\Payment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -25,34 +26,71 @@ class PaymentController extends Controller
         $user = auth('api')->user();
         $data = $request->validate([
             'driver'         => ['nullable', 'string', new ValidGateway()],
-			'payment_method' => ['nullable', 'in:wallet,bank'],
+			'payment_method' => ['nullable', 'in:wallet,bank,wallet_bank'],
+            'wallet_split_confirmed' => ['nullable', 'boolean'],
             'discount_code'  => ['nullable', 'string'],
             'discount_amount' => ['nullable', 'integer'],
             'digipay_preferred_gateway' => ['nullable', 'integer'],
             'digipay_mode' => ['nullable', 'string', 'in:credit,facilities'],
+            'digipay_unified' => ['nullable', 'boolean'],
             // 'expired_at'     => ['nullable', 'date'],
         ]);
 
         try {
+            if (PaymentGatewayMetadata::isInstallmentGatewayData($data)) {
+                $this->service->assertCartSupportsInstallment($user);
+            }
+
             $payment = $this->service->createFromCart($user, $data);
 
 			// Handle wallet method if requested and amount > 0
-			if (($data['payment_method'] ?? 'bank') === 'wallet' && (int) $payment->amount > 0) {
-				// Check balance first; if insufficient, remove payment and return error (no payment should persist)
-				if ((int) $user->wallet_balance < (int) $payment->amount) {
-					// Clean up created payment
-					try {
-						$payment->items()->delete();
-						$payment->delete();
-					} catch (\Throwable $cleanupEx) {
-						// swallow cleanup exceptions
-					}
-					return response()->json(['error' => 'موجودی کیف پول شما کافی نیست'], 422);
-				}
+			if (in_array(($data['payment_method'] ?? 'bank'), ['wallet', 'wallet_bank'], true) && (int) $payment->amount > 0) {
+                $walletBalance = (int) $user->wallet_balance;
+                $payable = (int) $payment->amount;
 
+                if ($walletBalance < $payable) {
+                    if (!($data['wallet_split_confirmed'] ?? false)) {
+                        try {
+                            $payment->items()->delete();
+                            $payment->delete();
+                        } catch (\Throwable $cleanupEx) {
+                        }
+
+                        return response()->json([
+                            'error' => 'موجودی کیف پول شما برای پرداخت کامل کافی نیست.',
+                            'code' => 'wallet_insufficient',
+                            'wallet_balance' => $walletBalance,
+                            'payable_amount' => $payable,
+                            'gateway_remainder' => max(0, $payable - $walletBalance),
+                        ], 422);
+                    }
+
+                    if (empty($data['driver'])) {
+                        try {
+                            $payment->items()->delete();
+                            $payment->delete();
+                        } catch (\Throwable $cleanupEx) {
+                        }
+
+                        return response()->json(['error' => 'برای پرداخت مابقی مبلغ، انتخاب درگاه الزامی است.'], 422);
+                    }
+
+                    $payment = $this->service->prepareWalletSplitPayment($payment, $user);
+
+                    if ((int) $payment->gateway_paid_amount === 0) {
+                        // fallback to full wallet if remainder is zero
+                    } else {
+                        // continue to bank gateway below for remainder only
+                        $data['payment_method'] = 'wallet_bank';
+                    }
+                }
+
+                if (($data['payment_method'] ?? 'bank') === 'wallet' && $walletBalance >= $payable) {
 				// Sufficient: complete via wallet immediately
 				$payment->update([
 					'payment_method' => 'wallet',
+					'wallet_paid_amount' => (int) $payment->amount,
+					'gateway_paid_amount' => 0,
 					'status'         => true,
 					'paid_at'        => now(),
 					'expired_at'     => null,
@@ -84,7 +122,23 @@ class PaymentController extends Controller
 					'payment_uuid' => $payment->uuid,
 					'redirect_url' => $redirectUrl,
 				], 200);
+			    }
 			}
+
+            if (in_array(($data['payment_method'] ?? 'bank'), ['bank', 'wallet_bank'], true) && !empty($data['driver'])) {
+                $payment->update(array_merge(
+                    PaymentGatewayMetadata::applyToPaymentArray($data),
+                    ['driver' => $data['driver']]
+                ));
+            }
+
+            if (PaymentGatewayMetadata::isInstallmentGatewayData($data)) {
+                $payment->update([
+                    'digipay_preferred_gateway' => null,
+                    'digipay_mode' => null,
+                    'gateway_variant' => 'digipay-installment',
+                ]);
+            }
 
             $attempt = $payment->attempts()->create([
                 'attempt_reference' => 'TRY-' . now()->format('YmdHis') . '-' . Str::random(6),
@@ -92,7 +146,7 @@ class PaymentController extends Controller
                 'gateway'           => $data['driver'],
                 'status'            => 'pending',
                 'request_payload'   => json_encode([
-                    'amount'      => $payment->amount,
+                    'amount'      => $payment->gateway_paid_amount ?? $payment->amount,
                     'callbackUrl' => route('api.payment.callback', $payment->uuid),
                     'description' => '',
                     'user_ip'     => request()->ip(),
@@ -163,13 +217,28 @@ class PaymentController extends Controller
 
         $options = $request->validate([
             'driver' => ['nullable', 'string', new ValidGateway()],
-            'payment_method' => ['nullable', 'in:wallet,bank'],
+            'payment_method' => ['nullable', 'in:wallet,bank,wallet_bank'],
+            'wallet_split_confirmed' => ['nullable', 'boolean'],
             'digipay_preferred_gateway' => ['nullable', 'integer'],
             'digipay_mode' => ['nullable', 'string', 'in:credit,facilities'],
+            'digipay_unified' => ['nullable', 'boolean'],
         ]);
 
         $purchaseOptions = $this->service->buildPurchaseOptionsFromRequest($options);
         try {
+            if (PaymentGatewayMetadata::isInstallmentGatewayData($purchaseOptions)) {
+                $payment->loadMissing('items.payable');
+                $hasEligible = $payment->items->contains(function ($item) {
+                    $payable = $item->payable;
+
+                    return $payable && (bool) ($payable->allows_installment ?? false);
+                });
+
+                if (!$hasEligible) {
+                    return response()->json(['error' => 'هیچ موردی در این فاکتور برای پرداخت اقساطی مجاز نیست.'], 422);
+                }
+            }
+
             $payment->visited_at = null;
             $payment->save();
 
@@ -225,12 +294,14 @@ class PaymentController extends Controller
                 ], 200);
             }
 
-            // If user chose bank on retry, update payment method/driver before attempting
-            if (($options['payment_method'] ?? null) === 'bank') {
-                $payment->update([
-                    'payment_method' => 'bank',
-                    'driver' => $options['driver'] ?? $payment->driver,
+            // If user chose bank on retry, update payment method/driver and recalculate gateway fees
+            if (($options['payment_method'] ?? 'bank') === 'bank') {
+                $options['driver'] = $options['driver'] ?? $payment->driver;
+                $this->service->recalculateGatewayFees($payment, $purchaseOptions);
+                $payment->update(PaymentGatewayMetadata::applyToPaymentArray($purchaseOptions) + [
+                    'driver' => $purchaseOptions['driver'] ?? $payment->driver,
                 ]);
+                $payment->refresh();
             }
 
             $attempt = $payment->attempts()->create([

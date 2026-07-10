@@ -48,6 +48,7 @@ class CourseController extends Controller
             ->type($request->input('type'))
             ->level($request->input('level'))
             ->status($request->input('status'))
+            ->installment($request->input('installment'))
             ->search($request->input('search'))
             ->order($request->input('sort', 'newest'));
 
@@ -63,6 +64,7 @@ class CourseController extends Controller
                 'poster' => $course->poster,
                 'publish' => $course->publish,
                 'type' => $course->type,
+                'allows_installment' => (bool) $course->allows_installment,
                 'description' => $course->description,
                 'short_description' => $course->short_description,
                 'total_time' => $course->totalTime(false),
@@ -734,6 +736,7 @@ class CourseController extends Controller
                 },
             ],
             'publish' => ['required', 'boolean'],
+            'allows_installment' => ['nullable', 'boolean'],
             'price' => ['required', 'numeric', 'max:100000000'],
             'start_date' => ['nullable', "date", "before:end_date"],
             'end_date' => ['nullable', "date", "after:start_date"],
@@ -978,6 +981,7 @@ class CourseController extends Controller
                 },
             ],
             'publish' => ['required', 'boolean'],
+            'allows_installment' => ['nullable', 'boolean'],
             'price' => ['required', 'numeric', 'max:100000000'],
             'start_date' => ['nullable', "date", "before:end_date"],
             'end_date' => ['nullable', "date", "after:start_date"],

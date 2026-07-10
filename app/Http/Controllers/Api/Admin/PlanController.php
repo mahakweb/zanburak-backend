@@ -14,7 +14,7 @@ class PlanController extends Controller
     public function plans(Request $request)
     {
         $query = Plan::query()
-            ->select(['id', 'title', 'english_title', 'price', 'period_time', 'icon', 'status', 'popular', 'features', 'created_at'])
+            ->select(['id', 'title', 'english_title', 'price', 'period_time', 'icon', 'status', 'popular', 'features', 'allows_installment', 'created_at'])
             ->withCount([
                 // total purchases = count of pivot rows in plan_user
                 'users as purchases_count',
@@ -28,6 +28,10 @@ class PlanController extends Controller
             } elseif ($request->status === 'inactive') {
                 $query->where('status', 0);
             }
+        }
+
+        if ($request->input('installment') === 'yes') {
+            $query->where('allows_installment', true);
         }
 
         if ($request->filled('search')) {
@@ -74,6 +78,7 @@ class PlanController extends Controller
                 'icon' => $plan->icon,
                 'status' => (bool) $plan->status,
                 'popular' => (bool) $plan->popular,
+                'allows_installment' => (bool) $plan->allows_installment,
                 'features' => $plan->features,
                 'created_at' => $plan->created_at,
                 'purchases_count' => (int) ($plan->purchases_count ?? 0),
@@ -108,6 +113,7 @@ class PlanController extends Controller
             'icon' => ['nullable', 'string', 'max:1024'],
             'status' => ['nullable', 'boolean'],
             'popular' => ['nullable', 'boolean'],
+            'allows_installment' => ['nullable', 'boolean'],
             'description' => ['nullable', 'string'],
             'features' => ['nullable', 'array', 'max:5'],
             'features.*' => ['nullable', 'string', 'max:255'],
@@ -121,6 +127,7 @@ class PlanController extends Controller
             'icon' => $validated['icon'] ?? null,
             'status' => array_key_exists('status', $validated) ? (bool) $validated['status'] : true,
             'popular' => array_key_exists('popular', $validated) ? (bool) $validated['popular'] : false,
+            'allows_installment' => (bool) ($validated['allows_installment'] ?? false),
             'description' => $validated['description'] ?? null,
             'features' => $validated['features'] ?? [],
         ]);
@@ -137,6 +144,7 @@ class PlanController extends Controller
                 'status' => (bool) $plan->status,
                 'popular' => (bool) $plan->popular,
                 'description' => $plan->description,
+                'allows_installment' => (bool) $plan->allows_installment,
                 'features' => $plan->features,
                 'created_at' => $plan->created_at,
             ],
@@ -160,6 +168,7 @@ class PlanController extends Controller
                 'status' => (bool) $plan->status,
                 'popular' => (bool) $plan->popular,
                 'description' => $plan->description,
+                'allows_installment' => (bool) $plan->allows_installment,
                 'features' => $plan->features,
                 'created_at' => $plan->created_at,
                 'updated_at' => $plan->updated_at,
@@ -180,6 +189,7 @@ class PlanController extends Controller
             'icon' => ['nullable', 'string', 'max:1024'],
             'status' => ['nullable', 'boolean'],
             'popular' => ['nullable', 'boolean'],
+            'allows_installment' => ['nullable', 'boolean'],
             'description' => ['nullable', 'string'],
             'features' => ['nullable', 'array', 'max:5'],
             'features.*' => ['nullable', 'string', 'max:255'],
@@ -193,6 +203,9 @@ class PlanController extends Controller
             'icon' => $validated['icon'] ?? null,
             'status' => array_key_exists('status', $validated) ? (bool) $validated['status'] : $plan->status,
             'popular' => array_key_exists('popular', $validated) ? (bool) $validated['popular'] : $plan->popular,
+            'allows_installment' => array_key_exists('allows_installment', $validated)
+                ? (bool) $validated['allows_installment']
+                : $plan->allows_installment,
             'description' => $validated['description'] ?? null,
             'features' => $validated['features'] ?? [],
         ]);
@@ -209,6 +222,7 @@ class PlanController extends Controller
                 'status' => (bool) $plan->status,
                 'popular' => (bool) $plan->popular,
                 'description' => $plan->description,
+                'allows_installment' => (bool) $plan->allows_installment,
                 'features' => $plan->features,
                 'updated_at' => $plan->updated_at,
             ],

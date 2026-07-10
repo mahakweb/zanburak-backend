@@ -12,9 +12,20 @@ class Payment extends Model
     protected $fillable = [
         'user_id',
         'driver',
+        'gateway_variant',
+        'digipay_mode',
+        'digipay_preferred_gateway',
         'payment_method',
         'resnumber',
         'amount',
+        'base_amount',
+        'gateway_fee_amount',
+        'gateway_fee_percent',
+        'wallet_paid_amount',
+        'gateway_paid_amount',
+        'digipay_credit_amount',
+        'digipay_cash_amount',
+        'digipay_verify_payload',
         'discount_amount',
         'discount_code',
         'status',
@@ -33,6 +44,7 @@ class Payment extends Model
         'visited_at' => 'datetime',
         'expired_at' => 'datetime',
         'status' => 'boolean',
+        'digipay_verify_payload' => 'array',
     ];
 
     protected static function booted()

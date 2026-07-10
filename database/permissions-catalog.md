@@ -359,7 +359,6 @@
 | `support.inbox.move` | انتقال ایمیل بین پوشه‌ها | — | — |
 | `support.inbox.reply` | پاسخ به ایمیل‌های دریافتی | — | — |
 | `support.inbox.send` | ارسال ایمیل جدید | — | — |
-| `support.inbox.sync` | همگام‌سازی صندوق ایمیل | — | — |
 | `support.inbox.view` | مشاهده صندوق ایمیل | — | — |
 
 ## system
@@ -367,16 +366,6 @@
 | پرمیشن | برچسب | own | any |
 |--------|-------|-----|-----|
 | `system.resources.view` | مشاهده منابع سیستم | — | — |
-
-## tags
-
-| پرمیشن | برچسب | own | any |
-|--------|-------|-----|-----|
-| `tags.create` | ایجاد تگ | — | — |
-| `tags.delete` | حذف تگ | — | — |
-| `tags.merge` | ادغام تگ‌ها | — | — |
-| `tags.update` | ویرایش تگ | — | — |
-| `tags.view` | مشاهده تگ‌ها | — | — |
 
 ## uploads
 

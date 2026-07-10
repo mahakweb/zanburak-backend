@@ -11,6 +11,8 @@ use App\Models\Course;
 use App\Models\Path;
 use App\Models\Plan;
 use App\Models\Wallet;
+use App\Support\GatewayCommission;
+use App\Support\PaymentGatewayMetadata;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -33,7 +35,7 @@ class PaymentService
                 throw new \RuntimeException('سبد خرید خالی است.');
             }
 
-            $payment = Payment::create([
+            $payment = Payment::create(array_merge([
                 'user_id'         => $user->id,
                 'driver'          => $options['driver'] ?? config('payment.default', 'zarinpal'),
                 'payment_method'  => 'bank',
@@ -42,11 +44,14 @@ class PaymentService
                 'discount_code'   => null,
                 'expired_at'      => $options['expired_at'] ?? now()->addMinutes(60),
                 'status'          => 0,
-            ]);
+            ], PaymentGatewayMetadata::applyToPaymentArray($options)));
 
             $total = 0;
+            $totalBase = 0;
+            $totalFee = 0;
             $totalCouponDiscount = 0;
             $appliedCode = $options['discount_code'] ?? null;
+            $commissionPercent = GatewayCommission::resolvePercent($options);
 
             foreach ($carts as $cart) {
                 $item = $cart->cartable;
@@ -83,28 +88,80 @@ class PaymentService
                 }
 
 
+                $feeBreakdown = GatewayCommission::applyToAmount(
+                    $finalPrice,
+                    GatewayCommission::percentForPayable($commissionPercent, $item, $options)
+                );
+
                 PaymentItem::create([
-                    'payment_id'      => $payment->id,
-                    'payable_type'    => $cart->cartable_type,
-                    'payable_id'      => $cart->cartable_id,
-                    'price'           => $baseOriginalPrice,
-                    'discount_amount' => $internalDiscountAmount + $couponDiscountAmount,
-                    'discount_code'   => $itemDiscountCode,
-                    'final_price'     => $finalPrice,
+                    'payment_id'          => $payment->id,
+                    'payable_type'        => $cart->cartable_type,
+                    'payable_id'          => $cart->cartable_id,
+                    'price'               => $baseOriginalPrice,
+                    'discount_amount'     => $internalDiscountAmount + $couponDiscountAmount,
+                    'discount_code'       => $itemDiscountCode,
+                    'final_price'         => $finalPrice,
+                    'gateway_fee_amount'  => $feeBreakdown['fee_amount'],
+                    'charged_price'       => $feeBreakdown['charged_amount'],
                 ]);
 
-                $total += $finalPrice;
+                $total += $feeBreakdown['charged_amount'];
+                $totalBase += $finalPrice;
+                $totalFee += $feeBreakdown['fee_amount'];
                 $totalCouponDiscount += $couponDiscountAmount;
             }
 
-            $payment->update([
-                'amount'          => $total,
-                'discount_amount' => $totalCouponDiscount,
-                'discount_code'   => $appliedCode,
-            ]);
+        $payment->update([
+            'amount'              => $total,
+            'base_amount'         => $totalBase,
+            'gateway_fee_amount'  => $totalFee,
+            'gateway_fee_percent' => $commissionPercent,
+            'discount_amount'     => $totalCouponDiscount,
+            'discount_code'       => $appliedCode,
+        ] + PaymentGatewayMetadata::applyToPaymentArray($options));
 
             return $payment;
         });
+    }
+
+    public function recalculateGatewayFees(Payment $payment, array $options): Payment
+    {
+        $commissionPercent = GatewayCommission::resolvePercent($options);
+        $payment->loadMissing('items.payable');
+
+        $total = 0;
+        $totalBase = 0;
+        $totalFee = 0;
+
+        foreach ($payment->items as $item) {
+            $baseAmount = (int) $item->final_price;
+            $itemPercent = GatewayCommission::percentForPayable(
+                $commissionPercent,
+                $item->payable,
+                $options
+            );
+            $feeBreakdown = GatewayCommission::applyToAmount($baseAmount, $itemPercent);
+
+            $item->update([
+                'gateway_fee_amount' => $feeBreakdown['fee_amount'],
+                'charged_price'      => $feeBreakdown['charged_amount'],
+            ]);
+
+            $total += $feeBreakdown['charged_amount'];
+            $totalBase += $baseAmount;
+            $totalFee += $feeBreakdown['fee_amount'];
+        }
+
+        $payment->update([
+            'amount'              => $total,
+            'base_amount'         => $totalBase,
+            'gateway_fee_amount'  => $totalFee,
+            'gateway_fee_percent' => $commissionPercent,
+            'driver'              => $options['driver'] ?? $payment->driver,
+            'payment_method'      => $options['payment_method'] ?? $payment->payment_method,
+        ] + PaymentGatewayMetadata::applyToPaymentArray($options));
+
+        return $payment->fresh('items');
     }
 
 
@@ -125,8 +182,10 @@ class PaymentService
             $options = $this->mergeDigipayPurchaseOptions($payment, $options);
         }
 
+        $purchaseAmount = (int) ($payment->gateway_paid_amount ?? $payment->amount);
+
         $gateway = new PaymentGateway($driver);
-        $result = $gateway->purchase((int) $payment->amount, $callbackUrl, $options);
+        $result = $gateway->purchase($purchaseAmount, $callbackUrl, $options);
 
         // Update attempt and payment with transaction ID
         $transactionId = $result['transaction_id'] ?? $result['authority'] ?? null;
@@ -169,14 +228,15 @@ class PaymentService
         try {
             $verifyOptions = $this->buildDigipayVerifyOptions($payment, $callbackData);
             $gateway = new PaymentGateway($payment->driver);
-            $result = $gateway->verify((int) $payment->amount, $payment->tracking_number, $verifyOptions);
+            $verifyAmount = (int) ($payment->gateway_paid_amount ?? $payment->amount);
+            $result = $gateway->verify($verifyAmount, $payment->tracking_number, $verifyOptions);
 
             $payment->update([
                 'status'       => true,
                 'paid_at'      => now(),
                 'expired_at'   => null,
                 'reference_id' => $result['reference_id'] ?? $payment->reference_id,
-            ]);
+            ] + $this->extractDigipaySettlementFields($result));
 
             if ($payment->driver === 'digipay' && !empty($result['digipay_type'])) {
                 $this->handleDigipayPostVerify($payment, $result);
@@ -201,6 +261,9 @@ class PaymentService
             if ($this->isWalletPayment($payment)) {
                 $this->handleSuccessfulWalletPayment($payment, $receipt);
             } else {
+                if ((int) $payment->wallet_paid_amount > 0) {
+                    $this->deductWalletSplitAmount($payment);
+                }
                 $this->handleSuccessfulPayment($payment);
             }
 
@@ -569,7 +632,11 @@ class PaymentService
             $options['driver'] = $data['gateway'];
         }
 
-        if (array_key_exists('digipay_preferred_gateway', $data) && $data['digipay_preferred_gateway'] !== null) {
+        $isUnified = filter_var($data['digipay_unified'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+        if ($isUnified) {
+            $options['digipay_unified'] = true;
+        } elseif (array_key_exists('digipay_preferred_gateway', $data) && $data['digipay_preferred_gateway'] !== null) {
             $options['digipay_preferred_gateway'] = (int) $data['digipay_preferred_gateway'];
         }
 
@@ -577,7 +644,88 @@ class PaymentService
             $options['digipay_mode'] = $data['digipay_mode'];
         }
 
+        if (!empty($data['payment_method'])) {
+            $options['payment_method'] = $data['payment_method'];
+        }
+
         return $options;
+    }
+
+    public function assertCartSupportsInstallment($user): void
+    {
+        $carts = $user->carts()->with('cartable')->get();
+
+        $hasEligible = $carts->contains(function ($cart) {
+            $item = $cart->cartable;
+
+            return $item && (bool) ($item->allows_installment ?? false);
+        });
+
+        if (!$hasEligible) {
+            throw new \RuntimeException('هیچ موردی در سبد خرید برای پرداخت اقساطی مجاز نیست.');
+        }
+    }
+
+    public function prepareWalletSplitPayment(Payment $payment, $user): Payment
+    {
+        $walletBalance = (int) $user->wallet_balance;
+        $total = (int) $payment->amount;
+        $walletPart = min($walletBalance, $total);
+        $gatewayPart = max(0, $total - $walletPart);
+
+        $payment->update([
+            'payment_method' => 'wallet_bank',
+            'wallet_paid_amount' => $walletPart,
+            'gateway_paid_amount' => $gatewayPart,
+        ]);
+
+        return $payment->fresh();
+    }
+
+    protected function deductWalletSplitAmount(Payment $payment): void
+    {
+        $walletPart = (int) $payment->wallet_paid_amount;
+        if ($walletPart <= 0) {
+            return;
+        }
+
+        $user = $payment->user;
+        $after = max(0, (int) $user->wallet_balance - $walletPart);
+
+        $user->wallets()->create([
+            'description'     => 'خرید ترکیبی (کیف پول + درگاه)',
+            'amount'          => $walletPart,
+            'after_balance'   => $after,
+            'type'            => 'decrease',
+            'payment_id'      => $payment->id,
+            'tracking_number' => $payment->reference_id,
+        ]);
+
+        $user->update(['wallet_balance' => $after]);
+    }
+
+    protected function extractDigipaySettlementFields(array $verifyResult): array
+    {
+        $details = $verifyResult['digipay_details'] ?? null;
+        if (!is_array($details)) {
+            return [];
+        }
+
+        $additional = $details['additionalInfo'] ?? [];
+        $currency = config('payment.drivers.digipay.currency', 'T');
+        $normalize = static function ($value) use ($currency) {
+            $amount = (int) ($value ?? 0);
+
+            return $currency === 'T' ? (int) round($amount / 10) : $amount;
+        };
+
+        return [
+            'digipay_verify_payload' => $details,
+            'digipay_credit_amount' => $normalize($additional['creditAmount'] ?? 0),
+            'digipay_cash_amount' => $normalize($additional['cashAmount'] ?? ($additional['prepaymentAmount'] ?? 0)),
+            'gateway_paid_amount' => $normalize($details['amount'] ?? 0) ?: null,
+            'gateway_variant' => PaymentGatewayMetadata::resolveVariantFromDigipayVerify($details),
+        ];
     }
 
     protected function mergeDigipayPurchaseOptions(Payment $payment, array $options): array
@@ -589,21 +737,62 @@ class PaymentService
             'provider_id' => $payment->uuid,
         ]);
 
+        $isWalletTopup = $this->isWalletTopupPayment($payment);
+        $digipayMode = $options['digipay_mode'] ?? $payment->digipay_mode ?? null;
+        $variant = $payment->gateway_variant;
+        $hasCartItems = $payment->items->isNotEmpty();
+
+        $isUnifiedInstallment = !$isWalletTopup && (
+            !empty($options['digipay_unified'])
+            || $variant === 'digipay-installment'
+            || in_array($digipayMode, ['credit', 'facilities'], true)
+            || (
+                $hasCartItems
+                && empty($digipayMode)
+                && !isset($options['digipay_preferred_gateway'])
+                && !in_array($variant, ['digipay-wallet', 'digipay-ipg'], true)
+            )
+        );
+
+        unset($options['digipay_unified']);
+
+        if ($isUnifiedInstallment) {
+            unset($options['digipay_preferred_gateway'], $options['preferredGateway'], $options['digipay_mode']);
+
+            if ($hasCartItems) {
+                $options['basketDetailsDto'] = $this->buildDigipayBasketDetails($payment);
+            }
+
+            return $options;
+        }
+
         if (isset($options['digipay_preferred_gateway'])) {
             $options['preferredGateway'] = (int) $options['digipay_preferred_gateway'];
             unset($options['digipay_preferred_gateway']);
+        } elseif ($payment->digipay_preferred_gateway !== null) {
+            $options['preferredGateway'] = (int) $payment->digipay_preferred_gateway;
         }
 
-        $digipayMode = $options['digipay_mode'] ?? null;
-        $needsBasket = in_array($digipayMode, ['credit', 'facilities'], true) || $payment->items->isNotEmpty();
-
-        if ($needsBasket) {
-            $options['basketDetailsDto'] = $payment->items->isNotEmpty()
-                ? $this->buildDigipayBasketDetails($payment)
-                : $this->buildDigipayWalletBasketDetails($payment);
+        if ($hasCartItems) {
+            $options['basketDetailsDto'] = $this->buildDigipayBasketDetails($payment);
+        } elseif ($isWalletTopup && !isset($options['preferredGateway'])) {
+            $options['basketDetailsDto'] = $this->buildDigipayWalletBasketDetails($payment);
         }
 
         return $options;
+    }
+
+    protected function isWalletTopupPayment(Payment $payment): bool
+    {
+        if (str_contains($payment->description ?? '', 'کیف پول')) {
+            return true;
+        }
+
+        if ($payment->relationLoaded('items')) {
+            return $payment->items->isEmpty();
+        }
+
+        return $payment->items()->count() === 0;
     }
 
     protected function buildDigipayWalletBasketDetails(Payment $payment): array

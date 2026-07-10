@@ -8,9 +8,12 @@ use App\Models\Cooperation;
 use App\Models\Course;
 use App\Models\Path;
 use App\Models\Plan;
+use App\Models\Tag;
 use App\Models\View;
 use App\Services\Course\CourseAvailabilityService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 
@@ -20,14 +23,60 @@ class IndexController extends Controller
 
     public function plansList()
     {
-        $plans = Plan::select('id', 'title', 'english_title', 'icon', 'status', 'popular', 'price', 'period_time', 'description', 'features')->where('status', true)->get();
+        $plans = Plan::select('id', 'title', 'english_title', 'icon', 'status', 'popular', 'price', 'period_time', 'description', 'features', 'allows_installment')->where('status', true)->get();
         return response()->json(['message' => 'success', 'plans' => $plans], 200);
     }
 
-    public function categoriesList()
+    public function categoriesList(Request $request)
     {
-        $categories = Category::withCount('course')->select('id', 'title', 'english_title', 'icon', 'slug', 'status')->where('status', true)->get();
+        $limit = $request->input('limit');
+
+        $query = Category::query()
+            ->where('status', true)
+            ->withCount('course')
+            ->orderByDesc('course_count')
+            ->orderBy('title');
+
+        if ($limit) {
+            $query->limit(max(1, (int) $limit));
+        }
+
+        $categories = $query->get()->map(
+            fn (Category $category) => $category->only(
+                'id',
+                'title',
+                'english_title',
+                'icon',
+                'slug',
+                'status',
+                'course_count'
+            )
+        );
+
         return response()->json(['message' => 'success', 'categories' => $categories], 200);
+    }
+
+    public function platformStats()
+    {
+        $stats = Cache::remember('index.platform_stats', now()->addMinutes(15), function () {
+            $publishedCourses = Course::query()
+                ->where('publish', '1')
+                ->notArchived();
+
+            return [
+                'students' => (int) DB::table('course_user')->distinct()->count('user_id'),
+                'courses' => (int) (clone $publishedCourses)->count(),
+                'fields' => (int) Tag::query()
+                    ->whereHas('courses', fn ($query) => $query->where('publish', '1'))
+                    ->count(),
+                'instructors' => (int) (clone $publishedCourses)
+                    ->whereNotNull('teacher_id')
+                    ->distinct()
+                    ->count('teacher_id'),
+            ];
+        });
+
+        return response()->json(['message' => 'success', 'stats' => $stats], 200);
     }
 
     public function latestCourses(Request $request)
@@ -130,7 +179,7 @@ class IndexController extends Controller
         $showCourses = $request->input('show_courses', false);
         $paths = Path::where('status', '1')
             ->orderBy('id', 'desc')
-            ->select('id', 'title', 'english_title', 'slug', 'short_description', 'poster', 'icon');
+            ->select('id', 'title', 'english_title', 'slug', 'short_description', 'poster', 'icon', 'allows_installment');
         if ($limit) {
             $paths = $paths->take($limit);
         }
@@ -210,6 +259,7 @@ class IndexController extends Controller
             'total_price' => $totalPrice,
             'discount_percent' => $this->discountPercentForPath,
             'final_price' => $finalPrice,
+            'allows_installment' => (bool) $pathModel->allows_installment,
             'courses' => $pathModel->courses->where('publish', true)->map(function ($course) use ($user) {
                 return [
                     'id' => $course->id,
