@@ -297,10 +297,20 @@ class PaymentController extends Controller
             // If user chose bank on retry, update payment method/driver and recalculate gateway fees
             if (($options['payment_method'] ?? 'bank') === 'bank') {
                 $options['driver'] = $options['driver'] ?? $payment->driver;
+                $purchaseOptions['driver'] = $options['driver'];
                 $this->service->recalculateGatewayFees($payment, $purchaseOptions);
                 $payment->update(PaymentGatewayMetadata::applyToPaymentArray($purchaseOptions) + [
                     'driver' => $purchaseOptions['driver'] ?? $payment->driver,
                 ]);
+
+                if (PaymentGatewayMetadata::isInstallmentGatewayData($purchaseOptions)) {
+                    $payment->update([
+                        'digipay_preferred_gateway' => null,
+                        'digipay_mode' => null,
+                        'gateway_variant' => 'digipay-installment',
+                    ]);
+                }
+
                 $payment->refresh();
             }
 

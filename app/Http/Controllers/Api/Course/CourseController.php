@@ -26,7 +26,8 @@ class CourseController extends Controller
         $numberOfFreeCourse = Course::where('type', 'free')->where('publish', 1)->count();
         $numberOfCashCourse = Course::where('type', 'cash')->where('publish', 1)->count();
         $numberOfCashvipCourse = Course::where('type', 'cash-vip')->where('publish', 1)->count();
-        return response()->json(['message' => 'Success', 'categories' => $categories, 'statuses' => $statuses, 'numberOfFreeCourse' => $numberOfFreeCourse, 'numberOfCashCourse' => $numberOfCashCourse, 'numberOfCashvipCourse' => $numberOfCashvipCourse], 200);
+        $numberOfInstallmentCourse = Course::where('allows_installment', true)->where('publish', 1)->count();
+        return response()->json(['message' => 'Success', 'categories' => $categories, 'statuses' => $statuses, 'numberOfFreeCourse' => $numberOfFreeCourse, 'numberOfCashCourse' => $numberOfCashCourse, 'numberOfCashvipCourse' => $numberOfCashvipCourse, 'numberOfInstallmentCourse' => $numberOfInstallmentCourse], 200);
     }
 
     public function courses(Request $request)

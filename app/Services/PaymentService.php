@@ -632,15 +632,22 @@ class PaymentService
             $options['driver'] = $data['gateway'];
         }
 
+        $driver = $options['driver'] ?? null;
+        $hasDirectDigipayRoute = array_key_exists('digipay_preferred_gateway', $data)
+            && $data['digipay_preferred_gateway'] !== null;
+        $hasDigipayMode = !empty($data['digipay_mode']);
         $isUnified = filter_var($data['digipay_unified'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
         if ($isUnified) {
             $options['digipay_unified'] = true;
-        } elseif (array_key_exists('digipay_preferred_gateway', $data) && $data['digipay_preferred_gateway'] !== null) {
+        } elseif ($driver === 'digipay' && !$hasDirectDigipayRoute && !$hasDigipayMode) {
+            // Cart/installment flow: default to UPG credit selection unless IPG/wallet is explicit.
+            $options['digipay_unified'] = true;
+        } elseif ($hasDirectDigipayRoute) {
             $options['digipay_preferred_gateway'] = (int) $data['digipay_preferred_gateway'];
         }
 
-        if (!empty($data['digipay_mode'])) {
+        if ($hasDigipayMode) {
             $options['digipay_mode'] = $data['digipay_mode'];
         }
 
@@ -741,27 +748,32 @@ class PaymentService
         $digipayMode = $options['digipay_mode'] ?? $payment->digipay_mode ?? null;
         $variant = $payment->gateway_variant;
         $hasCartItems = $payment->items->isNotEmpty();
+        $isCartPurchase = $hasCartItems && !$isWalletTopup;
+        $isDirectIpg = $variant === 'digipay-ipg'
+            || (int) ($options['digipay_preferred_gateway'] ?? $payment->digipay_preferred_gateway ?? -1) === 2;
 
-        $isUnifiedInstallment = !$isWalletTopup && (
+        $isUnifiedInstallment = $isCartPurchase && !$isDirectIpg && (
             !empty($options['digipay_unified'])
             || $variant === 'digipay-installment'
             || in_array($digipayMode, ['credit', 'facilities'], true)
             || (
-                $hasCartItems
-                && empty($digipayMode)
+                empty($digipayMode)
                 && !isset($options['digipay_preferred_gateway'])
+                && $payment->digipay_preferred_gateway === null
                 && !in_array($variant, ['digipay-wallet', 'digipay-ipg'], true)
             )
         );
 
-        unset($options['digipay_unified']);
+        unset($options['digipay_unified'], $options['digipay_mode']);
 
         if ($isUnifiedInstallment) {
-            unset($options['digipay_preferred_gateway'], $options['preferredGateway'], $options['digipay_mode']);
+            unset($options['digipay_preferred_gateway'], $options['preferredGateway']);
 
-            if ($hasCartItems) {
-                $options['basketDetailsDto'] = $this->buildDigipayBasketDetails($payment);
+            if (!$hasCartItems) {
+                throw new \RuntimeException('اطلاعات سبد خرید برای پرداخت اقساطی دیجی‌پی یافت نشد.');
             }
+
+            $options['basketDetailsDto'] = $this->buildDigipayBasketDetails($payment);
 
             return $options;
         }
@@ -773,7 +785,10 @@ class PaymentService
             $options['preferredGateway'] = (int) $payment->digipay_preferred_gateway;
         }
 
-        if ($hasCartItems) {
+        if ($isCartPurchase && !$isDirectIpg) {
+            unset($options['preferredGateway']);
+            $options['basketDetailsDto'] = $this->buildDigipayBasketDetails($payment);
+        } elseif ($hasCartItems) {
             $options['basketDetailsDto'] = $this->buildDigipayBasketDetails($payment);
         } elseif ($isWalletTopup && !isset($options['preferredGateway'])) {
             $options['basketDetailsDto'] = $this->buildDigipayWalletBasketDetails($payment);
@@ -813,19 +828,28 @@ class PaymentService
 
     protected function buildDigipayBasketDetails(Payment $payment): array
     {
+        $digipayConfig = config('payment.drivers.digipay', []);
+        $sellerId = (string) ($digipayConfig['sellerId'] ?? 'zanburak');
+        $supplierId = (string) ($digipayConfig['supplierId'] ?? 'zanburak');
+        $brand = (string) ($digipayConfig['brand'] ?? 'zanburak');
+        $categoryId = (string) ($digipayConfig['categoryId'] ?? 'service');
         $items = [];
 
         foreach ($payment->items as $index => $item) {
             $payable = $item->payable;
             $items[] = [
-                'sellerId' => 'zanburak',
-                'supplierId' => 'zanburak',
+                'sellerId' => $sellerId,
+                'supplierId' => $supplierId,
                 'productCode' => (string) ($payable->id ?? ('item-' . ($index + 1))),
-                'brand' => 'zanburak',
+                'brand' => $brand,
                 'productType' => 3,
                 'count' => 1,
-                'categoryId' => 'service',
+                'categoryId' => $categoryId,
             ];
+        }
+
+        if ($items === []) {
+            throw new \RuntimeException('سبد خرید دیجی‌پی خالی است.');
         }
 
         return [

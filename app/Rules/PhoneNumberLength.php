@@ -7,7 +7,8 @@ use Illuminate\Contracts\Validation\Rule;
 class PhoneNumberLength implements Rule
 {
     protected $countryCode;
-    protected $phoneNumberLengths;
+    protected static $phoneNumberLengths;
+
     /**
      * Create a new rule instance.
      *
@@ -17,8 +18,12 @@ class PhoneNumberLength implements Rule
     {
         $this->countryCode = $countryCode;
 
-        $path = public_path('assets/json/countries-with-number-length.json');
-        $this->phoneNumberLengths = json_decode(file_get_contents($path), true);
+        if (static::$phoneNumberLengths === null) {
+            $path = resource_path('data/countries-with-number-length.json');
+            static::$phoneNumberLengths = file_exists($path)
+                ? json_decode(file_get_contents($path), true)
+                : [];
+        }
     }
 
     /**
@@ -30,8 +35,8 @@ class PhoneNumberLength implements Rule
      */
     public function passes($attribute, $value)
     {
-        if (isset($this->phoneNumberLengths)) {
-            foreach ($this->phoneNumberLengths as $country) {
+        if (!empty(static::$phoneNumberLengths)) {
+            foreach (static::$phoneNumberLengths as $country) {
                 if ($country['code'] === $this->countryCode) {
                     return strlen($value) === $country['mobile_number_length'];
                 }

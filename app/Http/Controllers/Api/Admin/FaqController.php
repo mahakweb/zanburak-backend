@@ -30,6 +30,7 @@ class FaqController extends Controller
                 'questions' => $category->faqs->map(function ($faq) {
                     return [
                         'id' => $faq->id,
+                        'order' => $faq->order,
                         'question' => $faq->question,
                         'answer' => $faq->answer,
                     ];

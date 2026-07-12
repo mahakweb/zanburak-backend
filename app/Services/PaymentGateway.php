@@ -276,6 +276,18 @@ class PaymentGateway
             ];
         }
 
+        Log::info('DigiPay ticket request', [
+            'provider_id' => $providerId,
+            'amount' => $apiAmount,
+            'ticket_type' => $ticketType,
+            'has_basket' => !empty($data['basketDetailsDto']),
+            'basket_item_count' => count($data['basketDetailsDto']['items'] ?? []),
+            'preferred_gateway' => $data['additionalInfo']['preferredGateway'] ?? null,
+            'basket_sample' => !empty($data['basketDetailsDto']['items'][0])
+                ? array_intersect_key($data['basketDetailsDto']['items'][0], array_flip(['sellerId', 'supplierId', 'productCode', 'productType', 'categoryId']))
+                : null,
+        ]);
+
         $apiUrl = $this->config['apiPurchaseUrl'] ?? 'https://api.mydigipay.com/digipay/api/tickets/business';
         $token = $this->digipayOauthToken();
 
@@ -303,6 +315,12 @@ class PaymentGateway
         if (empty($ticket) || empty($redirectUrl)) {
             throw new Exception('پاسخ نامعتبر از دیجی‌پی دریافت شد.');
         }
+
+        Log::info('DigiPay ticket response', [
+            'provider_id' => $providerId,
+            'redirect_url' => $redirectUrl,
+            'has_wallet_method' => str_contains($redirectUrl, 'PAYMENT_WALLET'),
+        ]);
 
         return [
             'success' => true,
