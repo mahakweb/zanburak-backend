@@ -58,7 +58,7 @@ class IndexController extends Controller
 
     public function platformStats()
     {
-        $stats = Cache::remember('index.platform_stats', now()->addMinutes(15), function () {
+        $stats = Cache::remember('index.platform_stats_v2', now()->addMinutes(15), function () {
             $publishedCourses = Course::query()
                 ->where('publish', '1')
                 ->notArchived();
@@ -73,6 +73,7 @@ class IndexController extends Controller
                     ->whereNotNull('teacher_id')
                     ->distinct()
                     ->count('teacher_id'),
+                'paths' => (int) Path::query()->where('status', true)->count(),
             ];
         });
 
