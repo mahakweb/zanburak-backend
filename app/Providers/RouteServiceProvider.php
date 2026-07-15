@@ -64,8 +64,6 @@ class RouteServiceProvider extends ServiceProvider
                 ->group(base_path('routes/web/admin.php'));
         });
 
-
-
         Route::bind('courseSlug', function ($value) {
             return Course::where('slug', $value)->firstOrFail();
         });
@@ -80,7 +78,7 @@ class RouteServiceProvider extends ServiceProvider
 
         Route::bind('episodeOrder', function ($value, $route) {
             $course = $route->parameter('courseSlug');
-            if (!$course instanceof Course) {
+            if (! $course instanceof Course) {
                 $course = Course::where('slug', $course)->firstOrFail();
             }
 
@@ -116,7 +114,36 @@ class RouteServiceProvider extends ServiceProvider
     protected function configureRateLimiting()
     {
         RateLimiter::for('api', function (Request $request) {
-            return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
+            if ($request->is('api/messenger/*')) {
+                return Limit::perMinute(max(1, (int) config('messenger.rate_limits.baseline', 180)))
+                    ->by($this->messengerRateLimitKey($request));
+            }
+
+            $credential = $request->user()?->getAuthIdentifier()
+                ?: $request->bearerToken()
+                ?: $request->ip();
+
+            return Limit::perMinute(60)->by(hash('sha256', (string) $credential));
         });
+
+        foreach (['send', 'search', 'destructive', 'typing', 'sync', 'presence', 'invite'] as $name) {
+            RateLimiter::for("messenger.{$name}", function (Request $request) use ($name) {
+                $limit = max(1, (int) config("messenger.rate_limits.{$name}", 60));
+
+                return ($name === 'invite' ? Limit::perHour($limit) : Limit::perMinute($limit))
+                    ->by($this->messengerRateLimitKey($request));
+            });
+        }
+    }
+
+    private function messengerRateLimitKey(Request $request): string
+    {
+        if ($request->user()) {
+            return 'user:'.$request->user()->getAuthIdentifier();
+        }
+
+        $credential = $request->bearerToken() ?: $request->ip() ?: 'unknown';
+
+        return 'anonymous:'.hash('sha256', $credential);
     }
 }

@@ -65,7 +65,19 @@ return [
     // Conversations page size (sidebar pagination / infinite scroll).
     'conversations_per_page' => (int) env('MESSENGER_CONVERSATIONS_PER_PAGE', 30),
 
-    // How many recent messages to preload with each conversation in the list,
-    // so an opened chat renders instantly without a follow-up request.
-    'conversation_preview_messages' => (int) env('MESSENGER_CONVERSATION_PREVIEW_MESSAGES', 30),
+    /*
+    |--------------------------------------------------------------------------
+    | Endpoint rate limits (requests per minute, except invite per hour)
+    |--------------------------------------------------------------------------
+    */
+    'rate_limits' => [
+        'baseline' => (int) env('MESSENGER_RATE_BASELINE', 180),
+        'send' => (int) env('MESSENGER_RATE_SEND', 60),
+        'search' => (int) env('MESSENGER_RATE_SEARCH', 30),
+        'destructive' => (int) env('MESSENGER_RATE_DESTRUCTIVE', 30),
+        'typing' => (int) env('MESSENGER_RATE_TYPING', 120),
+        'sync' => (int) env('MESSENGER_RATE_SYNC', 120),
+        'presence' => (int) env('MESSENGER_RATE_PRESENCE', 60),
+        'invite' => (int) env('MESSENGER_RATE_INVITE', 5),
+    ],
 ];

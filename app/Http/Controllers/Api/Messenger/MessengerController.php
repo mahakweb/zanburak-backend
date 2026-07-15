@@ -8,6 +8,7 @@ use App\Http\Resources\Messenger\MessageResource;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Services\Messenger\MessengerService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -67,8 +68,12 @@ class MessengerController extends Controller
 
         $conversation->load([
             'users:id,first_name,last_name,username,profile_pic,last_seen',
-            'lastMessage',
+            'users.messengerSettings',
         ]);
+        $conversation->setRelation(
+            'lastMessage',
+            $this->messenger->lastVisibleMessageFor($request->user(), $conversation)
+        );
         $conversation->unread_count = $conversation->unreadCountFor($request->user());
 
         return response()->json(new ConversationResource($conversation));
@@ -129,9 +134,9 @@ class MessengerController extends Controller
             'data' => MessageResource::collection($paginator->items()),
             'meta' => [
                 'current_page' => $paginator->currentPage(),
-                'last_page' => $paginator->lastPage(),
+                'last_page' => null,
                 'per_page' => $paginator->perPage(),
-                'total' => $paginator->total(),
+                'total' => null,
                 'has_more' => $paginator->hasMorePages(),
             ],
         ]);
@@ -142,7 +147,7 @@ class MessengerController extends Controller
         $request->validate([
             'body' => 'required|string|max:'.config('messenger.max_message_length', 5000),
             'client_id' => 'sometimes|string|max:64',
-            'reply_to_id' => 'sometimes|nullable|integer|exists:messages,id',
+            'reply_to_id' => 'sometimes|nullable|integer',
             'reply_show_title' => 'sometimes|boolean',
         ]);
 
@@ -159,6 +164,8 @@ class MessengerController extends Controller
             );
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
+        } catch (ModelNotFoundException $e) {
+            return response()->json(['message' => 'Message not found'], 404);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 403);
         }
@@ -170,7 +177,7 @@ class MessengerController extends Controller
     {
         $request->validate([
             'message_ids' => 'required|array|min:1|max:50',
-            'message_ids.*' => 'integer|exists:messages,id',
+            'message_ids.*' => 'integer',
             'drop_author' => 'sometimes|boolean',
         ]);
 
@@ -181,6 +188,8 @@ class MessengerController extends Controller
                 $conversation,
                 $request->boolean('drop_author', false)
             );
+        } catch (ModelNotFoundException $e) {
+            return response()->json(['message' => 'Message not found'], 404);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 403);
         }
@@ -204,6 +213,8 @@ class MessengerController extends Controller
                 $request->input('message_ids'),
                 $request->input('scope', 'everyone')
             );
+        } catch (ModelNotFoundException $e) {
+            return response()->json(['message' => 'Message not found'], 404);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 403);
         }
@@ -225,6 +236,8 @@ class MessengerController extends Controller
             );
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
+        } catch (ModelNotFoundException $e) {
+            return response()->json(['message' => 'Message not found'], 404);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 403);
         }
@@ -242,6 +255,8 @@ class MessengerController extends Controller
                 $message,
                 $request->input('scope', 'everyone')
             );
+        } catch (ModelNotFoundException $e) {
+            return response()->json(['message' => 'Message not found'], 404);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 403);
         }
@@ -272,6 +287,8 @@ class MessengerController extends Controller
                 $message,
                 $request->boolean('for_everyone', false)
             );
+        } catch (ModelNotFoundException $e) {
+            return response()->json(['message' => 'Message not found'], 404);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 403);
         }
@@ -283,6 +300,8 @@ class MessengerController extends Controller
     {
         try {
             $this->messenger->unpinMessage($request->user(), $message);
+        } catch (ModelNotFoundException $e) {
+            return response()->json(['message' => 'Message not found'], 404);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 403);
         }
@@ -457,18 +476,34 @@ class MessengerController extends Controller
      */
     public function sync(Request $request): JsonResponse
     {
-        $sinceId = $request->integer('since', 0);
-        $events = $this->messenger->getEventsSince($request->user()->id, $sinceId);
+        $validated = $request->validate([
+            'since' => ['nullable', 'regex:/^\d+$/'],
+        ]);
+        $sinceId = (int) ($validated['since'] ?? 0);
+        $highWatermark = $this->messenger->getLatestCursor($request->user()->id);
+        $events = $this->messenger->getEventsSince(
+            $request->user()->id,
+            $sinceId,
+            51,
+            $highWatermark
+        );
+        $hasMore = $events->count() > 50;
+        $events = $events->take(50)->values();
+        $cursor = $events->isNotEmpty() ? (string) $events->last()->id : (string) $sinceId;
 
         return response()->json([
             'events' => $events->map(fn ($e) => [
-                'id' => $e->id,
+                'id' => (string) $e->id,
                 'type' => $e->type,
                 'conversation_id' => $e->conversation_id,
                 'payload' => $e->payload,
                 'created_at' => $e->created_at?->toIso8601String(),
             ]),
-            'cursor' => $this->messenger->getLatestCursor($request->user()->id),
+            // Keep "cursor" for existing consumers, but make it the last row
+            // actually returned so paginated clients cannot skip durable events.
+            'cursor' => $cursor,
+            'has_more' => $hasMore,
+            'high_watermark' => (string) $highWatermark,
         ]);
     }
 }

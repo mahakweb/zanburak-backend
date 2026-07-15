@@ -849,14 +849,19 @@ class User extends Authenticatable implements MustVerifyEmail
             ? $this->getRelation('messengerSettings')
             : $this->messengerSettings()->first();
 
-        if ($settings) {
-            return $settings;
+        if (! $settings) {
+            $settings = new \App\Models\MessengerSetting(array_merge(
+                ['user_id' => $this->id],
+                \App\Models\MessengerSetting::defaults()
+            ));
         }
 
-        return new \App\Models\MessengerSetting(array_merge(
-            ['user_id' => $this->id],
-            \App\Models\MessengerSetting::defaults()
-        ));
+        // UserBriefResource consults several privacy flags. Cache both a real
+        // row and the defaults on the model so repeated serialization cannot
+        // issue one settings query per field.
+        $this->setRelation('messengerSettings', $settings);
+
+        return $settings;
     }
 
     /**

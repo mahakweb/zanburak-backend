@@ -45,7 +45,10 @@ class Conversation extends Model
             return false;
         }
 
-        return $this->users()->where('users.id', $user->id)->exists();
+        return $this->users()
+            ->where('users.id', $user->id)
+            ->whereNull('conversation_user.deleted_at')
+            ->exists();
     }
 
     public function otherUser(User $me): ?User
@@ -59,6 +62,7 @@ class Conversation extends Model
     public function unreadCountFor(User $user): int
     {
         return $this->messages()
+            ->visibleTo($user)
             ->where('user_id', '!=', $user->id)
             ->whereNull('read_at')
             ->count();

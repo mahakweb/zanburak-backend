@@ -13,39 +13,39 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         Route::post('/conversations', [MessengerController::class, 'createConversation'])->name('conversations.create');
         Route::post('/saved', [MessengerController::class, 'savedConversation'])->name('saved');
         Route::get('/conversations/{conversation}', [MessengerController::class, 'showConversation'])->name('conversations.show');
-        Route::delete('/conversations/{conversation}', [MessengerController::class, 'deleteConversation'])->name('conversations.delete');
-        Route::post('/conversations/{conversation}/clear', [MessengerController::class, 'clearConversation'])->name('conversations.clear');
+        Route::delete('/conversations/{conversation}', [MessengerController::class, 'deleteConversation'])->middleware('throttle:messenger.destructive')->name('conversations.delete');
+        Route::post('/conversations/{conversation}/clear', [MessengerController::class, 'clearConversation'])->middleware('throttle:messenger.destructive')->name('conversations.clear');
         Route::post('/conversations/{conversation}/mute', [MessengerController::class, 'muteConversation'])->name('conversations.mute');
 
         // Messages
         Route::get('/conversations/{conversation}/messages', [MessengerController::class, 'messages'])->name('conversations.messages');
-        Route::post('/conversations/{conversation}/messages', [MessengerController::class, 'sendMessage'])->name('conversations.messages.send');
-        Route::post('/conversations/{conversation}/forward', [MessengerController::class, 'forwardMessages'])->name('conversations.messages.forward');
-        Route::post('/messages/bulk-delete', [MessengerController::class, 'bulkDelete'])->name('messages.bulk-delete');
-        Route::put('/messages/{message}', [MessengerController::class, 'editMessage'])->name('messages.edit');
-        Route::delete('/messages/{message}', [MessengerController::class, 'deleteMessage'])->name('messages.delete');
+        Route::post('/conversations/{conversation}/messages', [MessengerController::class, 'sendMessage'])->middleware('throttle:messenger.send')->name('conversations.messages.send');
+        Route::post('/conversations/{conversation}/forward', [MessengerController::class, 'forwardMessages'])->middleware('throttle:messenger.send')->name('conversations.messages.forward');
+        Route::post('/messages/bulk-delete', [MessengerController::class, 'bulkDelete'])->middleware('throttle:messenger.destructive')->name('messages.bulk-delete');
+        Route::put('/messages/{message}', [MessengerController::class, 'editMessage'])->middleware('throttle:messenger.destructive')->name('messages.edit');
+        Route::delete('/messages/{message}', [MessengerController::class, 'deleteMessage'])->middleware('throttle:messenger.destructive')->name('messages.delete');
         // Pinned messages
         Route::get('/conversations/{conversation}/pins', [MessengerController::class, 'pins'])->name('conversations.pins');
-        Route::post('/conversations/{conversation}/unpin-all', [MessengerController::class, 'unpinAll'])->name('conversations.unpin-all');
-        Route::post('/messages/{message}/pin', [MessengerController::class, 'pinMessage'])->name('messages.pin');
-        Route::delete('/messages/{message}/pin', [MessengerController::class, 'unpinMessage'])->name('messages.unpin');
+        Route::post('/conversations/{conversation}/unpin-all', [MessengerController::class, 'unpinAll'])->middleware('throttle:messenger.destructive')->name('conversations.unpin-all');
+        Route::post('/messages/{message}/pin', [MessengerController::class, 'pinMessage'])->middleware('throttle:messenger.destructive')->name('messages.pin');
+        Route::delete('/messages/{message}/pin', [MessengerController::class, 'unpinMessage'])->middleware('throttle:messenger.destructive')->name('messages.unpin');
 
-        Route::post('/conversations/{conversation}/typing', [MessengerController::class, 'typing'])->name('conversations.typing');
+        Route::post('/conversations/{conversation}/typing', [MessengerController::class, 'typing'])->middleware('throttle:messenger.typing')->name('conversations.typing');
         Route::post('/conversations/{conversation}/read', [MessengerController::class, 'markRead'])->name('conversations.read');
 
         // Presence (heartbeat / explicit offline)
-        Route::post('/presence/ping', [MessengerController::class, 'presencePing'])->name('presence.ping');
-        Route::post('/presence/offline', [MessengerController::class, 'presenceOffline'])->name('presence.offline');
+        Route::post('/presence/ping', [MessengerController::class, 'presencePing'])->middleware('throttle:messenger.presence')->name('presence.ping');
+        Route::post('/presence/offline', [MessengerController::class, 'presenceOffline'])->middleware('throttle:messenger.presence')->name('presence.offline');
 
         // Contacts
         Route::get('/contacts', [ContactController::class, 'index'])->name('contacts.index');
         Route::get('/contacts/blocked', [ContactController::class, 'blocked'])->name('contacts.blocked');
         Route::post('/contacts', [ContactController::class, 'store'])->name('contacts.store');
-        Route::post('/contacts/lookup', [ContactController::class, 'lookup'])->name('contacts.lookup');
-        Route::post('/contacts/invite', [ContactController::class, 'invite'])->name('contacts.invite');
+        Route::post('/contacts/lookup', [ContactController::class, 'lookup'])->middleware('throttle:messenger.search')->name('contacts.lookup');
+        Route::post('/contacts/invite', [ContactController::class, 'invite'])->middleware('throttle:messenger.invite')->name('contacts.invite');
         Route::put('/contacts/{contact}', [ContactController::class, 'update'])->name('contacts.update');
         Route::delete('/contacts/{contact}', [ContactController::class, 'destroy'])->name('contacts.destroy');
-        Route::get('/users/search', [ContactController::class, 'search'])->name('users.search');
+        Route::get('/users/search', [ContactController::class, 'search'])->middleware('throttle:messenger.search')->name('users.search');
         Route::post('/users/{userId}/block', [ContactController::class, 'block'])->name('users.block');
         Route::post('/users/{userId}/unblock', [ContactController::class, 'unblock'])->name('users.unblock');
 
@@ -58,6 +58,6 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
 
         // Utility
         Route::get('/unread-count', [MessengerController::class, 'unreadCount'])->name('unread-count');
-        Route::get('/sync', [MessengerController::class, 'sync'])->name('sync');
+        Route::get('/sync', [MessengerController::class, 'sync'])->middleware('throttle:messenger.sync')->name('sync');
     });
 });

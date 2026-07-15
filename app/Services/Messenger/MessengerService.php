@@ -8,15 +8,17 @@ use App\Models\Contact;
 use App\Models\ContactInvite;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\MessagePin;
 use App\Models\MessengerEvent;
 use App\Models\User;
 use App\Notifications\Channels\GhasedakChannel;
 use App\Notifications\Messenger\InviteToZanburak;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 
@@ -46,20 +48,38 @@ class MessengerService
             ->orderByDesc('last_message_at')
             ->paginate($perPage);
 
-        $previewLimit = (int) config('messenger.conversation_preview_messages', 30);
+        $conversationIds = $paginator->getCollection()->pluck('id');
+        $latestIds = Message::query()
+            ->visibleTo($user)
+            ->whereIn('conversation_id', $conversationIds)
+            ->selectRaw('MAX(id) as id')
+            ->groupBy('conversation_id')
+            ->pluck('id');
+        $latestByConversation = Message::query()
+            ->visibleTo($user)
+            ->whereIn('id', $latestIds)
+            ->with($this->messageRelations($user))
+            ->get()
+            ->keyBy('conversation_id');
+        $unreadByConversation = Message::query()
+            ->visibleTo($user)
+            ->whereIn('conversation_id', $conversationIds)
+            ->where('user_id', '!=', $user->id)
+            ->whereNull('read_at')
+            ->selectRaw('conversation_id, COUNT(*) as aggregate')
+            ->groupBy('conversation_id')
+            ->pluck('aggregate', 'conversation_id');
 
-        foreach ($paginator->getCollection() as $conv) {
-            $conv->unread_count = $conv->unreadCountFor($user);
+        foreach ($paginator->getCollection() as $conversation) {
+            $latest = $latestByConversation->get($conversation->id);
+            $conversation->unread_count = (int) ($unreadByConversation[$conversation->id] ?? 0);
+            $conversation->setRelation('lastMessage', $latest);
 
-            // Preload the most recent messages so the chat opens instantly
-            // without waiting for a separate request.
-            $preview = $this->recentMessagesFor($user, $conv, $previewLimit);
-            $conv->setRelation('recentMessages', $preview['messages']);
-            $conv->messages_has_more = $preview['has_more'];
-
-            // The newest visible message doubles as the list preview, honoring
-            // per-user cleared history & "delete for me".
-            $conv->setRelation('lastMessage', $preview['messages']->last());
+            // Keep the existing response fields while avoiding 30-message
+            // history loads for every sidebar row. The client fetches history
+            // when a conversation is opened.
+            $conversation->setRelation('recentMessages', new Collection);
+            $conversation->messages_has_more = $latest !== null;
         }
 
         return $paginator;
@@ -72,22 +92,11 @@ class MessengerService
      */
     protected function visibleMessagesQuery(User $user, Conversation $conversation)
     {
-        $pivot = $conversation->relationLoaded('users')
-            ? $conversation->users->firstWhere('id', $user->id)?->pivot
-            : null;
-        $pivot ??= $conversation->users()->where('users.id', $user->id)->first()?->pivot;
-        $clearedAt = $pivot?->cleared_at;
-
-        $query = $conversation->messages()
-            ->with($this->messageRelations())
-            ->whereDoesntHave('deletedForUsers', fn ($q) => $q->where('users.id', $user->id))
-            ->reorder('id', 'desc');
-
-        if ($clearedAt) {
-            $query->where('created_at', '>', $clearedAt);
-        }
-
-        return $query;
+        return Message::query()
+            ->visibleTo($user)
+            ->where('conversation_id', $conversation->id)
+            ->with($this->messageRelations($user))
+            ->orderByDesc('id');
     }
 
     /**
@@ -155,10 +164,13 @@ class MessengerService
             // (and my cleared_at stays, so old history doesn't reappear).
             $existing->users()->updateExistingPivot($me->id, ['deleted_at' => null]);
 
-            return $existing->load([
+            $existing->load([
                 'users:id,first_name,last_name,username,profile_pic,last_seen',
-                'lastMessage',
+                'users.messengerSettings',
             ]);
+            $existing->setRelation('lastMessage', $this->lastVisibleMessageFor($me, $existing));
+
+            return $existing;
         }
 
         return DB::transaction(function () use ($me, $otherUserId) {
@@ -167,6 +179,7 @@ class MessengerService
 
             return $conversation->load([
                 'users:id,first_name,last_name,username,profile_pic,last_seen',
+                'users.messengerSettings',
             ]);
         });
     }
@@ -185,10 +198,13 @@ class MessengerService
             // Restore visibility in case the user had hidden it.
             $existing->users()->updateExistingPivot($me->id, ['deleted_at' => null]);
 
-            return $existing->load([
+            $existing->load([
                 'users:id,first_name,last_name,username,profile_pic,last_seen',
-                'lastMessage',
+                'users.messengerSettings',
             ]);
+            $existing->setRelation('lastMessage', $this->lastVisibleMessageFor($me, $existing));
+
+            return $existing;
         }
 
         return DB::transaction(function () use ($me) {
@@ -197,6 +213,7 @@ class MessengerService
 
             return $conversation->load([
                 'users:id,first_name,last_name,username,profile_pic,last_seen',
+                'users.messengerSettings',
             ]);
         });
     }
@@ -270,7 +287,7 @@ class MessengerService
     // Messages
     // -------------------------------------------------------------------------
 
-    public function getMessages(User $user, Conversation $conversation, ?int $beforeId = null): LengthAwarePaginator
+    public function getMessages(User $user, Conversation $conversation, ?int $beforeId = null): Paginator
     {
         $this->assertParticipant($user, $conversation);
 
@@ -280,7 +297,18 @@ class MessengerService
             $query->where('id', '<', $beforeId);
         }
 
-        $paginator = $query->paginate(config('messenger.messages_per_page', 40));
+        // A cursor-like "before_id" request does not need an expensive total
+        // count. Fetch one extra row to derive has_more.
+        $perPage = (int) config('messenger.messages_per_page', 40);
+        $paginator = new Paginator(
+            $query->limit($perPage + 1)->get(),
+            $perPage,
+            Paginator::resolveCurrentPage(),
+            [
+                'path' => Paginator::resolveCurrentPath(),
+                'query' => request()->query(),
+            ]
+        );
 
         // Return chronological order (oldest first) for chat UI
         $paginator->setCollection(
@@ -313,19 +341,21 @@ class MessengerService
                 ->first();
 
             if ($existing) {
-                return $existing->load($this->messageRelations());
+                return $this->visibleMessageOrFail($user, $existing->id)
+                    ->load($this->messageRelations($user));
             }
         }
 
-        // Validate the quoted message belongs to the same conversation
+        // A hidden, cleared, deleted, or cross-conversation reply target is
+        // indistinguishable from an unknown ID.
         $replyToId = $options['reply_to_id'] ?? null;
         if ($replyToId) {
-            $valid = Message::where('id', $replyToId)
+            $reply = Message::query()
+                ->visibleTo($user)
+                ->whereKey($replyToId)
                 ->where('conversation_id', $conversation->id)
-                ->exists();
-            if (! $valid) {
-                $replyToId = null;
-            }
+                ->first();
+            $reply ?? throw (new ModelNotFoundException)->setModel(Message::class, [$replyToId]);
         }
 
         $attributes = [
@@ -353,13 +383,11 @@ class MessengerService
                 ->whereNotNull('deleted_at')
                 ->update(['deleted_at' => null, 'updated_at' => now()]);
 
-            $message->load($this->messageRelations());
+            $message->load($this->messageRelations($user));
 
             // Notify every participant — including the sender's *other* devices
             // so a chat stays in sync across multiple logged-in sessions.
-            $this->notifyAllParticipants($conversation, 'message.new', [
-                'message' => (new MessageResource($message))->resolve(),
-            ]);
+            $this->notifyMessageToAllParticipants($conversation, $message, 'message.new');
 
             return $message;
         });
@@ -375,28 +403,42 @@ class MessengerService
     public function forwardMessages(User $user, array $messageIds, Conversation $target, bool $dropAuthor = false): array
     {
         $this->assertParticipant($user, $target);
+        // Fail before inspecting source IDs so target blocking cannot be used
+        // as a side channel for message visibility.
+        $this->assertNotBlocked($user, $target);
 
-        $sources = Message::whereIn('id', $messageIds)
-            ->whereHas('conversation.users', fn ($q) => $q->where('users.id', $user->id))
-            ->orderBy('id')
-            ->get();
+        $uniqueIds = collect($messageIds)->map(fn ($id) => (int) $id)->unique()->values();
+        $sources = Message::query()
+            ->visibleTo($user)
+            ->whereIn('id', $uniqueIds)
+            ->get()
+            ->keyBy('id');
 
-        $created = [];
-        foreach ($sources as $source) {
-            // When $dropAuthor is true we forward "without quote": the message is
-            // re-sent as if authored by the forwarder, with no original-author header.
-            $options = $dropAuthor
-                ? []
-                : ['forwarded_from_user_id' => $source->forwarded_from_user_id ?: $source->user_id];
-
-            $created[] = $this->sendMessage($user, $target, $source->body, null, $options);
+        if ($sources->count() !== $uniqueIds->count()) {
+            throw (new ModelNotFoundException)->setModel(Message::class, $uniqueIds->all());
         }
 
-        return $created;
+        return DB::transaction(function () use ($user, $messageIds, $target, $dropAuthor, $sources) {
+            $created = [];
+            foreach ($messageIds as $messageId) {
+                $source = $sources->get((int) $messageId);
+                // When $dropAuthor is true we forward "without quote": the
+                // message is re-sent as if authored by the forwarder.
+                $options = $dropAuthor
+                    ? []
+                    : ['forwarded_from_user_id' => $source->forwarded_from_user_id ?: $source->user_id];
+
+                $created[] = $this->sendMessage($user, $target, $source->body, null, $options);
+            }
+
+            return $created;
+        });
     }
 
     public function editMessage(User $user, Message $message, string $body): Message
     {
+        $message = $this->visibleMessageOrFail($user, $message->id);
+
         if (! $message->isOwnedBy($user)) {
             throw new \RuntimeException('You can only edit your own messages');
         }
@@ -411,14 +453,10 @@ class MessengerService
             'edited_at' => now(),
         ]);
 
-        $message->load($this->messageRelations());
+        $message->load($this->messageRelations($user));
 
         // Notify everyone, including the editor's other devices.
-        $this->notifyAllParticipants(
-            $message->conversation,
-            'message.updated',
-            ['message' => (new MessageResource($message))->resolve()]
-        );
+        $this->notifyMessageToAllParticipants($message->conversation, $message, 'message.updated');
 
         return $message;
     }
@@ -431,6 +469,7 @@ class MessengerService
      */
     public function deleteMessage(User $user, Message $message, string $scope = 'everyone'): void
     {
+        $message = $this->visibleMessageOrFail($user, $message->id);
         $conversation = $message->conversation;
         $this->assertParticipant($user, $conversation);
 
@@ -442,7 +481,7 @@ class MessengerService
             $message->deletedForUsers()->syncWithoutDetaching([$user->id]);
 
             // Drop it from this user's pinned list too.
-            \App\Models\MessagePin::where('message_id', $messageId)
+            MessagePin::where('message_id', $messageId)
                 ->where('user_id', $user->id)
                 ->delete();
 
@@ -461,7 +500,7 @@ class MessengerService
         }
 
         // Pins reference this message; clear them for all participants.
-        \App\Models\MessagePin::where('message_id', $messageId)->delete();
+        MessagePin::where('message_id', $messageId)->delete();
 
         $message->delete();
 
@@ -476,34 +515,41 @@ class MessengerService
      * Delete several messages at once.
      *
      * @param  int[]  $messageIds
-     * @return int  Number of messages actually deleted
+     * @return int Number of messages actually deleted
      */
     public function bulkDeleteMessages(User $user, array $messageIds, string $scope = 'everyone'): int
     {
-        $query = Message::whereIn('id', $messageIds)
-            ->whereHas('conversation.users', fn ($q) => $q->where('users.id', $user->id));
-
-        // "delete for everyone" is restricted to the user's own messages.
-        if ($scope !== 'me') {
-            $query->where('user_id', $user->id);
-        }
+        $uniqueIds = collect($messageIds)->map(fn ($id) => (int) $id)->unique()->values();
+        $query = Message::query()
+            ->visibleTo($user)
+            ->whereIn('id', $uniqueIds);
 
         $messages = $query->get();
-
-        $count = 0;
-        foreach ($messages as $message) {
-            $this->deleteMessage($user, $message, $scope);
-            $count++;
+        if ($messages->count() !== $uniqueIds->count()) {
+            throw (new ModelNotFoundException)->setModel(Message::class, $uniqueIds->all());
+        }
+        if ($scope !== 'me' && $messages->contains(fn (Message $message) => ! $message->isOwnedBy($user))) {
+            throw new \RuntimeException('You can only delete your own messages for everyone');
         }
 
-        return $count;
+        return DB::transaction(function () use ($user, $messages, $scope) {
+            $count = 0;
+            foreach ($messages as $message) {
+                $this->deleteMessage($user, $message, $scope);
+                $count++;
+            }
+
+            return $count;
+        });
     }
 
     public function markRead(User $user, Conversation $conversation): int
     {
         $this->assertParticipant($user, $conversation);
 
-        $updated = Message::where('conversation_id', $conversation->id)
+        $updated = Message::query()
+            ->visibleTo($user)
+            ->where('conversation_id', $conversation->id)
             ->where('user_id', '!=', $user->id)
             ->whereNull('read_at')
             ->update(['read_at' => now()]);
@@ -565,17 +611,19 @@ class MessengerService
     {
         $this->assertParticipant($user, $conversation);
 
-        $ids = \App\Models\MessagePin::where('conversation_id', $conversation->id)
+        $ids = MessagePin::where('conversation_id', $conversation->id)
             ->where('user_id', $user->id)
             ->orderBy('message_id')
             ->pluck('message_id');
 
         if ($ids->isEmpty()) {
-            return new Collection();
+            return new Collection;
         }
 
-        return Message::whereIn('id', $ids)
-            ->with($this->messageRelations())
+        return Message::query()
+            ->visibleTo($user)
+            ->whereIn('id', $ids)
+            ->with($this->messageRelations($user))
             ->orderBy('id')
             ->get();
     }
@@ -585,27 +633,34 @@ class MessengerService
      */
     public function pinMessage(User $user, Message $message, bool $forEveryone = false): void
     {
+        $message = $this->visibleMessageOrFail($user, $message->id);
         $conversation = $message->conversation;
         $this->assertParticipant($user, $conversation);
 
-        $recipients = $forEveryone
+        $candidateRecipients = $forEveryone
             ? $conversation->users()->pluck('users.id')->all()
             : [$user->id];
+        $recipients = [];
 
-        foreach ($recipients as $uid) {
-            \App\Models\MessagePin::firstOrCreate(
+        foreach ($candidateRecipients as $uid) {
+            $recipient = $uid === $user->id ? $user : User::find($uid);
+            if (! $recipient || ! Message::query()->visibleTo($recipient)->whereKey($message->id)->exists()) {
+                continue;
+            }
+
+            MessagePin::firstOrCreate(
                 ['message_id' => $message->id, 'user_id' => $uid],
                 ['conversation_id' => $conversation->id, 'pinned_by_id' => $user->id]
             );
+            $recipients[] = $recipient;
         }
 
-        $message->load($this->messageRelations());
-        $resource = (new MessageResource($message))->resolve();
-
-        foreach ($recipients as $uid) {
-            $this->emitEvent($uid, $conversation->id, 'message.pinned', [
+        foreach ($recipients as $recipient) {
+            $visibleMessage = $this->visibleMessageOrFail($recipient, $message->id)
+                ->load($this->messageRelations($recipient));
+            $this->emitEvent($recipient->id, $conversation->id, 'message.pinned', [
                 'conversation_id' => $conversation->id,
-                'message' => $resource,
+                'message' => (new MessageResource($visibleMessage))->resolve(),
             ]);
         }
     }
@@ -615,10 +670,11 @@ class MessengerService
      */
     public function unpinMessage(User $user, Message $message): void
     {
+        $message = $this->visibleMessageOrFail($user, $message->id);
         $conversation = $message->conversation;
         $this->assertParticipant($user, $conversation);
 
-        \App\Models\MessagePin::where('message_id', $message->id)
+        MessagePin::where('message_id', $message->id)
             ->where('user_id', $user->id)
             ->delete();
 
@@ -635,7 +691,7 @@ class MessengerService
     {
         $this->assertParticipant($user, $conversation);
 
-        \App\Models\MessagePin::where('conversation_id', $conversation->id)
+        MessagePin::where('conversation_id', $conversation->id)
             ->where('user_id', $user->id)
             ->delete();
 
@@ -651,7 +707,10 @@ class MessengerService
     public function listContacts(User $user): Collection
     {
         return Contact::where('user_id', $user->id)
-            ->with('contactUser:id,first_name,last_name,username,profile_pic,last_seen')
+            ->with([
+                'contactUser:id,first_name,last_name,username,profile_pic,last_seen',
+                'contactUser.messengerSettings',
+            ])
             ->orderByDesc('is_favorite')
             ->orderBy('name')
             ->get();
@@ -670,7 +729,10 @@ class MessengerService
             ['name' => $name ?? trim("{$contactUser->first_name} {$contactUser->last_name}") ?: $contactUser->username]
         );
 
-        return $contact->load('contactUser:id,first_name,last_name,username,profile_pic,last_seen');
+        return $contact->load([
+            'contactUser:id,first_name,last_name,username,profile_pic,last_seen',
+            'contactUser.messengerSettings',
+        ]);
     }
 
     public function updateContact(User $user, Contact $contact, array $data): Contact
@@ -681,7 +743,10 @@ class MessengerService
 
         $contact->update(array_intersect_key($data, array_flip(['name', 'is_blocked', 'is_favorite'])));
 
-        return $contact->load('contactUser:id,first_name,last_name,username,profile_pic,last_seen');
+        return $contact->load([
+            'contactUser:id,first_name,last_name,username,profile_pic,last_seen',
+            'contactUser.messengerSettings',
+        ]);
     }
 
     public function deleteContact(User $user, Contact $contact): void
@@ -697,7 +762,7 @@ class MessengerService
     {
         $query = trim($query);
         if (mb_strlen($query) < 2) {
-            return new Collection();
+            return new Collection;
         }
 
         return User::where('id', '!=', $user->id)
@@ -708,6 +773,7 @@ class MessengerService
                     ->orWhere('username', 'like', "%{$query}%");
             })
             ->select('id', 'first_name', 'last_name', 'username', 'profile_pic', 'last_seen')
+            ->with('messengerSettings')
             ->limit($limit)
             ->get();
     }
@@ -739,17 +805,27 @@ class MessengerService
             $eventId = $event->id;
         }
 
-        try {
-            broadcast(new MessengerBroadcast($userId, $type, $payload, $eventId));
-        } catch (\Throwable $e) {
-            Log::warning('Messenger broadcast failed: '.$e->getMessage());
-        }
+        // Persist durable reconnect data in the caller's transaction, but do
+        // not expose uncommitted mutations over Reverb. Catch inside the
+        // callback because after-commit failures must never fail the REST write.
+        DB::afterCommit(function () use ($userId, $type, $payload, $eventId) {
+            try {
+                broadcast(new MessengerBroadcast($userId, $type, $payload, $eventId));
+            } catch (\Throwable $e) {
+                Log::warning('Messenger broadcast failed: '.$e->getMessage());
+            }
+        });
     }
 
-    public function getEventsSince(int $userId, int $sinceId, int $limit = 50): Collection
-    {
+    public function getEventsSince(
+        int $userId,
+        int $sinceId,
+        int $limit = 50,
+        ?int $highWatermark = null
+    ): Collection {
         return MessengerEvent::where('user_id', $userId)
             ->where('id', '>', $sinceId)
+            ->when($highWatermark !== null, fn ($query) => $query->where('id', '<=', $highWatermark))
             ->orderBy('id')
             ->limit($limit)
             ->get();
@@ -757,25 +833,15 @@ class MessengerService
 
     public function getLatestCursor(int $userId): int
     {
-        $cached = $this->bus->getCachedCursor($userId);
-        if ($cached !== null) {
-            return $cached;
-        }
-
         return (int) (MessengerEvent::where('user_id', $userId)->max('id') ?? 0);
     }
 
     public function totalUnreadCount(User $user): int
     {
-        return (int) DB::table('messages')
-            ->join('conversation_user', function ($join) use ($user) {
-                $join->on('messages.conversation_id', '=', 'conversation_user.conversation_id')
-                    ->where('conversation_user.user_id', '=', $user->id);
-            })
-            ->where('messages.user_id', '!=', $user->id)
-            ->whereNull('messages.read_at')
-            ->whereNull('messages.deleted_at')
-            ->whereNull('conversation_user.deleted_at')
+        return Message::query()
+            ->visibleTo($user)
+            ->where('user_id', '!=', $user->id)
+            ->whereNull('read_at')
             ->count();
     }
 
@@ -792,10 +858,13 @@ class MessengerService
 
     public function getSettings(User $user): \App\Models\MessengerSetting
     {
-        return \App\Models\MessengerSetting::firstOrCreate(
+        $settings = \App\Models\MessengerSetting::firstOrCreate(
             ['user_id' => $user->id],
             \App\Models\MessengerSetting::defaults()
         );
+        $user->setRelation('messengerSettings', $settings);
+
+        return $settings;
     }
 
     public function updateSettings(User $user, array $data): \App\Models\MessengerSetting
@@ -854,14 +923,27 @@ class MessengerService
     /**
      * Eager-load set used everywhere a message is serialized.
      */
-    protected function messageRelations(): array
+    protected function messageRelations(User $viewer): array
     {
         return [
             'user:id,first_name,last_name,username,profile_pic,last_seen',
+            'user.messengerSettings',
             'forwardedFromUser:id,first_name,last_name,username,profile_pic,last_seen',
             'forwardedFromUser.messengerSettings',
-            'replyTo' => fn ($q) => $q->with('user:id,first_name,last_name,username,profile_pic,last_seen'),
+            'replyTo' => fn ($q) => $q
+                ->visibleTo($viewer)
+                ->with([
+                    'user:id,first_name,last_name,username,profile_pic,last_seen',
+                    'user.messengerSettings',
+                ]),
         ];
+    }
+
+    protected function visibleMessageOrFail(User $user, int $messageId): Message
+    {
+        return Message::query()
+            ->visibleTo($user)
+            ->findOrFail($messageId);
     }
 
     protected function assertParticipant(User $user, Conversation $conversation): void
@@ -897,6 +979,32 @@ class MessengerService
         $participants = $conversation->users()->get();
         foreach ($participants as $recipient) {
             $this->emitEvent($recipient->id, $conversation->id, $type, $payload, $persist);
+        }
+    }
+
+    /**
+     * Serialize message relations against each recipient's visibility rules so
+     * a hidden reply target can never leak through a realtime payload.
+     */
+    protected function notifyMessageToAllParticipants(
+        Conversation $conversation,
+        Message $message,
+        string $type
+    ): void {
+        foreach ($conversation->users()->get() as $recipient) {
+            $visibleMessage = Message::query()
+                ->visibleTo($recipient)
+                ->whereKey($message->id)
+                ->with($this->messageRelations($recipient))
+                ->first();
+
+            if (! $visibleMessage) {
+                continue;
+            }
+
+            $this->emitEvent($recipient->id, $conversation->id, $type, [
+                'message' => (new MessageResource($visibleMessage))->resolve(),
+            ]);
         }
     }
 
@@ -1004,7 +1112,10 @@ class MessengerService
     {
         return Contact::where('user_id', $user->id)
             ->where('is_blocked', true)
-            ->with('contactUser:id,first_name,last_name,username,profile_pic,last_seen')
+            ->with([
+                'contactUser:id,first_name,last_name,username,profile_pic,last_seen',
+                'contactUser.messengerSettings',
+            ])
             ->orderBy('name')
             ->get();
     }
@@ -1023,7 +1134,10 @@ class MessengerService
         );
         $contact->update(['is_blocked' => true]);
 
-        return $contact->load('contactUser:id,first_name,last_name,username,profile_pic,last_seen');
+        return $contact->load([
+            'contactUser:id,first_name,last_name,username,profile_pic,last_seen',
+            'contactUser.messengerSettings',
+        ]);
     }
 
     public function unblockUser(User $user, int $targetUserId): void
@@ -1058,6 +1172,7 @@ class MessengerService
                     $q->orWhere('mobile', $normalizedMobile);
                 }
             })
+            ->with('messengerSettings')
             ->first();
     }
 
