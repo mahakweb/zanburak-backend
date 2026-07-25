@@ -38,6 +38,10 @@ REDIS_PORT=6379
 
 # Messenger realtime (self-hosted, no external service). Redis enabled => instant realtime + fast cursor checks.
 MESSENGER_REDIS=true
+MESSENGER_HOT_PATH=true
+MESSENGER_FLUSH_BATCH=20
+MESSENGER_FLUSH_INTERVAL=2
+MESSENGER_OUTBOX_TTL=86400
 MESSENGER_STREAM_TTL=30
 MESSENGER_STREAM_POLL_MS=1000
 MESSENGER_STREAM_HEARTBEAT=15
@@ -184,6 +188,12 @@ REVERB_SCHEME=https
 # Internal server bind (proxied by Nginx -> wss://api.zanburak.ir). Local-only for security.
 REVERB_SERVER_HOST=127.0.0.1
 REVERB_SERVER_PORT=8081
+
+# Laravel → Reverb publish (MUST be localhost). Never use the public host here —
+# PHP-FPM would call itself over HTTPS/DNS and stall, especially without internet.
+REVERB_BROADCAST_HOST=127.0.0.1
+REVERB_BROADCAST_PORT=8081
+REVERB_BROADCAST_SCHEME=http
 
 # Use Redis for Reverb horizontal scaling / pub-sub
 REVERB_SCALING_ENABLED=true

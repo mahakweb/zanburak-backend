@@ -17,6 +17,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Pagination\Paginator;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
@@ -25,7 +26,8 @@ use Illuminate\Support\Str;
 class MessengerService
 {
     public function __construct(
-        protected RealtimeBus $bus
+        protected RealtimeBus $bus,
+        protected MessengerOutbox $outbox
     ) {}
 
     // -------------------------------------------------------------------------
@@ -80,6 +82,10 @@ class MessengerService
             // when a conversation is opened.
             $conversation->setRelation('recentMessages', new Collection);
             $conversation->messages_has_more = $latest !== null;
+
+            if ($conversation->isCommunity()) {
+                $conversation->my_role = $conversation->memberRole($user);
+            }
         }
 
         return $paginator;
@@ -300,8 +306,23 @@ class MessengerService
         // A cursor-like "before_id" request does not need an expensive total
         // count. Fetch one extra row to derive has_more.
         $perPage = (int) config('messenger.messages_per_page', 40);
+        $rows = $query->limit($perPage + 1)->get();
+
+        // Merge not-yet-flushed Redis hot messages into the latest page so a
+        // refresh never hides a message that already arrived over the live path.
+        if (! $beforeId && $this->outbox->isActive()) {
+            $hot = collect($this->outbox->hotMessagesForConversation($conversation->id))
+                ->map(fn (array $row) => $this->hydrateMessageRow($user, $row));
+            $byId = $rows->keyBy('id');
+            foreach ($hot as $msg) {
+                if (! $byId->has($msg->id)) {
+                    $rows->push($msg);
+                }
+            }
+        }
+
         $paginator = new Paginator(
-            $query->limit($perPage + 1)->get(),
+            $rows,
             $perPage,
             Paginator::resolveCurrentPage(),
             [
@@ -322,6 +343,7 @@ class MessengerService
     {
         $this->assertParticipant($user, $conversation);
         $this->assertNotBlocked($user, $conversation);
+        $this->groups()->assertCanSend($user, $conversation, $body);
 
         $body = trim($body);
         if ($body === '') {
@@ -333,8 +355,23 @@ class MessengerService
             throw new \InvalidArgumentException("Message exceeds maximum length of {$maxLen} characters");
         }
 
-        // Idempotent send via client_id
+        // Channels: replies are disabled
+        if ($conversation->isChannel() && ! empty($options['reply_to_id'])) {
+            throw new \InvalidArgumentException('Replies are disabled in channels');
+        }
+
+        // Idempotent send via client_id (Redis cache first, then DB)
         if ($clientId) {
+            if ($this->outbox->isActive()) {
+                $hotId = $this->outbox->findMessageIdByClient($conversation->id, $user->id, $clientId);
+                if ($hotId) {
+                    $hot = $this->outbox->getHotMessage($hotId);
+                    if ($hot) {
+                        return $this->hydrateMessageRow($user, $hot);
+                    }
+                }
+            }
+
             $existing = Message::where('conversation_id', $conversation->id)
                 ->where('user_id', $user->id)
                 ->where('client_id', $clientId)
@@ -358,18 +395,105 @@ class MessengerService
             $reply ?? throw (new ModelNotFoundException)->setModel(Message::class, [$replyToId]);
         }
 
+        $mentions = $conversation->isCommunity()
+            ? $this->groups()->parseMentions($body)
+            : [];
+
         $attributes = [
             'conversation_id' => $conversation->id,
             'user_id' => $user->id,
             'client_id' => $clientId ?? Str::uuid()->toString(),
             'body' => $body,
-            'type' => 'text',
+            'type' => $options['type'] ?? 'text',
             'reply_to_id' => $replyToId,
             'reply_show_title' => $options['reply_show_title'] ?? true,
             'forwarded_from_user_id' => $options['forwarded_from_user_id'] ?? null,
+            'is_silent' => (bool) ($options['is_silent'] ?? false),
+            'scheduled_at' => $options['scheduled_at'] ?? null,
+            'auto_delete_at' => $options['auto_delete_at'] ?? null,
+            'mentions' => $mentions ?: null,
+            'meta' => $options['meta'] ?? null,
         ];
 
-        return DB::transaction(function () use ($user, $conversation, $attributes) {
+        if ($this->outbox->isActive() && empty($options['type'])) {
+            $message = $this->sendMessageHot($user, $conversation, $attributes);
+        } else {
+            $message = $this->sendMessageDurable($user, $conversation, $attributes);
+        }
+
+        $this->groups()->onMessageSent($user, $conversation);
+
+        return $message;
+    }
+
+    /**
+     * Internal system event message for groups/channels (not user-authored text).
+     */
+    public function sendSystemMessage(Conversation $conversation, User $actor, string $body, string $event): Message
+    {
+        $attributes = [
+            'conversation_id' => $conversation->id,
+            'user_id' => $actor->id,
+            'client_id' => 'sys-'.Str::uuid()->toString(),
+            'body' => $body,
+            'type' => 'system',
+            'reply_to_id' => null,
+            'reply_show_title' => false,
+            'forwarded_from_user_id' => null,
+            'meta' => ['event' => $event],
+        ];
+
+        return $this->sendMessageDurable($actor, $conversation, $attributes);
+    }
+
+    /**
+     * Redis-first send: allocate id in RAM, fan-out over Reverb immediately,
+     * enqueue durable writes for the outbox flusher.
+     */
+    protected function sendMessageHot(User $user, Conversation $conversation, array $attributes): Message
+    {
+        $now = now();
+        $id = $this->outbox->allocateMessageId();
+        $row = array_merge($attributes, [
+            'id' => $id,
+            'read_at' => null,
+            'delivered_at' => null,
+            'edited_at' => null,
+            'deleted_at' => null,
+            'created_at' => $now->toDateTimeString(),
+            'updated_at' => $now->toDateTimeString(),
+        ]);
+
+        $message = $this->hydrateMessageRow($user, $row);
+
+        $this->outbox->enqueue([
+            'op' => 'message.create',
+            'message' => $row,
+            'conversation_id' => $conversation->id,
+            'restore_deleted' => true,
+        ]);
+        $this->outbox->cacheHotMessage($row);
+        $this->outbox->rememberClientId(
+            $conversation->id,
+            $user->id,
+            (string) $attributes['client_id'],
+            $id
+        );
+
+        // Live fan-out + durable event enqueue (broadcast uses ephemeral id=0).
+        $this->notifyMessageToAllParticipants($conversation, $message, 'message.new');
+
+        $this->maybeFlushOutboxAfterResponse();
+
+        return $message;
+    }
+
+    /**
+     * Classic DB-first send (fallback when Redis is off / unreachable).
+     */
+    protected function sendMessageDurable(User $user, Conversation $conversation, array $attributes): Message
+    {
+        $message = DB::transaction(function () use ($attributes, $conversation) {
             $message = Message::create($attributes);
 
             $conversation->update([
@@ -383,14 +507,16 @@ class MessengerService
                 ->whereNotNull('deleted_at')
                 ->update(['deleted_at' => null, 'updated_at' => now()]);
 
-            $message->load($this->messageRelations($user));
-
-            // Notify every participant — including the sender's *other* devices
-            // so a chat stays in sync across multiple logged-in sessions.
-            $this->notifyMessageToAllParticipants($conversation, $message, 'message.new');
-
             return $message;
         });
+
+        $message->load($this->messageRelations($user));
+
+        // Notify outside the write transaction so live delivery is not blocked
+        // by messenger_events inserts.
+        $this->notifyMessageToAllParticipants($conversation, $message, 'message.new');
+
+        return $message;
     }
 
     /**
@@ -438,19 +564,31 @@ class MessengerService
     public function editMessage(User $user, Message $message, string $body): Message
     {
         $message = $this->visibleMessageOrFail($user, $message->id);
+        $conversation = $message->conversation;
+
+        if ($message->isSystem()) {
+            throw new \RuntimeException('System messages cannot be edited');
+        }
 
         if (! $message->isOwnedBy($user)) {
             throw new \RuntimeException('You can only edit your own messages');
         }
+
+        $this->groups()->assertCanEdit($user, $conversation, $message);
 
         $body = trim($body);
         if ($body === '') {
             throw new \InvalidArgumentException('Message body cannot be empty');
         }
 
+        $mentions = $conversation->isCommunity()
+            ? $this->groups()->parseMentions($body)
+            : null;
+
         $message->update([
             'body' => $body,
             'edited_at' => now(),
+            'mentions' => $mentions,
         ]);
 
         $message->load($this->messageRelations($user));
@@ -494,8 +632,10 @@ class MessengerService
             return;
         }
 
-        // scope === everyone: only the author may remove for both sides.
-        if (! $message->isOwnedBy($user)) {
+        // scope === everyone
+        if ($conversation->isCommunity()) {
+            $this->groups()->assertCanDelete($user, $conversation, $message, 'everyone');
+        } elseif (! $message->isOwnedBy($user)) {
             throw new \RuntimeException('You can only delete your own messages for everyone');
         }
 
@@ -529,7 +669,15 @@ class MessengerService
             throw (new ModelNotFoundException)->setModel(Message::class, $uniqueIds->all());
         }
         if ($scope !== 'me' && $messages->contains(fn (Message $message) => ! $message->isOwnedBy($user))) {
-            throw new \RuntimeException('You can only delete your own messages for everyone');
+            // In communities, admins may delete others' messages — defer to per-message checks.
+            $nonOwned = $messages->filter(fn (Message $m) => ! $m->isOwnedBy($user));
+            foreach ($nonOwned as $message) {
+                $conversation = $message->conversation;
+                if (! $conversation->isCommunity()) {
+                    throw new \RuntimeException('You can only delete your own messages for everyone');
+                }
+                $this->groups()->assertCanDelete($user, $conversation, $message, 'everyone');
+            }
         }
 
         return DB::transaction(function () use ($user, $messages, $scope) {
@@ -546,6 +694,55 @@ class MessengerService
     public function markRead(User $user, Conversation $conversation): int
     {
         $this->assertParticipant($user, $conversation);
+
+        if ($this->outbox->isActive()) {
+            // Count unread from DB + treat any hot incoming messages as unread.
+            $updated = Message::query()
+                ->visibleTo($user)
+                ->where('conversation_id', $conversation->id)
+                ->where('user_id', '!=', $user->id)
+                ->whereNull('read_at')
+                ->count();
+
+            $hotIncoming = collect($this->outbox->hotMessagesForConversation($conversation->id))
+                ->filter(fn (array $row) => (int) $row['user_id'] !== (int) $user->id && empty($row['read_at']))
+                ->count();
+
+            $updated += $hotIncoming;
+
+            if ($updated > 0) {
+                $readAt = now()->toDateTimeString();
+                $this->outbox->enqueue([
+                    'op' => 'messages.read',
+                    'conversation_id' => $conversation->id,
+                    'reader_id' => $user->id,
+                    'read_at' => $readAt,
+                ]);
+
+                // Stamp hot-cache rows so a subsequent merge does not resurrect unread.
+                foreach ($this->outbox->hotMessagesForConversation($conversation->id) as $row) {
+                    if ((int) $row['user_id'] === (int) $user->id) {
+                        continue;
+                    }
+                    $row['read_at'] = $readAt;
+                    $this->outbox->cacheHotMessage($row);
+                }
+
+                $this->notifyAllParticipants(
+                    $conversation,
+                    'messages.read',
+                    [
+                        'conversation_id' => $conversation->id,
+                        'reader_id' => $user->id,
+                        'count' => $updated,
+                    ]
+                );
+
+                $this->maybeFlushOutboxAfterResponse();
+            }
+
+            return $updated;
+        }
 
         $updated = Message::query()
             ->visibleTo($user)
@@ -571,6 +768,89 @@ class MessengerService
         }
 
         return $updated;
+    }
+
+    /**
+     * Recipient device ack: message reached their client (double gray ticks).
+     *
+     * @param  int[]  $messageIds
+     */
+    public function markDelivered(User $user, Conversation $conversation, array $messageIds): int
+    {
+        $this->assertParticipant($user, $conversation);
+
+        $ids = collect($messageIds)->map(fn ($id) => (int) $id)->unique()->values()->all();
+        if ($ids === []) {
+            return 0;
+        }
+
+        $now = now();
+        $deliverable = [];
+
+        // Hot-cache messages not yet in DB.
+        if ($this->outbox->isActive()) {
+            foreach ($ids as $id) {
+                $hot = $this->outbox->getHotMessage($id);
+                if (! $hot) {
+                    continue;
+                }
+                if ((int) $hot['conversation_id'] !== (int) $conversation->id) {
+                    continue;
+                }
+                if ((int) $hot['user_id'] === (int) $user->id) {
+                    continue;
+                }
+                if (! empty($hot['delivered_at'])) {
+                    continue;
+                }
+                $hot['delivered_at'] = $now->toDateTimeString();
+                $this->outbox->cacheHotMessage($hot);
+                $deliverable[] = $id;
+            }
+        }
+
+        $dbIds = Message::query()
+            ->visibleTo($user)
+            ->where('conversation_id', $conversation->id)
+            ->where('user_id', '!=', $user->id)
+            ->whereIn('id', $ids)
+            ->whereNull('delivered_at')
+            ->pluck('id')
+            ->all();
+
+        $deliverable = array_values(array_unique(array_merge($deliverable, $dbIds)));
+        if ($deliverable === []) {
+            return 0;
+        }
+
+        if ($this->outbox->isActive()) {
+            $this->outbox->enqueue([
+                'op' => 'message.delivered',
+                'message_ids' => $deliverable,
+                'delivered_at' => $now->toDateTimeString(),
+            ]);
+            $this->maybeFlushOutboxAfterResponse();
+        } else {
+            Message::query()
+                ->whereIn('id', $deliverable)
+                ->whereNull('delivered_at')
+                ->update(['delivered_at' => $now]);
+        }
+
+        // Notify senders (and the recipient's other devices) for tick updates.
+        $this->notifyAllParticipants(
+            $conversation,
+            'message.delivered',
+            [
+                'conversation_id' => $conversation->id,
+                'message_ids' => $deliverable,
+                'delivered_at' => $now->toIso8601String(),
+                'recipient_id' => $user->id,
+            ],
+            false // ephemeral — durable sync does not need delivery receipts
+        );
+
+        return count($deliverable);
     }
 
     public function sendTyping(User $user, Conversation $conversation): void
@@ -637,6 +917,12 @@ class MessengerService
         $conversation = $message->conversation;
         $this->assertParticipant($user, $conversation);
 
+        // Groups/channels: pinning for everyone requires pin permission.
+        if ($conversation->isCommunity()) {
+            $this->groups()->assertCanPin($user, $conversation);
+            $forEveryone = true;
+        }
+
         $candidateRecipients = $forEveryone
             ? $conversation->users()->pluck('users.id')->all()
             : [$user->id];
@@ -662,6 +948,21 @@ class MessengerService
                 'conversation_id' => $conversation->id,
                 'message' => (new MessageResource($visibleMessage))->resolve(),
             ]);
+        }
+
+        if ($conversation->isCommunity() && $forEveryone) {
+            try {
+                $this->groups()->audit($conversation, $user, 'message.pinned', null, [
+                    'message_id' => $message->id,
+                ]);
+                $this->sendSystemMessage($conversation, $user, json_encode([
+                    'event' => 'pinned_message',
+                    'actor_id' => $user->id,
+                    'message_id' => $message->id,
+                ]), 'pinned_message');
+            } catch (\Throwable $e) {
+                report($e);
+            }
         }
     }
 
@@ -785,36 +1086,50 @@ class MessengerService
     /**
      * Deliver a realtime event to a single user.
      *
-     * Primary transport is Laravel Reverb (broadcast). Durable events are also
-     * persisted to the DB so a reconnecting client can replay them via /sync.
-     * High-frequency, ephemeral events (typing) skip persistence.
-     * Broadcasting is best-effort: a Reverb outage never breaks the REST flow.
+     * Live transport is Laravel Reverb. Broadcasts always use ephemeral id=0 so
+     * open clients apply them immediately (without waiting on /sync). Durable
+     * events are write-behind via Redis when the hot path is active, otherwise
+     * persisted inline for reconnect replay. Typing/presence skip persistence.
      */
     public function emitEvent(int $userId, ?int $conversationId, string $type, array $payload = [], bool $persist = true): void
     {
-        $eventId = 0;
-
         if ($persist) {
-            $event = MessengerEvent::create([
-                'user_id' => $userId,
-                'conversation_id' => $conversationId,
-                'type' => $type,
-                'payload' => $payload,
-                'created_at' => now(),
-            ]);
-            $eventId = $event->id;
+            if ($this->outbox->isActive()) {
+                $this->outbox->enqueue([
+                    'op' => 'event.create',
+                    'user_id' => $userId,
+                    'conversation_id' => $conversationId,
+                    'type' => $type,
+                    'payload' => $payload,
+                    'created_at' => now()->toDateTimeString(),
+                ]);
+            } else {
+                MessengerEvent::create([
+                    'user_id' => $userId,
+                    'conversation_id' => $conversationId,
+                    'type' => $type,
+                    'payload' => $payload,
+                    'created_at' => now(),
+                ]);
+            }
         }
 
-        // Persist durable reconnect data in the caller's transaction, but do
-        // not expose uncommitted mutations over Reverb. Catch inside the
-        // callback because after-commit failures must never fail the REST write.
-        DB::afterCommit(function () use ($userId, $type, $payload, $eventId) {
+        $broadcast = function () use ($userId, $type, $payload) {
             try {
-                broadcast(new MessengerBroadcast($userId, $type, $payload, $eventId));
+                // Ephemeral id=0 ⇒ frontend applies immediately (see handleStreamEvent).
+                broadcast(new MessengerBroadcast($userId, $type, $payload, 0));
             } catch (\Throwable $e) {
                 Log::warning('Messenger broadcast failed: '.$e->getMessage());
             }
-        });
+        };
+
+        // Inside a DB transaction, wait for commit so we never leak uncommitted
+        // rows. Outside a transaction (hot path / post-commit notify), push now.
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit($broadcast);
+        } else {
+            $broadcast();
+        }
     }
 
     public function getEventsSince(
@@ -921,6 +1236,14 @@ class MessengerService
     // -------------------------------------------------------------------------
 
     /**
+     * Lazy resolve to avoid a circular constructor dependency with GroupChannelService.
+     */
+    protected function groups(): GroupChannelService
+    {
+        return app(GroupChannelService::class);
+    }
+
+    /**
      * Eager-load set used everywhere a message is serialized.
      */
     protected function messageRelations(User $viewer): array
@@ -936,6 +1259,7 @@ class MessengerService
                     'user:id,first_name,last_name,username,profile_pic,last_seen',
                     'user.messengerSettings',
                 ]),
+            'reactions',
         ];
     }
 
@@ -992,6 +1316,17 @@ class MessengerService
         string $type
     ): void {
         foreach ($conversation->users()->get() as $recipient) {
+            // Hot-path messages are not in Postgres yet — serialize from the
+            // in-memory model (reply visibility already validated for sender).
+            if (! $message->exists) {
+                $payloadMessage = $this->serializeMessageForViewer($message, $recipient);
+                $this->emitEvent($recipient->id, $conversation->id, $type, [
+                    'message' => $payloadMessage,
+                ]);
+
+                continue;
+            }
+
             $visibleMessage = Message::query()
                 ->visibleTo($recipient)
                 ->whereKey($message->id)
@@ -1006,6 +1341,102 @@ class MessengerService
                 'message' => (new MessageResource($visibleMessage))->resolve(),
             ]);
         }
+    }
+
+    /**
+     * Build an Eloquent Message from a Redis hot-path row (not yet persisted).
+     */
+    protected function hydrateMessageRow(User $viewer, array $row): Message
+    {
+        $message = new Message;
+        $message->forceFill([
+            'id' => (int) $row['id'],
+            'conversation_id' => (int) $row['conversation_id'],
+            'user_id' => (int) $row['user_id'],
+            'client_id' => $row['client_id'] ?? null,
+            'body' => $row['body'] ?? '',
+            'type' => $row['type'] ?? 'text',
+            'reply_to_id' => $row['reply_to_id'] ?? null,
+            'reply_show_title' => (bool) ($row['reply_show_title'] ?? true),
+            'forwarded_from_user_id' => $row['forwarded_from_user_id'] ?? null,
+            'read_at' => ! empty($row['read_at']) ? Carbon::parse($row['read_at']) : null,
+            'delivered_at' => ! empty($row['delivered_at']) ? Carbon::parse($row['delivered_at']) : null,
+            'edited_at' => ! empty($row['edited_at']) ? Carbon::parse($row['edited_at']) : null,
+            'created_at' => Carbon::parse($row['created_at'] ?? now()),
+            'updated_at' => Carbon::parse($row['updated_at'] ?? now()),
+        ]);
+        $message->exists = false;
+
+        $author = User::query()
+            ->select('id', 'first_name', 'last_name', 'username', 'profile_pic', 'last_seen')
+            ->with('messengerSettings')
+            ->find((int) $row['user_id']);
+        if ($author) {
+            $message->setRelation('user', $author);
+        }
+
+        if (! empty($row['forwarded_from_user_id'])) {
+            $fwd = User::query()
+                ->select('id', 'first_name', 'last_name', 'username', 'profile_pic', 'last_seen')
+                ->with('messengerSettings')
+                ->find((int) $row['forwarded_from_user_id']);
+            $message->setRelation('forwardedFromUser', $fwd);
+        } else {
+            $message->setRelation('forwardedFromUser', null);
+        }
+
+        if (! empty($row['reply_to_id'])) {
+            $reply = Message::query()
+                ->visibleTo($viewer)
+                ->whereKey((int) $row['reply_to_id'])
+                ->with([
+                    'user:id,first_name,last_name,username,profile_pic,last_seen',
+                    'user.messengerSettings',
+                ])
+                ->first();
+            $message->setRelation('replyTo', $reply);
+        } else {
+            $message->setRelation('replyTo', null);
+        }
+
+        return $message;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function serializeMessageForViewer(Message $message, User $viewer): array
+    {
+        // Clone relations with viewer-scoped reply visibility.
+        $clone = clone $message;
+        if ($message->reply_to_id) {
+            $reply = Message::query()
+                ->visibleTo($viewer)
+                ->whereKey($message->reply_to_id)
+                ->with([
+                    'user:id,first_name,last_name,username,profile_pic,last_seen',
+                    'user.messengerSettings',
+                ])
+                ->first();
+            $clone->setRelation('replyTo', $reply);
+        }
+
+        return (new MessageResource($clone))->resolve();
+    }
+
+    protected function maybeFlushOutboxAfterResponse(): void
+    {
+        if (! $this->outbox->shouldFlushNow()) {
+            return;
+        }
+
+        dispatch(function () {
+            try {
+                app(MessengerOutbox::class)->flush((int) config('messenger.flush_batch_size', 20) * 2);
+            } catch (\Throwable $e) {
+                Log::warning('Messenger opportunistic flush failed: '.$e->getMessage());
+            }
+        })->afterResponse();
     }
 
     /**

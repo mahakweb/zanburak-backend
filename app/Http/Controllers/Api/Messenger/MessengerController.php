@@ -69,12 +69,22 @@ class MessengerController extends Controller
         $conversation->load([
             'users:id,first_name,last_name,username,profile_pic,last_seen',
             'users.messengerSettings',
+            'owner:id,first_name,last_name,username,profile_pic',
         ]);
         $conversation->setRelation(
             'lastMessage',
             $this->messenger->lastVisibleMessageFor($request->user(), $conversation)
         );
         $conversation->unread_count = $conversation->unreadCountFor($request->user());
+
+        if ($conversation->isCommunity()) {
+            app(\App\Services\Messenger\GroupChannelService::class)
+                ->refreshMemberCount($conversation);
+            $conversation->refresh();
+            $conversation->my_role = $conversation->memberRole($request->user());
+            $conversation->permissions = app(\App\Services\Messenger\GroupPermissionService::class)
+                ->matrixFor($conversation)[$conversation->my_role] ?? [];
+        }
 
         return response()->json(new ConversationResource($conversation));
     }
@@ -349,6 +359,26 @@ class MessengerController extends Controller
     {
         try {
             $updated = $this->messenger->markRead($request->user(), $conversation);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json(['updated' => $updated]);
+    }
+
+    public function markDelivered(Request $request, Conversation $conversation): JsonResponse
+    {
+        $request->validate([
+            'message_ids' => 'required|array|min:1|max:100',
+            'message_ids.*' => 'integer',
+        ]);
+
+        try {
+            $updated = $this->messenger->markDelivered(
+                $request->user(),
+                $conversation,
+                $request->input('message_ids', [])
+            );
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 403);
         }

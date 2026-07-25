@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Redis;
  */
 class RealtimeBus
 {
+    protected ?bool $available = null;
+
     public function isEnabled(): bool
     {
         return (bool) config('messenger.redis.enabled', false);
@@ -18,18 +20,22 @@ class RealtimeBus
 
     public function isAvailable(): bool
     {
+        if ($this->available !== null) {
+            return $this->available;
+        }
+
         if (! $this->isEnabled()) {
-            return false;
+            return $this->available = false;
         }
 
         try {
             Redis::connection(config('messenger.redis.connection', 'default'))->ping();
 
-            return true;
+            return $this->available = true;
         } catch (\Throwable $e) {
             Log::debug('Messenger Redis unavailable: '.$e->getMessage());
 
-            return false;
+            return $this->available = false;
         }
     }
 

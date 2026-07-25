@@ -16,13 +16,33 @@ class MessageResource extends JsonResource
             'client_id' => $this->client_id,
             'body' => $this->body,
             'type' => $this->type,
+            'is_silent' => (bool) ($this->is_silent ?? false),
+            'scheduled_at' => $this->scheduled_at?->toIso8601String(),
+            'auto_delete_at' => $this->auto_delete_at?->toIso8601String(),
+            'view_count' => (int) ($this->view_count ?? 0),
+            'mentions' => $this->mentions,
+            'meta' => $this->meta,
             'reply_to_id' => $this->reply_to_id,
             'reply_show_title' => (bool) $this->reply_show_title,
             'read_at' => $this->read_at?->toIso8601String(),
+            'delivered_at' => $this->delivered_at?->toIso8601String(),
             'edited_at' => $this->edited_at?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
             'user' => new UserBriefResource($this->whenLoaded('user')),
+            'reactions' => $this->when(
+                $this->relationLoaded('reactions'),
+                function () {
+                    return collect($this->reactions)
+                        ->groupBy('emoji')
+                        ->map(fn ($rows, $emoji) => [
+                            'emoji' => $emoji,
+                            'count' => $rows->count(),
+                            'me' => $rows->contains(fn ($r) => (int) $r->user_id === (int) optional(request()->user())->id),
+                        ])
+                        ->values();
+                }
+            ),
             'forwarded_from' => $this->whenLoaded('forwardedFromUser', fn () => $this->forwardedFromUser
                 ? new UserBriefResource($this->forwardedFromUser)
                 : null),

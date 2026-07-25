@@ -53,10 +53,14 @@ return [
             'secret' => env('REVERB_APP_SECRET'),
             'app_id' => env('REVERB_APP_ID'),
             'options' => [
-                'host' => env('REVERB_HOST', env('APP_DOMAIN', 'localhost')),
-                'port' => env('REVERB_PORT', 443),
-                'scheme' => env('REVERB_SCHEME', 'https'),
-                'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
+                // Server-side publish must hit Reverb on localhost. Using the
+                // public HTTPS host (REVERB_HOST) from PHP-FPM hairpins through
+                // Nginx/DNS and can hang for seconds on air-gapped servers.
+                // Browsers still connect via REVERB_HOST / VITE_REVERB_*.
+                'host' => env('REVERB_BROADCAST_HOST', env('REVERB_SERVER_HOST', env('REVERB_HOST', '127.0.0.1'))),
+                'port' => (int) env('REVERB_BROADCAST_PORT', env('REVERB_SERVER_PORT', env('REVERB_PORT', 8081))),
+                'scheme' => env('REVERB_BROADCAST_SCHEME', 'http'),
+                'useTLS' => env('REVERB_BROADCAST_SCHEME', 'http') === 'https',
             ],
         ],
 

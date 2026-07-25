@@ -17,17 +17,30 @@ class Message extends Model
         'client_id',
         'body',
         'type',
+        'is_silent',
+        'scheduled_at',
+        'auto_delete_at',
+        'view_count',
+        'mentions',
+        'meta',
         'reply_to_id',
         'reply_show_title',
         'forwarded_from_user_id',
         'read_at',
+        'delivered_at',
         'edited_at',
     ];
 
     protected $casts = [
         'read_at' => 'datetime',
+        'delivered_at' => 'datetime',
         'edited_at' => 'datetime',
+        'scheduled_at' => 'datetime',
+        'auto_delete_at' => 'datetime',
         'reply_show_title' => 'boolean',
+        'is_silent' => 'boolean',
+        'mentions' => 'array',
+        'meta' => 'array',
     ];
 
     /**
@@ -81,6 +94,16 @@ class Message extends Model
         return $this->belongsTo(User::class, 'forwarded_from_user_id');
     }
 
+    public function reactions()
+    {
+        return $this->hasMany(MessageReaction::class);
+    }
+
+    public function views()
+    {
+        return $this->hasMany(MessageView::class);
+    }
+
     /**
      * Users who have hidden this message from their own view ("delete for me").
      */
@@ -92,5 +115,10 @@ class Message extends Model
     public function isOwnedBy(?User $user): bool
     {
         return $user !== null && (int) $this->user_id === (int) $user->id;
+    }
+
+    public function isSystem(): bool
+    {
+        return $this->type === 'system';
     }
 }

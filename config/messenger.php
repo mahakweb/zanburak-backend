@@ -8,11 +8,11 @@ return [
     |--------------------------------------------------------------------------
     |
     | The messenger is fully self-hosted and works with NO external service.
-    | The database "messenger_events" table is always the source of truth, so
-    | everything works even without Redis. When MESSENGER_REDIS is enabled and a
-    | Redis server is reachable, it is used purely to accelerate delivery
-    | (instant "wake up" of open streams + O(1) cursor checks). If Redis is not
-    | available at runtime, the system transparently falls back to the database.
+    | When MESSENGER_REDIS is enabled and Redis is reachable, the hot path uses
+    | RAM for live delivery (Reverb broadcast + Redis outbox) and write-behind
+    | flushes messages/events/receipts to Postgres in batches. Without Redis the
+    | system falls back to durable DB writes while still broadcasting live with
+    | ephemeral event ids so the UI never waits on /sync for open sockets.
     |
     */
 
@@ -21,6 +21,18 @@ return [
         'connection' => env('MESSENGER_REDIS_CONNECTION', 'default'),
         'prefix' => env('MESSENGER_REDIS_PREFIX', 'messenger'),
     ],
+
+    // Redis-first send/read/delivered when Redis is available.
+    'hot_path' => (bool) env('MESSENGER_HOT_PATH', true),
+
+    // Flush outbox when this many pending ops accumulate (also scheduled).
+    'flush_batch_size' => (int) env('MESSENGER_FLUSH_BATCH', 20),
+
+    // Seconds between scheduled outbox flushes.
+    'flush_interval_seconds' => (int) env('MESSENGER_FLUSH_INTERVAL', 2),
+
+    // How long pending outbox / hot-message keys live in Redis.
+    'outbox_ttl' => (int) env('MESSENGER_OUTBOX_TTL', 86400),
 
     /*
     |--------------------------------------------------------------------------
