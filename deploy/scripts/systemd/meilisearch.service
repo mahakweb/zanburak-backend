@@ -1,0 +1,14 @@
+[Unit]
+Description=Meilisearch
+After=network.target
+
+[Service]
+User={{WEB_USER}}
+Group={{WEB_GROUP}}
+WorkingDirectory={{MEILI_DATA_PATH}}
+ExecStart={{REMOTE_DIR}}/bin/meilisearch-start.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
