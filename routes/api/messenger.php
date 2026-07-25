@@ -97,6 +97,7 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         Route::put('/settings', [MessengerController::class, 'updateSettings'])->name('settings.update');
         Route::get('/me', [MessengerController::class, 'myProfile'])->name('me.show');
         Route::put('/me', [MessengerController::class, 'updateMyProfile'])->name('me.update');
+        Route::get('/me/username-check', [MessengerController::class, 'checkUsername'])->middleware('throttle:messenger.search')->name('me.username-check');
         Route::get('/users/{userId}/profile', [MessengerController::class, 'userProfile'])->name('users.profile');
 
         // Utility

@@ -18,7 +18,8 @@ class ContactController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $contacts = $this->messenger->listContacts($request->user());
+        $sort = (string) $request->query('sort', 'name_asc');
+        $contacts = $this->messenger->listContacts($request->user(), $sort);
 
         return response()->json(ContactResource::collection($contacts));
     }

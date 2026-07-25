@@ -1,15 +1,10 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 title Zanburak Messenger (Redis + Reverb + Scheduler)
 
 REM Backend root = folder of this .bat
 set "BACKEND=%~dp0"
 set "BACKEND=%BACKEND:~0,-1%"
-
-REM Portable Redis (Windows) — installed under repo tools/
-set "REDIS_DIR=%BACKEND%\..\tools\redis\bin\Redis-8.0.2-Windows-x64-msys2-with-Service"
-set "REDIS_SERVER=%REDIS_DIR%\redis-server.exe"
-set "REDIS_CLI=%REDIS_DIR%\redis-cli.exe"
 
 cd /d "%BACKEND%"
 
@@ -26,23 +21,71 @@ if not exist "%BACKEND%\artisan" (
   exit /b 1
 )
 
-if not exist "%REDIS_SERVER%" (
-  echo  [ERROR] redis-server.exe not found:
-  echo          %REDIS_SERVER%
-  pause
-  exit /b 1
+REM Resolve Redis: portable tools/ first, then winget package, then PATH
+set "REDIS_DIR="
+set "REDIS_SERVER="
+set "REDIS_CLI="
+set "REDIS_PORTABLE=%BACKEND%\..\tools\redis\bin\Redis-8.0.2-Windows-x64-msys2-with-Service"
+
+if exist "%REDIS_PORTABLE%\redis-server.exe" (
+  set "REDIS_DIR=%REDIS_PORTABLE%"
+  goto :redis_resolved
 )
 
+for /d %%D in ("%LOCALAPPDATA%\Microsoft\WinGet\Packages\taizod1024.redis-windows-fork*") do (
+  for /d %%R in ("%%~D\Redis-*-Windows-x64-msys2*") do (
+    if exist "%%~R\redis-server.exe" (
+      set "REDIS_DIR=%%~R"
+      goto :redis_resolved
+    )
+  )
+)
+
+where redis-server >nul 2>&1
+if !ERRORLEVEL!==0 (
+  for /f "delims=" %%P in ('where redis-server') do (
+    set "REDIS_SERVER=%%P"
+    set "REDIS_DIR=%%~dpP"
+    if "!REDIS_DIR:~-1!"=="\" set "REDIS_DIR=!REDIS_DIR:~0,-1!"
+    goto :redis_resolved
+  )
+)
+
+echo  [ERROR] redis-server.exe not found.
+echo          Install with: winget install taizod1024.redis-windows-fork
+echo          Or put portable Redis under:
+echo          %REDIS_PORTABLE%
+pause
+exit /b 1
+
+:redis_resolved
+if not defined REDIS_SERVER set "REDIS_SERVER=!REDIS_DIR!\redis-server.exe"
+if exist "!REDIS_DIR!\redis-cli.exe" (
+  set "REDIS_CLI=!REDIS_DIR!\redis-cli.exe"
+) else (
+  where redis-cli >nul 2>&1
+  if !ERRORLEVEL!==0 (
+    for /f "delims=" %%P in ('where redis-cli') do (
+      set "REDIS_CLI=%%P"
+      goto :redis_ready
+    )
+  )
+  set "REDIS_CLI=!REDIS_DIR!\redis-cli.exe"
+)
+
+:redis_ready
+echo  [OK] Redis binaries: !REDIS_DIR!
+
 REM --- Redis ---
-"%REDIS_CLI%" ping >nul 2>&1
-if %ERRORLEVEL%==0 (
+"!REDIS_CLI!" ping >nul 2>&1
+if !ERRORLEVEL!==0 (
   echo  [OK] Redis already running on 6379
 ) else (
   echo  [..] Starting Redis...
-  start "Zanburak Redis" /D "%REDIS_DIR%" "%REDIS_SERVER%"
+  start "Zanburak Redis" /D "!REDIS_DIR!" "!REDIS_SERVER!"
   timeout /t 2 /nobreak >nul
-  "%REDIS_CLI%" ping >nul 2>&1
-  if %ERRORLEVEL%==0 (
+  "!REDIS_CLI!" ping >nul 2>&1
+  if !ERRORLEVEL!==0 (
     echo  [OK] Redis started
   ) else (
     echo  [WARN] Redis ping failed — check the Redis window

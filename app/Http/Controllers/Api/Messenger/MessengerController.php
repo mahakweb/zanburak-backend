@@ -11,6 +11,8 @@ use App\Services\Messenger\MessengerService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class MessengerController extends Controller
 {
@@ -472,6 +474,44 @@ class MessengerController extends Controller
             'profile_pic' => $user->profile_pic,
             'cover_pic' => $user->cover_pic,
             'bio' => $user->bio,
+        ]);
+    }
+
+    public function checkUsername(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $raw = trim((string) $request->input('username', ''));
+        $raw = ltrim($raw, '@');
+
+        $validator = Validator::make(
+            ['username' => $raw],
+            [
+                'username' => [
+                    'required',
+                    'string',
+                    'min:3',
+                    'max:50',
+                    'alpha_dash',
+                    Rule::unique('users', 'username')->ignore($user->id),
+                ],
+            ]
+        );
+
+        if ($validator->fails()) {
+            $failed = $validator->failed();
+            $reason = isset($failed['username']['Unique']) ? 'taken' : 'invalid';
+
+            return response()->json([
+                'available' => false,
+                'username' => $raw !== '' ? $raw : null,
+                'reason' => $reason,
+            ]);
+        }
+
+        return response()->json([
+            'available' => true,
+            'username' => $raw,
+            'reason' => null,
         ]);
     }
 

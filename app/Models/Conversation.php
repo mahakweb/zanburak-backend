@@ -29,7 +29,6 @@ class Conversation extends Model
         'username',
         'is_public',
         'owner_id',
-        'created_by',
         'member_count',
         'message_count',
         'is_verified',

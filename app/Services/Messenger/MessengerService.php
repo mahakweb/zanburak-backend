@@ -1024,16 +1024,32 @@ class MessengerService
     // Contacts
     // -------------------------------------------------------------------------
 
-    public function listContacts(User $user): Collection
+    public function listContacts(User $user, string $sort = 'name_asc'): Collection
     {
-        return Contact::where('user_id', $user->id)
+        $sort = in_array($sort, ['name_asc', 'name_desc', 'last_seen'], true)
+            ? $sort
+            : 'name_asc';
+
+        $query = Contact::query()
+            ->where('contacts.user_id', $user->id)
             ->with([
                 'contactUser:id,first_name,last_name,username,profile_pic,last_seen',
                 'contactUser.messengerSettings',
-            ])
-            ->orderByDesc('is_favorite')
-            ->orderBy('name')
-            ->get();
+            ]);
+
+        if ($sort === 'last_seen') {
+            $query
+                ->leftJoin('users as contact_users', 'contact_users.id', '=', 'contacts.contact_user_id')
+                ->orderByDesc('contact_users.last_seen')
+                ->orderBy('contacts.name')
+                ->select('contacts.*');
+        } elseif ($sort === 'name_desc') {
+            $query->orderByDesc('contacts.name');
+        } else {
+            $query->orderBy('contacts.name');
+        }
+
+        return $query->get();
     }
 
     public function addContact(User $user, int $contactUserId, ?string $name = null): Contact
@@ -1378,6 +1394,11 @@ class MessengerService
             'reply_to_id' => $row['reply_to_id'] ?? null,
             'reply_show_title' => (bool) ($row['reply_show_title'] ?? true),
             'forwarded_from_user_id' => $row['forwarded_from_user_id'] ?? null,
+            'is_silent' => (bool) ($row['is_silent'] ?? false),
+            'scheduled_at' => ! empty($row['scheduled_at']) ? Carbon::parse($row['scheduled_at']) : null,
+            'auto_delete_at' => ! empty($row['auto_delete_at']) ? Carbon::parse($row['auto_delete_at']) : null,
+            'mentions' => $row['mentions'] ?? null,
+            'meta' => $row['meta'] ?? null,
             'read_at' => ! empty($row['read_at']) ? Carbon::parse($row['read_at']) : null,
             'delivered_at' => ! empty($row['delivered_at']) ? Carbon::parse($row['delivered_at']) : null,
             'edited_at' => ! empty($row['edited_at']) ? Carbon::parse($row['edited_at']) : null,

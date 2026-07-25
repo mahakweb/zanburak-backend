@@ -100,7 +100,6 @@ class GroupChannelService
                 'username' => $username,
                 'is_public' => $isPublic,
                 'owner_id' => $owner->id,
-                'created_by' => $owner->id,
                 'member_count' => 1 + $memberIds->count(),
                 'message_count' => 0,
                 'history_visible' => (bool) ($data['history_visible'] ?? true),
@@ -569,7 +568,7 @@ class GroupChannelService
                 'role' => 'owner',
                 'badges' => json_encode(['owner']),
             ]);
-            $conversation->update(['owner_id' => $newOwner->id, 'created_by' => $newOwner->id]);
+            $conversation->update(['owner_id' => $newOwner->id]);
 
             $this->audit($conversation, $actor, 'ownership.transferred', $newOwner->id);
             $this->postSystemEvent($conversation, $actor, 'ownership_transferred', [
