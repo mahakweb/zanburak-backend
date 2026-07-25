@@ -194,9 +194,15 @@ class Conversation extends Model
             ->whereNull('conversation_user.deleted_at');
 
         // Membership flags apply to groups/channels; private/saved stay simple.
+        // Treat NULL flags as active/not-banned (legacy rows).
         if ($this->isCommunity()) {
-            $query->where('conversation_user.is_active', true)
-                ->where('conversation_user.is_banned', false);
+            $query->where(function ($q) {
+                $q->where('conversation_user.is_active', true)
+                    ->orWhereNull('conversation_user.is_active');
+            })->where(function ($q) {
+                $q->where('conversation_user.is_banned', false)
+                    ->orWhereNull('conversation_user.is_banned');
+            });
         }
 
         return $query->exists();

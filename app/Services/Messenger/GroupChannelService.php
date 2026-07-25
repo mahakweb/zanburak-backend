@@ -113,12 +113,16 @@ class GroupChannelService
             ]);
 
             $now = now();
+            $historyVisible = (bool) ($data['history_visible'] ?? true);
+            $clearedAt = $historyVisible ? null : $now;
+
             $attach = [
                 $owner->id => [
                     'role' => 'owner',
                     'joined_at' => $now,
                     'is_active' => true,
                     'is_banned' => false,
+                    'cleared_at' => null,
                     'badges' => json_encode(['owner']),
                     'created_at' => $now,
                     'updated_at' => $now,
@@ -131,7 +135,7 @@ class GroupChannelService
                     'joined_at' => $now,
                     'is_active' => true,
                     'is_banned' => false,
-                    'cleared_at' => $conversation->history_visible ? null : $now,
+                    'cleared_at' => $clearedAt,
                     'badges' => null,
                     'created_at' => $now,
                     'updated_at' => $now,
@@ -586,10 +590,37 @@ class GroupChannelService
     public function leave(User $user, Conversation $conversation): void
     {
         $this->assertCommunity($conversation);
-        $this->messengerAssertParticipant($user, $conversation);
 
-        if ((int) $conversation->owner_id === (int) $user->id) {
-            throw new \InvalidArgumentException('Owner must transfer ownership before leaving');
+        // Allow leaving whenever the user still has a membership row visible in
+        // their sidebar (deleted_at null), even if is_active was cleared earlier.
+        $pivot = DB::table('conversation_user')
+            ->where('conversation_id', $conversation->id)
+            ->where('user_id', $user->id)
+            ->whereNull('deleted_at')
+            ->first();
+
+        if (! $pivot) {
+            throw new \RuntimeException('Forbidden');
+        }
+
+        $isOwner = ((int) $conversation->owner_id === (int) $user->id)
+            || (($pivot->role ?? null) === 'owner');
+
+        if ($isOwner) {
+            $otherMembers = DB::table('conversation_user')
+                ->where('conversation_id', $conversation->id)
+                ->where('user_id', '!=', $user->id)
+                ->whereNull('deleted_at')
+                ->where(function ($q) {
+                    $q->where('is_active', true)->orWhereNull('is_active');
+                })
+                ->count();
+
+            if ($otherMembers > 0) {
+                throw new \InvalidArgumentException(
+                    'Owner must transfer ownership before leaving'
+                );
+            }
         }
 
         $conversation->users()->updateExistingPivot($user->id, [
@@ -598,14 +629,18 @@ class GroupChannelService
         ]);
         $this->refreshMemberCount($conversation);
 
-        $this->postSystemEvent($conversation, $user, 'user_left', [
-            'target_id' => $user->id,
-            'target_name' => $this->userDisplayName($user),
-        ]);
-        $this->broadcastToMembers($conversation, $user->id, 'member.left', [
-            'conversation_id' => $conversation->id,
-            'user_id' => $user->id,
-        ]);
+        // Only emit join/leave system events when the member was actually active.
+        if ($pivot->is_active !== false && $pivot->is_active !== 0 && $pivot->is_active !== '0') {
+            $this->postSystemEvent($conversation, $user, 'user_left', [
+                'target_id' => $user->id,
+                'target_name' => $this->userDisplayName($user),
+            ]);
+            $this->broadcastToMembers($conversation, $user->id, 'member.left', [
+                'conversation_id' => $conversation->id,
+                'user_id' => $user->id,
+            ]);
+        }
+
         $this->messenger->emitEvent($user->id, $conversation->id, 'conversation.deleted', [
             'conversation_id' => $conversation->id,
         ]);

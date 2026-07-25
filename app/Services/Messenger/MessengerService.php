@@ -39,9 +39,28 @@ class MessengerService
         $perPage = $perPage ?: (int) config('messenger.conversations_per_page', 30);
 
         $paginator = Conversation::query()
-            ->whereHas('users', function ($q) use ($user) {
-                $q->where('users.id', $user->id)
-                    ->whereNull('conversation_user.deleted_at');
+            ->where(function ($outer) use ($user) {
+                $outer->where(function ($direct) use ($user) {
+                    $direct->whereNotIn('type', [Conversation::TYPE_GROUP, Conversation::TYPE_CHANNEL])
+                        ->whereHas('users', function ($q) use ($user) {
+                            $q->where('users.id', $user->id)
+                                ->whereNull('conversation_user.deleted_at');
+                        });
+                })->orWhere(function ($community) use ($user) {
+                    $community->whereIn('type', [Conversation::TYPE_GROUP, Conversation::TYPE_CHANNEL])
+                        ->whereHas('users', function ($q) use ($user) {
+                            $q->where('users.id', $user->id)
+                                ->whereNull('conversation_user.deleted_at')
+                                ->where(function ($flags) {
+                                    $flags->where('conversation_user.is_active', true)
+                                        ->orWhereNull('conversation_user.is_active');
+                                })
+                                ->where(function ($flags) {
+                                    $flags->where('conversation_user.is_banned', false)
+                                        ->orWhereNull('conversation_user.is_banned');
+                                });
+                        });
+                });
             })
             ->with([
                 'users:id,first_name,last_name,username,profile_pic,last_seen',
