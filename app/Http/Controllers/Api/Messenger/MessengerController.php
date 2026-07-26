@@ -178,6 +178,37 @@ class MessengerController extends Controller
         ]);
     }
 
+    public function sharedMedia(Request $request, Conversation $conversation): JsonResponse
+    {
+        $data = $request->validate([
+            'type' => 'required|string|in:photo,video,gif,audio,voice,links',
+            'before_id' => 'nullable|integer|min:1',
+            'limit' => 'nullable|integer|min:1|max:100',
+        ]);
+
+        try {
+            $result = $this->messenger->getSharedMedia(
+                $request->user(),
+                $conversation,
+                $data['type'],
+                isset($data['before_id']) ? (int) $data['before_id'] : null,
+                (int) ($data['limit'] ?? 40)
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json([
+            'data' => MessageResource::collection($result['messages']),
+            'meta' => [
+                'type' => $data['type'],
+                'has_more' => $result['has_more'],
+            ],
+        ]);
+    }
+
     public function sendMessage(Request $request, Conversation $conversation): JsonResponse
     {
         $request->validate([
@@ -242,10 +273,10 @@ class MessengerController extends Controller
         $type = $request->input('type');
 
         $maxMap = [
-            'photo' => (int) ($cfg['max_photo_kb'] ?? 12288),
+            'photo' => (int) ($cfg['max_photo_kb'] ?? 51200),
             'video' => (int) ($cfg['max_video_kb'] ?? 51200),
-            'audio' => (int) ($cfg['max_audio_kb'] ?? 20480),
-            'voice' => (int) ($cfg['max_voice_kb'] ?? 10240),
+            'audio' => (int) ($cfg['max_audio_kb'] ?? 51200),
+            'voice' => (int) ($cfg['max_voice_kb'] ?? 51200),
         ];
         $mimeMap = [
             'photo' => $cfg['photo_mimes'] ?? ['jpeg', 'jpg', 'png', 'gif', 'webp', 'bmp'],
@@ -271,6 +302,11 @@ class MessengerController extends Controller
             'width' => 'sometimes|nullable|integer|min:1|max:10000',
             'height' => 'sometimes|nullable|integer|min:1|max:10000',
             'cover' => 'sometimes|nullable|image|max:2048|mimes:jpeg,jpg,png,webp',
+            'silent' => 'sometimes|boolean',
+            'animation' => 'sometimes|boolean',
+            'album_id' => 'sometimes|nullable|string|max:64',
+            'album_index' => 'sometimes|nullable|integer|min:0|max:50',
+            'album_count' => 'sometimes|nullable|integer|min:1|max:50',
         ]);
 
         $file = $request->file('file');
@@ -284,6 +320,8 @@ class MessengerController extends Controller
                 return response()->json(['message' => 'Unsupported file format'], 422);
             }
         }
+
+        $asAnimation = $request->boolean('silent') || $request->boolean('animation');
 
         try {
             $message = $this->messenger->sendMediaMessage(
@@ -300,6 +338,11 @@ class MessengerController extends Controller
                     'width' => $request->input('width'),
                     'height' => $request->input('height'),
                     'cover' => $request->file('cover'),
+                    'silent' => $asAnimation,
+                    'animation' => $asAnimation,
+                    'album_id' => $request->input('album_id'),
+                    'album_index' => $request->input('album_index'),
+                    'album_count' => $request->input('album_count'),
                 ]
             );
         } catch (\InvalidArgumentException $e) {

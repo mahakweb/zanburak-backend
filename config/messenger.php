@@ -89,10 +89,11 @@ return [
         'disk' => env('MESSENGER_MEDIA_DISK', 'static'),
         // Dedicated CDN folder (alongside images/messenger/avatars|covers).
         'folder' => env('MESSENGER_MEDIA_FOLDER', 'images/messenger/chats'),
-        'max_photo_kb' => (int) env('MESSENGER_MAX_PHOTO_KB', 12288),
+        // Defaults: 50 MB each (kilobytes). Server php.ini / nginx must allow >= this.
+        'max_photo_kb' => (int) env('MESSENGER_MAX_PHOTO_KB', 51200),
         'max_video_kb' => (int) env('MESSENGER_MAX_VIDEO_KB', 51200),
-        'max_audio_kb' => (int) env('MESSENGER_MAX_AUDIO_KB', 20480),
-        'max_voice_kb' => (int) env('MESSENGER_MAX_VOICE_KB', 10240),
+        'max_audio_kb' => (int) env('MESSENGER_MAX_AUDIO_KB', 51200),
+        'max_voice_kb' => (int) env('MESSENGER_MAX_VOICE_KB', 51200),
         'photo_mimes' => ['jpeg', 'jpg', 'png', 'gif', 'webp', 'bmp'],
         'video_mimes' => ['mp4', 'webm', 'mov', 'm4v', '3gp'],
         'audio_mimes' => ['mp3', 'm4a', 'aac', 'ogg', 'wav', 'flac', 'opus'],

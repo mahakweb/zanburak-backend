@@ -62,6 +62,7 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
 
         // Messages
         Route::get('/conversations/{conversation}/messages', [MessengerController::class, 'messages'])->name('conversations.messages');
+        Route::get('/conversations/{conversation}/shared-media', [MessengerController::class, 'sharedMedia'])->middleware('throttle:messenger.search')->name('conversations.shared-media');
         Route::post('/conversations/{conversation}/messages', [MessengerController::class, 'sendMessage'])->middleware('throttle:messenger.send')->name('conversations.messages.send');
         Route::post('/conversations/{conversation}/media', [MessengerController::class, 'sendMedia'])->middleware('throttle:messenger.send')->name('conversations.media.send');
         Route::post('/conversations/{conversation}/forward', [MessengerController::class, 'forwardMessages'])->middleware('throttle:messenger.send')->name('conversations.messages.forward');

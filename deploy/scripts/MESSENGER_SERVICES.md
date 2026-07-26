@@ -41,7 +41,26 @@ MESSENGER_HOT_PATH=true
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
 BROADCAST_DRIVER=reverb
+MESSENGER_MAX_PHOTO_KB=51200
+MESSENGER_MAX_VIDEO_KB=51200
+MESSENGER_MAX_AUDIO_KB=51200
+MESSENGER_MAX_VOICE_KB=51200
 ```
+
+## Media upload size (50 MB)
+
+Laravel validates against the `MESSENGER_MAX_*_KB` values above, but **nginx + PHP-FPM** must also allow the body size or uploads fail earlier (often 413 / empty POST).
+
+```bash
+# nginx (site or http block), then reload nginx
+client_max_body_size 55M;
+
+# php-fpm / php.ini (then restart php-fpm)
+upload_max_filesize = 55M
+post_max_size = 55M
+```
+
+Verify with `php -i | grep -E 'upload_max_filesize|post_max_size'` on the server.
 
 ## Supervisor alternative
 

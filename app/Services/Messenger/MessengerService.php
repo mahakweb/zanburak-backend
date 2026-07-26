@@ -392,6 +392,98 @@ class MessengerService
         return $paginator;
     }
 
+    /**
+     * Shared media for a conversation (Telegram-style profile tabs).
+     *
+     * Filters: photo | video | gif | audio | voice | links
+     *
+     * @return array{messages: \Illuminate\Support\Collection, has_more: bool}
+     */
+    public function getSharedMedia(
+        User $user,
+        Conversation $conversation,
+        string $filter,
+        ?int $beforeId = null,
+        int $limit = 40
+    ): array {
+        $isMember = $conversation->hasParticipant($user);
+        if (! $isMember) {
+            if (! $conversation->isCommunity() || ! $conversation->is_public) {
+                throw new \RuntimeException('Forbidden');
+            }
+            $query = Message::query()
+                ->where('conversation_id', $conversation->id)
+                ->whereNull('deleted_at');
+        } else {
+            $query = Message::query()
+                ->visibleTo($user)
+                ->where('conversation_id', $conversation->id);
+        }
+
+        $this->applySharedMediaFilter($query, $filter);
+
+        if ($beforeId) {
+            $query->where('id', '<', $beforeId);
+        }
+
+        $limit = max(1, min(100, $limit));
+        $rows = $query
+            ->with(['user:id,first_name,last_name,username,profile_pic'])
+            ->orderByDesc('id')
+            ->limit($limit + 1)
+            ->get();
+
+        $hasMore = $rows->count() > $limit;
+
+        return [
+            'messages' => $rows->take($limit)->values(),
+            'has_more' => $hasMore,
+        ];
+    }
+
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<\App\Models\Message>  $query
+     */
+    protected function applySharedMediaFilter($query, string $filter): void
+    {
+        switch ($filter) {
+            case 'photo':
+                $query->where('type', Message::TYPE_PHOTO);
+                break;
+            case 'video':
+                $query->where('type', Message::TYPE_VIDEO)
+                    ->whereRaw("COALESCE((meta->>'animation')::boolean, false) = false")
+                    ->whereRaw("COALESCE((meta->>'silent')::boolean, false) = false");
+                break;
+            case 'gif':
+                $query->where('type', Message::TYPE_VIDEO)
+                    ->where(function ($w) {
+                        $w->whereRaw("COALESCE((meta->>'animation')::boolean, false) = true")
+                            ->orWhereRaw("COALESCE((meta->>'silent')::boolean, false) = true");
+                    });
+                break;
+            case 'audio':
+                $query->where('type', Message::TYPE_AUDIO);
+                break;
+            case 'voice':
+                $query->where('type', Message::TYPE_VOICE);
+                break;
+            case 'links':
+                $query->where(function ($w) {
+                    $w->where('body', 'like', '%http://%')
+                        ->orWhere('body', 'like', '%https://%')
+                        ->orWhere('body', 'like', '%www.%')
+                        ->orWhere('body', 'like', '%/messenger/join/%')
+                        ->orWhere('body', 'like', '%/messenger/@%');
+                })->where(function ($w) {
+                    $w->whereNull('type')->orWhere('type', '!=', Message::TYPE_SYSTEM);
+                });
+                break;
+            default:
+                throw new \InvalidArgumentException('Invalid shared media filter');
+        }
+    }
+
     public function sendMessage(User $user, Conversation $conversation, string $body, ?string $clientId = null, array $options = []): Message
     {
         $this->assertParticipant($user, $conversation);
@@ -560,6 +652,23 @@ class MessengerService
         }
         if (isset($options['duration']) && is_numeric($options['duration'])) {
             $meta['duration'] = round((float) $options['duration'], 1);
+        }
+
+        // Silent / GIF-like looping video (Telegram animation style).
+        if (! empty($options['silent']) || ! empty($options['animation'])) {
+            $meta['silent'] = true;
+            $meta['animation'] = true;
+        }
+
+        // Grouped media album (Telegram media_group style).
+        if (! empty($options['album_id']) && is_string($options['album_id'])) {
+            $meta['album_id'] = mb_substr($options['album_id'], 0, 64);
+            if (isset($options['album_index']) && is_numeric($options['album_index'])) {
+                $meta['album_index'] = (int) $options['album_index'];
+            }
+            if (isset($options['album_count']) && is_numeric($options['album_count'])) {
+                $meta['album_count'] = (int) $options['album_count'];
+            }
         }
 
         if ($type === Message::TYPE_PHOTO) {
