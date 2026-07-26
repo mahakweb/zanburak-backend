@@ -63,6 +63,7 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         // Messages
         Route::get('/conversations/{conversation}/messages', [MessengerController::class, 'messages'])->name('conversations.messages');
         Route::post('/conversations/{conversation}/messages', [MessengerController::class, 'sendMessage'])->middleware('throttle:messenger.send')->name('conversations.messages.send');
+        Route::post('/conversations/{conversation}/media', [MessengerController::class, 'sendMedia'])->middleware('throttle:messenger.send')->name('conversations.media.send');
         Route::post('/conversations/{conversation}/forward', [MessengerController::class, 'forwardMessages'])->middleware('throttle:messenger.send')->name('conversations.messages.forward');
         Route::post('/messages/bulk-delete', [MessengerController::class, 'bulkDelete'])->middleware('throttle:messenger.destructive')->name('messages.bulk-delete');
         Route::put('/messages/{message}', [MessengerController::class, 'editMessage'])->middleware('throttle:messenger.destructive')->name('messages.edit');

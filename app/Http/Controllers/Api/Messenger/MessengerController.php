@@ -181,21 +181,125 @@ class MessengerController extends Controller
     public function sendMessage(Request $request, Conversation $conversation): JsonResponse
     {
         $request->validate([
-            'body' => 'required|string|max:'.config('messenger.max_message_length', 5000),
+            'body' => 'nullable|string|max:'.config('messenger.max_message_length', 5000),
             'client_id' => 'sometimes|string|max:64',
             'reply_to_id' => 'sometimes|nullable|integer',
             'reply_show_title' => 'sometimes|boolean',
+            'type' => 'sometimes|string|in:text,location,photo,video,voice,audio',
+            'meta' => 'sometimes|nullable|array',
+            'meta.lat' => 'required_if:type,location|numeric|between:-90,90',
+            'meta.lng' => 'required_if:type,location|numeric|between:-180,180',
+            'meta.accuracy' => 'sometimes|nullable|numeric|min:0',
         ]);
+
+        $type = $request->input('type', 'text');
+        $meta = $request->input('meta');
+        if ($type === 'location' && is_array($meta)) {
+            $meta = [
+                'lat' => round((float) $meta['lat'], 6),
+                'lng' => round((float) $meta['lng'], 6),
+                'accuracy' => isset($meta['accuracy']) ? round((float) $meta['accuracy'], 1) : null,
+            ];
+        }
+
+        // Plain JSON send is for text/location only. Media must use /media (multipart).
+        if (in_array($type, ['photo', 'video', 'voice', 'audio'], true)) {
+            return response()->json(['message' => 'Use the media upload endpoint to send files'], 422);
+        }
+
+        $body = (string) $request->input('body', '');
+        if ($type === 'text' && trim($body) === '') {
+            return response()->json(['message' => 'Message body cannot be empty'], 422);
+        }
 
         try {
             $message = $this->messenger->sendMessage(
                 $request->user(),
                 $conversation,
-                $request->input('body'),
+                $body,
                 $request->input('client_id'),
                 [
                     'reply_to_id' => $request->input('reply_to_id'),
                     'reply_show_title' => $request->boolean('reply_show_title', true),
+                    'type' => $type,
+                    'meta' => $meta,
+                ]
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (ModelNotFoundException $e) {
+            return response()->json(['message' => 'Message not found'], 404);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json(new MessageResource($message), 201);
+    }
+
+    public function sendMedia(Request $request, Conversation $conversation): JsonResponse
+    {
+        $cfg = config('messenger.media', []);
+        $type = $request->input('type');
+
+        $maxMap = [
+            'photo' => (int) ($cfg['max_photo_kb'] ?? 12288),
+            'video' => (int) ($cfg['max_video_kb'] ?? 51200),
+            'audio' => (int) ($cfg['max_audio_kb'] ?? 20480),
+            'voice' => (int) ($cfg['max_voice_kb'] ?? 10240),
+        ];
+        $mimeMap = [
+            'photo' => $cfg['photo_mimes'] ?? ['jpeg', 'jpg', 'png', 'gif', 'webp', 'bmp'],
+            'video' => $cfg['video_mimes'] ?? ['mp4', 'webm', 'mov', 'm4v', '3gp'],
+            'audio' => $cfg['audio_mimes'] ?? ['mp3', 'm4a', 'aac', 'ogg', 'wav', 'flac', 'opus'],
+            'voice' => $cfg['voice_mimes'] ?? ['webm', 'ogg', 'mp4', 'm4a', 'aac', 'opus'],
+        ];
+
+        if (! isset($maxMap[$type])) {
+            return response()->json(['message' => 'Invalid media type'], 422);
+        }
+
+        $maxKb = $maxMap[$type];
+
+        $request->validate([
+            'type' => 'required|string|in:photo,video,voice,audio',
+            'file' => "required|file|max:{$maxKb}",
+            'caption' => 'sometimes|nullable|string|max:'.config('messenger.max_message_length', 5000),
+            'client_id' => 'sometimes|string|max:64',
+            'reply_to_id' => 'sometimes|nullable|integer',
+            'reply_show_title' => 'sometimes|boolean',
+            'duration' => 'sometimes|nullable|numeric|min:0|max:86400',
+            'width' => 'sometimes|nullable|integer|min:1|max:10000',
+            'height' => 'sometimes|nullable|integer|min:1|max:10000',
+            'cover' => 'sometimes|nullable|image|max:2048|mimes:jpeg,jpg,png,webp',
+        ]);
+
+        $file = $request->file('file');
+        $ext = strtolower($file->getClientOriginalExtension() ?: '');
+        $allowed = $mimeMap[$type];
+        // Browsers often omit/guess odd extensions for MediaRecorder blobs.
+        if ($ext && ! in_array($ext, $allowed, true)) {
+            // Also accept mime-based match (e.g. audio/webm → webm).
+            $guess = strtolower((string) $file->guessExtension());
+            if (! in_array($guess, $allowed, true) && ! ($type === 'voice' && in_array($guess, ['webm', 'ogg', 'mp4'], true))) {
+                return response()->json(['message' => 'Unsupported file format'], 422);
+            }
+        }
+
+        try {
+            $message = $this->messenger->sendMediaMessage(
+                $request->user(),
+                $conversation,
+                $file,
+                $type,
+                (string) $request->input('caption', ''),
+                $request->input('client_id'),
+                [
+                    'reply_to_id' => $request->input('reply_to_id'),
+                    'reply_show_title' => $request->boolean('reply_show_title', true),
+                    'duration' => $request->input('duration'),
+                    'width' => $request->input('width'),
+                    'height' => $request->input('height'),
+                    'cover' => $request->file('cover'),
                 ]
             );
         } catch (\InvalidArgumentException $e) {
@@ -261,14 +365,14 @@ class MessengerController extends Controller
     public function editMessage(Request $request, Message $message): JsonResponse
     {
         $request->validate([
-            'body' => 'required|string|max:'.config('messenger.max_message_length', 5000),
+            'body' => 'nullable|string|max:'.config('messenger.max_message_length', 5000),
         ]);
 
         try {
             $message = $this->messenger->editMessage(
                 $request->user(),
                 $message,
-                $request->input('body')
+                (string) $request->input('body', '')
             );
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);

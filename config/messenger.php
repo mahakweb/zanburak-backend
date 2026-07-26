@@ -79,6 +79,30 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Chat media (photo / video / voice / audio)
+    |--------------------------------------------------------------------------
+    |
+    | Files are stored on the `static` disk (CDN). Limits are in kilobytes.
+    |
+    */
+    'media' => [
+        'disk' => env('MESSENGER_MEDIA_DISK', 'static'),
+        // Dedicated CDN folder (alongside images/messenger/avatars|covers).
+        'folder' => env('MESSENGER_MEDIA_FOLDER', 'images/messenger/chats'),
+        'max_photo_kb' => (int) env('MESSENGER_MAX_PHOTO_KB', 12288),
+        'max_video_kb' => (int) env('MESSENGER_MAX_VIDEO_KB', 51200),
+        'max_audio_kb' => (int) env('MESSENGER_MAX_AUDIO_KB', 20480),
+        'max_voice_kb' => (int) env('MESSENGER_MAX_VOICE_KB', 10240),
+        'photo_mimes' => ['jpeg', 'jpg', 'png', 'gif', 'webp', 'bmp'],
+        'video_mimes' => ['mp4', 'webm', 'mov', 'm4v', '3gp'],
+        'audio_mimes' => ['mp3', 'm4a', 'aac', 'ogg', 'wav', 'flac', 'opus'],
+        'voice_mimes' => ['webm', 'ogg', 'mp4', 'm4a', 'aac', 'opus'],
+        'thumb_max_edge' => 48,
+        'thumb_quality' => 45,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Endpoint rate limits (requests per minute, except invite per hour)
     |--------------------------------------------------------------------------
     */

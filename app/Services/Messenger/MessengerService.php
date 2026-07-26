@@ -18,9 +18,11 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Carbon;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class MessengerService
@@ -396,8 +398,10 @@ class MessengerService
         $this->assertNotBlocked($user, $conversation);
         $this->groups()->assertCanSend($user, $conversation, $body);
 
+        $msgType = $options['type'] ?? Message::TYPE_TEXT;
         $body = trim($body);
-        if ($body === '') {
+        $isMedia = in_array($msgType, Message::MEDIA_TYPES, true);
+        if ($body === '' && ! $isMedia) {
             throw new \InvalidArgumentException('Message body cannot be empty');
         }
 
@@ -455,7 +459,7 @@ class MessengerService
             'user_id' => $user->id,
             'client_id' => $clientId ?? Str::uuid()->toString(),
             'body' => $body,
-            'type' => $options['type'] ?? 'text',
+            'type' => $msgType,
             'reply_to_id' => $replyToId,
             'reply_show_title' => $options['reply_show_title'] ?? true,
             'forwarded_from_user_id' => $options['forwarded_from_user_id'] ?? null,
@@ -467,7 +471,8 @@ class MessengerService
         ];
 
         // Channel signatures: stamp the human poster on the post meta.
-        if ($conversation->isChannel() && $conversation->signatures_enabled && empty($options['type'])) {
+        $signable = array_merge(['text', 'location'], Message::MEDIA_TYPES);
+        if ($conversation->isChannel() && $conversation->signatures_enabled && in_array($msgType, $signable, true)) {
             $meta = is_array($attributes['meta']) ? $attributes['meta'] : [];
             $meta['post_author'] = [
                 'id' => $user->id,
@@ -478,7 +483,9 @@ class MessengerService
             $attributes['meta'] = $meta;
         }
 
-        if ($this->outbox->isActive() && empty($options['type'])) {
+        // Hot Redis path is for plain text only; location/media (and other typed
+        // messages) go through the durable DB write so meta is persisted.
+        if ($this->outbox->isActive() && $msgType === 'text') {
             $message = $this->sendMessageHot($user, $conversation, $attributes);
         } else {
             $message = $this->sendMessageDurable($user, $conversation, $attributes);
@@ -487,6 +494,192 @@ class MessengerService
         $this->groups()->onMessageSent($user, $conversation);
 
         return $message;
+    }
+
+    /**
+     * Upload a chat media file and create a photo/video/voice/audio message.
+     */
+    public function sendMediaMessage(
+        User $user,
+        Conversation $conversation,
+        UploadedFile $file,
+        string $type,
+        string $caption = '',
+        ?string $clientId = null,
+        array $options = []
+    ): Message {
+        if (! in_array($type, Message::MEDIA_TYPES, true)) {
+            throw new \InvalidArgumentException('Invalid media type');
+        }
+
+        $meta = $this->storeMediaFile($file, $type, $options);
+
+        return $this->sendMessage($user, $conversation, $caption, $clientId, array_merge($options, [
+            'type' => $type,
+            'meta' => array_merge($options['meta'] ?? [], $meta),
+        ]));
+    }
+
+    /**
+     * Persist an uploaded media file to the CDN disk and build message meta.
+     *
+     * @return array<string, mixed>
+     */
+    protected function storeMediaFile(UploadedFile $file, string $type, array $options = []): array
+    {
+        $cfg = config('messenger.media', []);
+        $diskName = $cfg['disk'] ?? 'static';
+        $folder = trim($cfg['folder'] ?? 'messenger/media', '/').'/'.$type.'/'.date('Y/m/d');
+
+        $path = Storage::disk($diskName)->putFile($folder, $file);
+        if (! $path) {
+            throw new \RuntimeException('Failed to store media file');
+        }
+
+        $baseUrl = rtrim(config("filesystems.disks.{$diskName}.url", ''), '/');
+        $url = $baseUrl.'/'.ltrim($path, '/');
+
+        $origName = $file->getClientOriginalName() ?: ('media.'.$file->getClientOriginalExtension());
+        $ext = strtolower($file->getClientOriginalExtension() ?: pathinfo($origName, PATHINFO_EXTENSION));
+        $mime = $file->getMimeType() ?: 'application/octet-stream';
+        $size = (int) $file->getSize();
+
+        $meta = [
+            'url' => $url,
+            'mime' => $mime,
+            'size' => $size,
+            'name' => mb_substr($origName, 0, 255),
+            'ext' => $ext,
+        ];
+
+        if (isset($options['width']) && is_numeric($options['width'])) {
+            $meta['width'] = (int) $options['width'];
+        }
+        if (isset($options['height']) && is_numeric($options['height'])) {
+            $meta['height'] = (int) $options['height'];
+        }
+        if (isset($options['duration']) && is_numeric($options['duration'])) {
+            $meta['duration'] = round((float) $options['duration'], 1);
+        }
+
+        if ($type === Message::TYPE_PHOTO) {
+            $dims = $this->readImageDimensions($file);
+            if ($dims) {
+                $meta['width'] = $meta['width'] ?? $dims[0];
+                $meta['height'] = $meta['height'] ?? $dims[1];
+            }
+            $thumbUrl = $this->storePhotoThumb($file, $folder, $diskName, $baseUrl);
+            if ($thumbUrl) {
+                $meta['thumb_url'] = $thumbUrl;
+            }
+        }
+
+        if ($type === Message::TYPE_AUDIO) {
+            $cover = $options['cover'] ?? null;
+            if ($cover instanceof UploadedFile && $cover->isValid()) {
+                $coverUrl = $this->storeAudioCover($cover, $folder, $diskName, $baseUrl);
+                if ($coverUrl) {
+                    $meta['cover_url'] = $coverUrl;
+                }
+            }
+        }
+
+        return $meta;
+    }
+
+    /**
+     * Store an optional album-art image next to the audio file.
+     */
+    protected function storeAudioCover(UploadedFile $cover, string $folder, string $diskName, string $baseUrl): ?string
+    {
+        try {
+            $path = Storage::disk($diskName)->putFile($folder.'/covers', $cover);
+            if (! $path) {
+                return null;
+            }
+
+            return $baseUrl.'/'.ltrim($path, '/');
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * @return array{0:int,1:int}|null
+     */
+    protected function readImageDimensions(UploadedFile $file): ?array
+    {
+        try {
+            $info = @getimagesize($file->getRealPath());
+            if ($info && ! empty($info[0]) && ! empty($info[1])) {
+                return [(int) $info[0], (int) $info[1]];
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        return null;
+    }
+
+    /**
+     * Tiny low-quality JPEG used as the pre-download (blurred) preview.
+     */
+    protected function storePhotoThumb(UploadedFile $file, string $folder, string $diskName, string $baseUrl): ?string
+    {
+        if (! function_exists('imagecreatetruecolor')) {
+            return null;
+        }
+
+        try {
+            $binary = @file_get_contents($file->getRealPath());
+            if ($binary === false) {
+                return null;
+            }
+            $src = @imagecreatefromstring($binary);
+            if (! $src) {
+                return null;
+            }
+
+            $sw = imagesx($src);
+            $sh = imagesy($src);
+            if ($sw < 1 || $sh < 1) {
+                imagedestroy($src);
+
+                return null;
+            }
+
+            $maxEdge = (int) (config('messenger.media.thumb_max_edge') ?: 48);
+            $scale = min(1, $maxEdge / max($sw, $sh));
+            $tw = max(1, (int) round($sw * $scale));
+            $th = max(1, (int) round($sh * $scale));
+
+            $dst = imagecreatetruecolor($tw, $th);
+            imagecopyresampled($dst, $src, 0, 0, 0, 0, $tw, $th, $sw, $sh);
+
+            ob_start();
+            $quality = (int) (config('messenger.media.thumb_quality') ?: 45);
+            imagejpeg($dst, null, max(20, min(80, $quality)));
+            $jpeg = ob_get_clean();
+
+            imagedestroy($src);
+            imagedestroy($dst);
+
+            if ($jpeg === false || $jpeg === '') {
+                return null;
+            }
+
+            $thumbPath = $folder.'/'.Str::uuid()->toString().'_thumb.jpg';
+            $ok = Storage::disk($diskName)->put($thumbPath, $jpeg);
+            if (! $ok) {
+                return null;
+            }
+
+            return $baseUrl.'/'.ltrim($thumbPath, '/');
+        } catch (\Throwable $e) {
+            Log::warning('messenger.thumb_failed', ['error' => $e->getMessage()]);
+
+            return null;
+        }
     }
 
     /**
@@ -623,7 +816,35 @@ class MessengerService
                     ];
                 }
 
-                $created[] = $this->sendMessage($user, $target, $source->body, null, $options);
+                $sourceType = $source->type ?: 'text';
+                if ($sourceType !== 'text') {
+                    $options['type'] = $sourceType;
+                }
+                if ($sourceType === 'location') {
+                    $srcMeta = is_array($source->meta) ? $source->meta : [];
+                    $locMeta = [
+                        'lat' => $srcMeta['lat'] ?? null,
+                        'lng' => $srcMeta['lng'] ?? null,
+                        'accuracy' => $srcMeta['accuracy'] ?? null,
+                    ];
+                    $options['meta'] = array_merge($options['meta'] ?? [], $locMeta);
+                } elseif (in_array($sourceType, Message::MEDIA_TYPES, true)) {
+                    $srcMeta = is_array($source->meta) ? $source->meta : [];
+                    $mediaMeta = array_filter([
+                        'url' => $srcMeta['url'] ?? null,
+                        'thumb_url' => $srcMeta['thumb_url'] ?? null,
+                        'mime' => $srcMeta['mime'] ?? null,
+                        'size' => $srcMeta['size'] ?? null,
+                        'name' => $srcMeta['name'] ?? null,
+                        'ext' => $srcMeta['ext'] ?? null,
+                        'width' => $srcMeta['width'] ?? null,
+                        'height' => $srcMeta['height'] ?? null,
+                        'duration' => $srcMeta['duration'] ?? null,
+                    ], fn ($v) => $v !== null && $v !== '');
+                    $options['meta'] = array_merge($options['meta'] ?? [], $mediaMeta);
+                }
+
+                $created[] = $this->sendMessage($user, $target, $source->body ?? '', null, $options);
             }
 
             return $created;
@@ -682,7 +903,7 @@ class MessengerService
         $this->groups()->assertCanEdit($user, $conversation, $message);
 
         $body = trim($body);
-        if ($body === '') {
+        if ($body === '' && ! $message->isMedia()) {
             throw new \InvalidArgumentException('Message body cannot be empty');
         }
 

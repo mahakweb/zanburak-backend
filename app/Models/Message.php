@@ -11,6 +11,28 @@ class Message extends Model
 {
     use HasFactory, SoftDeletes;
 
+    public const TYPE_TEXT = 'text';
+
+    public const TYPE_LOCATION = 'location';
+
+    public const TYPE_SYSTEM = 'system';
+
+    public const TYPE_PHOTO = 'photo';
+
+    public const TYPE_VIDEO = 'video';
+
+    public const TYPE_VOICE = 'voice';
+
+    public const TYPE_AUDIO = 'audio';
+
+    /** @var string[] */
+    public const MEDIA_TYPES = [
+        self::TYPE_PHOTO,
+        self::TYPE_VIDEO,
+        self::TYPE_VOICE,
+        self::TYPE_AUDIO,
+    ];
+
     protected $fillable = [
         'conversation_id',
         'user_id',
@@ -119,6 +141,11 @@ class Message extends Model
 
     public function isSystem(): bool
     {
-        return $this->type === 'system';
+        return $this->type === self::TYPE_SYSTEM;
+    }
+
+    public function isMedia(): bool
+    {
+        return in_array($this->type, self::MEDIA_TYPES, true);
     }
 }

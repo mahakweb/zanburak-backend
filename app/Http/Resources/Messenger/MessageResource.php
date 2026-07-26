@@ -63,6 +63,8 @@ class MessageResource extends JsonResource
                     'id' => $this->replyTo->id,
                     'user_id' => $this->replyTo->user_id,
                     'body' => $this->replyTo->trashed() ? null : $this->replyTo->body,
+                    'type' => $this->replyTo->trashed() ? null : $this->replyTo->type,
+                    'meta' => $this->replyTo->trashed() ? null : $this->replyTo->meta,
                     'deleted' => $this->replyTo->trashed(),
                     'user' => $this->replyTo->relationLoaded('user') && $this->replyTo->user
                         ? new UserBriefResource($this->replyTo->user)
