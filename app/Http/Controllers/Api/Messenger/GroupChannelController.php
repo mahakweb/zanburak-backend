@@ -97,6 +97,7 @@ class GroupChannelController extends Controller
             'join_approval_required' => 'sometimes|boolean',
             'reactions_enabled' => 'sometimes|boolean',
             'comments_enabled' => 'sometimes|boolean',
+            'signatures_enabled' => 'sometimes|boolean',
             'who_can_send' => 'sometimes|in:all,admins',
             'who_can_invite' => 'sometimes|in:all,admins',
             'who_can_pin' => 'sometimes|in:all,admins',
@@ -336,6 +337,39 @@ class GroupChannelController extends Controller
         }
 
         return response()->json(new ConversationResource($conversation));
+    }
+
+    public function previewJoin(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'code' => 'nullable|string|max:64',
+            'username' => 'nullable|string|max:32',
+        ]);
+
+        if (empty($data['code']) && empty($data['username'])) {
+            return response()->json(['message' => 'code or username is required'], 422);
+        }
+
+        try {
+            $preview = $this->groups->previewJoin(
+                $request->user(),
+                $data['code'] ?? null,
+                $data['username'] ?? null
+            );
+        } catch (ModelNotFoundException $e) {
+            return response()->json(['message' => 'Not found'], 404);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json([
+            'conversation' => new ConversationResource($preview['conversation']),
+            'is_member' => $preview['is_member'],
+            'invite_code' => $preview['invite_code'],
+            'can_preview' => $preview['can_preview'],
+        ]);
     }
 
     public function joinByInvite(Request $request): JsonResponse

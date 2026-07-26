@@ -57,15 +57,19 @@ class MessengerController extends Controller
     public function savedConversation(Request $request): JsonResponse
     {
         $conversation = $this->messenger->getOrCreateSavedConversation($request->user());
-        $conversation->unread_count = 0;
+        $conversation->setResponseAttribute('unread_count', 0);
 
         return response()->json(new ConversationResource($conversation));
     }
 
     public function showConversation(Request $request, Conversation $conversation): JsonResponse
     {
-        if (! $conversation->hasParticipant($request->user())) {
-            return response()->json(['message' => 'Forbidden'], 403);
+        $user = $request->user();
+        $isMember = $conversation->hasParticipant($user);
+        if (! $isMember) {
+            if (! $conversation->isCommunity() || ! $conversation->is_public) {
+                return response()->json(['message' => 'Forbidden'], 403);
+            }
         }
 
         $conversation->load([
@@ -73,20 +77,40 @@ class MessengerController extends Controller
             'users.messengerSettings',
             'owner:id,first_name,last_name,username,profile_pic',
         ]);
-        $conversation->setRelation(
-            'lastMessage',
-            $this->messenger->lastVisibleMessageFor($request->user(), $conversation)
-        );
-        $conversation->unread_count = $conversation->unreadCountFor($request->user());
+        if ($isMember) {
+            $conversation->setRelation(
+                'lastMessage',
+                $this->messenger->lastVisibleMessageFor($user, $conversation)
+            );
+        }
+        $conversation->setResponseAttribute('my_role', $isMember ? $conversation->memberRole($user) : null);
+        $conversation->setResponseAttribute('is_preview', ! $isMember);
 
         if ($conversation->isCommunity()) {
             app(\App\Services\Messenger\GroupChannelService::class)
                 ->refreshMemberCount($conversation);
-            $conversation->refresh();
-            $conversation->my_role = $conversation->memberRole($request->user());
-            $conversation->permissions = app(\App\Services\Messenger\GroupPermissionService::class)
-                ->matrixFor($conversation)[$conversation->my_role] ?? [];
+            // Do NOT $conversation->refresh() here — it wipes response-only attrs
+            // like is_preview / unread_count and makes non-member opens look joined.
+            if ($isMember) {
+                $role = $conversation->memberRole($user);
+                $conversation->setResponseAttribute('my_role', $role);
+                $conversation->setResponseAttribute(
+                    'permissions',
+                    app(\App\Services\Messenger\GroupPermissionService::class)
+                        ->matrixFor($conversation)[$role] ?? []
+                );
+            } else {
+                $conversation->setResponseAttribute('my_role', null);
+                $conversation->setResponseAttribute('permissions', []);
+                $conversation->setResponseAttribute('is_preview', true);
+            }
         }
+
+        // After any DB writes — unread_count is response-only, not a column.
+        $conversation->setResponseAttribute(
+            'unread_count',
+            $isMember ? $conversation->unreadCountFor($user) : 0
+        );
 
         return response()->json(new ConversationResource($conversation));
     }

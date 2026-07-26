@@ -22,6 +22,14 @@ class MessageResource extends JsonResource
             'view_count' => (int) ($this->view_count ?? 0),
             'mentions' => $this->mentions,
             'meta' => $this->meta,
+            'forward_from_chat' => $this->when(
+                is_array($this->meta) && ! empty($this->meta['fwd_chat']),
+                fn () => $this->meta['fwd_chat']
+            ),
+            'post_author' => $this->when(
+                is_array($this->meta) && ! empty($this->meta['post_author']),
+                fn () => $this->meta['post_author']
+            ),
             'reply_to_id' => $this->reply_to_id,
             'reply_show_title' => (bool) $this->reply_show_title,
             'read_at' => $this->read_at?->toIso8601String(),

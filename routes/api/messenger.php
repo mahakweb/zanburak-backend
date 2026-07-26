@@ -25,6 +25,7 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         Route::get('/communities/username-check', [GroupChannelController::class, 'checkUsername'])->middleware('throttle:messenger.search')->name('communities.username-check');
         Route::post('/join/username', [GroupChannelController::class, 'joinByUsername'])->name('join.username');
         Route::post('/join/invite', [GroupChannelController::class, 'joinByInvite'])->name('join.invite');
+        Route::get('/join/preview', [GroupChannelController::class, 'previewJoin'])->name('join.preview');
 
         Route::put('/conversations/{conversation}/info', [GroupChannelController::class, 'update'])->name('conversations.info');
         Route::post('/conversations/{conversation}/image', [GroupChannelController::class, 'uploadImage'])->name('conversations.image');

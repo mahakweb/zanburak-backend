@@ -45,6 +45,13 @@ class MessengerService
                         ->whereHas('users', function ($q) use ($user) {
                             $q->where('users.id', $user->id)
                                 ->whereNull('conversation_user.deleted_at');
+                        })
+                        // Hide empty private chats until the first message is sent.
+                        // Saved Messages and other non-private types stay listed.
+                        ->where(function ($empty) {
+                            $empty->where('type', '!=', Conversation::TYPE_PRIVATE)
+                                ->orWhereNotNull('last_message_id')
+                                ->orWhereNotNull('last_message_at');
                         });
                 })->orWhere(function ($community) use ($user) {
                     $community->whereIn('type', [Conversation::TYPE_GROUP, Conversation::TYPE_CHANNEL])
@@ -93,17 +100,20 @@ class MessengerService
 
         foreach ($paginator->getCollection() as $conversation) {
             $latest = $latestByConversation->get($conversation->id);
-            $conversation->unread_count = (int) ($unreadByConversation[$conversation->id] ?? 0);
+            $conversation->setResponseAttribute(
+                'unread_count',
+                (int) ($unreadByConversation[$conversation->id] ?? 0)
+            );
             $conversation->setRelation('lastMessage', $latest);
 
             // Keep the existing response fields while avoiding 30-message
             // history loads for every sidebar row. The client fetches history
             // when a conversation is opened.
             $conversation->setRelation('recentMessages', new Collection);
-            $conversation->messages_has_more = $latest !== null;
+            $conversation->setResponseAttribute('messages_has_more', $latest !== null);
 
             if ($conversation->isCommunity()) {
-                $conversation->my_role = $conversation->memberRole($user);
+                $conversation->setResponseAttribute('my_role', $conversation->memberRole($user));
             }
         }
 
@@ -314,9 +324,31 @@ class MessengerService
 
     public function getMessages(User $user, Conversation $conversation, ?int $beforeId = null): Paginator
     {
-        $this->assertParticipant($user, $conversation);
-
-        $query = $this->visibleMessagesQuery($user, $conversation);
+        $isMember = $conversation->hasParticipant($user);
+        if (! $isMember) {
+            if (! $conversation->isCommunity() || ! $conversation->is_public) {
+                throw new \RuntimeException('Forbidden');
+            }
+            $query = Message::query()
+                ->where('conversation_id', $conversation->id)
+                ->whereNull('deleted_at')
+                ->where(function ($q) {
+                    $q->whereNull('type')->orWhere('type', '!=', 'system');
+                })
+                ->with([
+                    'user:id,first_name,last_name,username,profile_pic,last_seen',
+                    'user.messengerSettings',
+                    'forwardedFromUser:id,first_name,last_name,username,profile_pic,last_seen',
+                    'forwardedFromUser.messengerSettings',
+                    'replyTo' => fn ($q) => $q->with([
+                        'user:id,first_name,last_name,username,profile_pic,last_seen',
+                    ]),
+                    'reactions',
+                ])
+                ->orderByDesc('id');
+        } else {
+            $query = $this->visibleMessagesQuery($user, $conversation);
+        }
 
         if ($beforeId) {
             $query->where('id', '<', $beforeId);
@@ -329,7 +361,7 @@ class MessengerService
 
         // Merge not-yet-flushed Redis hot messages into the latest page so a
         // refresh never hides a message that already arrived over the live path.
-        if (! $beforeId && $this->outbox->isActive()) {
+        if ($isMember && ! $beforeId && $this->outbox->isActive()) {
             $hot = collect($this->outbox->hotMessagesForConversation($conversation->id))
                 ->map(fn (array $row) => $this->hydrateMessageRow($user, $row));
             $byId = $rows->keyBy('id');
@@ -433,6 +465,18 @@ class MessengerService
             'mentions' => $mentions ?: null,
             'meta' => $options['meta'] ?? null,
         ];
+
+        // Channel signatures: stamp the human poster on the post meta.
+        if ($conversation->isChannel() && $conversation->signatures_enabled && empty($options['type'])) {
+            $meta = is_array($attributes['meta']) ? $attributes['meta'] : [];
+            $meta['post_author'] = [
+                'id' => $user->id,
+                'first_name' => $user->first_name,
+                'last_name' => $user->last_name,
+                'username' => $user->username,
+            ];
+            $attributes['meta'] = $meta;
+        }
 
         if ($this->outbox->isActive() && empty($options['type'])) {
             $message = $this->sendMessageHot($user, $conversation, $attributes);
@@ -556,6 +600,7 @@ class MessengerService
         $sources = Message::query()
             ->visibleTo($user)
             ->whereIn('id', $uniqueIds)
+            ->with('conversation')
             ->get()
             ->keyBy('id');
 
@@ -569,15 +614,56 @@ class MessengerService
                 $source = $sources->get((int) $messageId);
                 // When $dropAuthor is true we forward "without quote": the
                 // message is re-sent as if authored by the forwarder.
-                $options = $dropAuthor
-                    ? []
-                    : ['forwarded_from_user_id' => $source->forwarded_from_user_id ?: $source->user_id];
+                if ($dropAuthor) {
+                    $options = [];
+                } else {
+                    $options = [
+                        'forwarded_from_user_id' => $source->forwarded_from_user_id ?: $source->user_id,
+                        'meta' => $this->buildForwardMeta($source),
+                    ];
+                }
 
                 $created[] = $this->sendMessage($user, $target, $source->body, null, $options);
             }
 
             return $created;
         });
+    }
+
+    /**
+     * Preserve channel/group origin for Telegram-style "Forwarded from …" headers.
+     */
+    protected function buildForwardMeta(Message $source): array
+    {
+        $meta = is_array($source->meta) ? $source->meta : [];
+
+        // Keep the earliest chat origin when re-forwarding.
+        if (! empty($meta['fwd_chat']) && is_array($meta['fwd_chat'])) {
+            return [
+                'fwd_chat' => $meta['fwd_chat'],
+                'fwd_message_id' => $meta['fwd_message_id'] ?? $source->id,
+                'post_author' => $meta['post_author'] ?? null,
+            ];
+        }
+
+        $chat = $source->conversation;
+        if ($chat && $chat->isCommunity()) {
+            return [
+                'fwd_chat' => [
+                    'id' => $chat->id,
+                    'type' => $chat->type,
+                    'title' => $chat->title,
+                    'username' => $chat->username,
+                    'avatar' => $chat->avatar,
+                ],
+                'fwd_message_id' => $source->id,
+                'post_author' => $meta['post_author'] ?? null,
+            ];
+        }
+
+        return array_filter([
+            'post_author' => $meta['post_author'] ?? null,
+        ]);
     }
 
     public function editMessage(User $user, Message $message, string $body): Message

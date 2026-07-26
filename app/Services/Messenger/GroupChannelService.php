@@ -174,7 +174,11 @@ class GroupChannelService
         $needsUsername = array_key_exists('username', $data);
 
         if ($needsInfo) {
-            $this->permissions->assertCan($user, $conversation, 'manage_group_info');
+            // who_can_edit_info=all → any active member may change title/description.
+            // otherwise require manage_group_info (admins by default).
+            if (($conversation->who_can_edit_info ?? 'admins') !== 'all') {
+                $this->permissions->assertCan($user, $conversation, 'manage_group_info');
+            }
         }
         if ($needsAvatar) {
             $this->permissions->assertCan($user, $conversation, 'manage_avatar');
@@ -223,7 +227,7 @@ class GroupChannelService
 
         foreach ([
             'history_visible', 'join_approval_required', 'reactions_enabled',
-            'comments_enabled', 'who_can_send', 'who_can_invite', 'who_can_pin', 'who_can_edit_info',
+            'comments_enabled', 'signatures_enabled', 'who_can_send', 'who_can_invite', 'who_can_pin', 'who_can_edit_info',
             'is_archived',
         ] as $field) {
             if (array_key_exists($field, $data)) {
@@ -311,8 +315,8 @@ class GroupChannelService
             } elseif (is_array($schedule)) {
                 $updates['lock_schedule'] = [
                     'enabled' => (bool) ($schedule['enabled'] ?? false),
-                    'start' => $schedule['start'] ?? '22:00',
-                    'end' => $schedule['end'] ?? '08:00',
+                    'start' => $this->normalizeLockHm($schedule['start'] ?? '22:00') ?? '22:00',
+                    'end' => $this->normalizeLockHm($schedule['end'] ?? '08:00') ?? '08:00',
                     'timezone' => $schedule['timezone'] ?? 'Asia/Tehran',
                     'days' => $schedule['days'] ?? null,
                 ];
@@ -346,6 +350,7 @@ class GroupChannelService
     {
         $this->assertCommunity($conversation);
         $this->permissions->assertCan($actor, $conversation, 'invite_members');
+        $this->assertWhoCanStaffGate($actor, $conversation, $conversation->who_can_invite);
 
         $ids = collect($userIds)
             ->map(fn ($id) => (int) $id)
@@ -733,6 +738,62 @@ class GroupChannelService
         return $this->joinPublic($user, $conversation);
     }
 
+    /**
+     * Telegram-style join preview for invite codes / public usernames.
+     *
+     * @return array{conversation: Conversation, is_member: bool, invite_code: ?string, can_preview: bool}
+     */
+    public function previewJoin(User $user, ?string $code = null, ?string $username = null): array
+    {
+        $inviteCode = null;
+        $conversation = null;
+
+        if ($code) {
+            $invite = ConversationInvite::where('code', Str::lower(trim($code)))->firstOrFail();
+            if (! $invite->isValid() && ! $invite->conversation?->hasParticipant($user)) {
+                throw new \RuntimeException('Invite link is invalid or expired');
+            }
+            $conversation = $invite->conversation;
+            $inviteCode = $invite->code;
+        } elseif ($username) {
+            $username = $this->normalizeUsername($username);
+            $conversation = Conversation::where('username', $username)
+                ->whereIn('type', [Conversation::TYPE_GROUP, Conversation::TYPE_CHANNEL])
+                ->where('is_archived', false)
+                ->firstOrFail();
+        } else {
+            throw new \InvalidArgumentException('code or username is required');
+        }
+
+        $this->assertCommunity($conversation);
+
+        if ($this->isActivelyBanned($conversation, $user)) {
+            throw new \RuntimeException('You are banned from this group');
+        }
+
+        $isMember = $conversation->hasParticipant($user);
+        $canPreview = $isMember || $conversation->is_public;
+
+        if (! $isMember && ! $conversation->is_public && ! $inviteCode) {
+            throw new \RuntimeException('This group is private');
+        }
+
+        $conversation->load([
+            'owner:id,first_name,last_name,username,profile_pic',
+        ]);
+        $this->refreshMemberCount($conversation);
+        $conversation->refresh();
+        $conversation->setResponseAttribute('is_preview', ! $isMember);
+        $conversation->setResponseAttribute('my_role', $isMember ? $conversation->memberRole($user) : null);
+
+        return [
+            'conversation' => $conversation,
+            'is_member' => $isMember,
+            'invite_code' => $inviteCode,
+            'can_preview' => $canPreview,
+        ];
+    }
+
     public function requestJoin(User $user, Conversation $conversation, ?string $message = null): Conversation
     {
         $this->assertCommunity($conversation);
@@ -838,6 +899,7 @@ class GroupChannelService
     public function createInvite(User $user, Conversation $conversation, array $data): ConversationInvite
     {
         $this->permissions->assertCan($user, $conversation, 'create_invite_links');
+        $this->assertWhoCanStaffGate($user, $conversation, $conversation->who_can_invite);
 
         $invite = ConversationInvite::create([
             'conversation_id' => $conversation->id,
@@ -1020,10 +1082,10 @@ class GroupChannelService
         $this->permissions->assertCan($user, $conversation, 'ban_members');
 
         return ConversationBan::where('conversation_id', $conversation->id)
+            ->active()
             ->with([
                 'user:id,first_name,last_name,username,profile_pic',
                 'bannedBy:id,first_name,last_name,username',
-                'unbannedBy:id,first_name,last_name,username',
             ])
             ->orderByDesc('id')
             ->paginate(40);
@@ -1335,7 +1397,10 @@ class GroupChannelService
             ->where('is_banned', false)
             ->count();
 
-        $conversation->update(['member_count' => $count]);
+        // Update via query so in-memory response-only attributes (e.g. unread_count)
+        // are never accidentally written as columns.
+        Conversation::whereKey($conversation->id)->update(['member_count' => $count]);
+        $conversation->setResponseAttribute('member_count', $count);
 
         return $count;
     }
@@ -1373,6 +1438,38 @@ class GroupChannelService
         }
 
         $this->permissions->assertCan($user, $conversation, 'pin_messages');
+        $this->assertWhoCanStaffGate($user, $conversation, $conversation->who_can_pin);
+    }
+
+    /**
+     * Conversation-level "admins only" gate (in addition to role permissions).
+     * who_can_* = all → no extra gate; otherwise require moderator+.
+     */
+    protected function assertWhoCanStaffGate(User $user, Conversation $conversation, ?string $whoCan): void
+    {
+        if (($whoCan ?? 'admins') === 'all') {
+            return;
+        }
+
+        $pivot = $conversation->memberPivot($user);
+        $rank = $this->permissions->roleRank((string) ($pivot?->role ?? ''));
+        if ($rank < $this->permissions->roleRank('moderator')) {
+            throw new \RuntimeException('Forbidden');
+        }
+    }
+
+    protected function normalizeLockHm(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (! preg_match('/^(\d{1,2}):(\d{1,2})/', trim((string) $value), $m)) {
+            return null;
+        }
+        $h = max(0, min(23, (int) $m[1]));
+        $min = max(0, min(59, (int) $m[2]));
+
+        return sprintf('%02d:%02d', $h, $min);
     }
 
     public function onMessageSent(User $user, Conversation $conversation): void
@@ -1529,8 +1626,11 @@ class GroupChannelService
             'lastMessage',
             $this->messenger->lastVisibleMessageFor($user, $conversation)
         );
-        $conversation->my_role = $conversation->memberRole($user);
-        $conversation->permissions = $this->permissions->matrixFor($conversation)[$conversation->my_role] ?? [];
+        $conversation->setResponseAttribute('my_role', $conversation->memberRole($user));
+        $conversation->setResponseAttribute(
+            'permissions',
+            $this->permissions->matrixFor($conversation)[$conversation->my_role] ?? []
+        );
 
         return $conversation;
     }
@@ -1555,6 +1655,7 @@ class GroupChannelService
             'history_visible' => (bool) $conversation->history_visible,
             'join_approval_required' => (bool) $conversation->join_approval_required,
             'reactions_enabled' => (bool) $conversation->reactions_enabled,
+            'signatures_enabled' => (bool) $conversation->signatures_enabled,
             'who_can_send' => $conversation->who_can_send,
             'who_can_invite' => $conversation->who_can_invite,
             'who_can_pin' => $conversation->who_can_pin,

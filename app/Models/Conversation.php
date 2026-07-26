@@ -38,6 +38,7 @@ class Conversation extends Model
         'join_approval_required',
         'reactions_enabled',
         'comments_enabled',
+        'signatures_enabled',
         'who_can_send',
         'who_can_invite',
         'who_can_pin',
@@ -58,6 +59,7 @@ class Conversation extends Model
         'join_approval_required' => 'boolean',
         'reactions_enabled' => 'boolean',
         'comments_enabled' => 'boolean',
+        'signatures_enabled' => 'boolean',
         'messages_locked' => 'boolean',
         'messages_locked_until' => 'datetime',
         'lock_schedule' => 'array',
@@ -163,8 +165,8 @@ class Conversation extends Model
             $local = $now->copy();
         }
 
-        $start = $schedule['start'] ?? null;
-        $end = $schedule['end'] ?? null;
+        $start = $this->normalizeScheduleTime($schedule['start'] ?? null);
+        $end = $this->normalizeScheduleTime($schedule['end'] ?? null);
         if (! $start || ! $end) {
             return false;
         }
@@ -179,7 +181,23 @@ class Conversation extends Model
             return $current >= $start && $current < $end;
         }
 
+        // Overnight window (e.g. 22:00 → 08:00)
         return $current >= $start || $current < $end;
+    }
+
+    /** Normalize "9:5" / "09:05:00" → "09:05" for safe string compare. */
+    protected function normalizeScheduleTime(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (! preg_match('/^(\d{1,2}):(\d{1,2})/', trim((string) $value), $m)) {
+            return null;
+        }
+        $h = max(0, min(23, (int) $m[1]));
+        $min = max(0, min(59, (int) $m[2]));
+
+        return sprintf('%02d:%02d', $h, $min);
     }
 
     public function hasParticipant(?User $user): bool
@@ -247,6 +265,18 @@ class Conversation extends Model
             ->where('user_id', '!=', $user->id)
             ->whereNull('read_at')
             ->count();
+    }
+
+    /**
+     * Attach a response-only value that must never be written to the DB.
+     * (Eloquent would otherwise treat it as a dirty column on the next save/update.)
+     */
+    public function setResponseAttribute(string $key, mixed $value): static
+    {
+        $this->setAttribute($key, $value);
+        $this->syncOriginalAttribute($key);
+
+        return $this;
     }
 
     public function displayTitle(?User $viewer = null): ?string
