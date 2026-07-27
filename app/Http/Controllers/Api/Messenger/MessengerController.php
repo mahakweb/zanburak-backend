@@ -349,8 +349,18 @@ class MessengerController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         } catch (ModelNotFoundException $e) {
             return response()->json(['message' => 'Message not found'], 404);
-        } catch (\RuntimeException $e) {
-            return response()->json(['message' => $e->getMessage()], 403);
+        } catch (\Throwable $e) {
+            report($e);
+
+            $raw = $e->getMessage();
+            $isQuota = stripos($raw, 'quota') !== false
+                || stripos($raw, 'Disk quota exceeded') !== false;
+
+            return response()->json([
+                'message' => $isQuota
+                    ? 'فضای ذخیره‌سازی فایل‌ها پر است. لطفاً بعداً دوباره تلاش کنید.'
+                    : 'خطا در آپلود فایل. اتصال یا فضای سرور استاتیک را بررسی کنید.',
+            ], 500);
         }
 
         return response()->json(new MessageResource($message), 201);

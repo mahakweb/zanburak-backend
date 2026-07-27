@@ -623,7 +623,23 @@ class MessengerService
         $diskName = $cfg['disk'] ?? 'static';
         $folder = trim($cfg['folder'] ?? 'messenger/media', '/').'/'.$type.'/'.date('Y/m/d');
 
-        $path = Storage::disk($diskName)->putFile($folder, $file);
+        try {
+            $path = Storage::disk($diskName)->putFile($folder, $file);
+        } catch (\Throwable $e) {
+            Log::error('messenger.media_store_failed', [
+                'disk' => $diskName,
+                'folder' => $folder,
+                'type' => $type,
+                'error' => $e->getMessage(),
+            ]);
+            throw new \RuntimeException(
+                stripos($e->getMessage(), 'quota') !== false
+                    ? 'Disk quota exceeded on media storage'
+                    : 'Failed to store media file: '.$e->getMessage(),
+                0,
+                $e
+            );
+        }
         if (! $path) {
             throw new \RuntimeException('Failed to store media file');
         }
