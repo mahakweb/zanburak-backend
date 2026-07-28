@@ -67,6 +67,16 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::prefix('system')->as('system.')->group(function () {
         Route::get('/resources', [\App\Http\Controllers\Api\Admin\System\SystemResourceController::class, 'index'])->name('resources.index');
         Route::get('/resources/history', [\App\Http\Controllers\Api\Admin\System\SystemResourceController::class, 'history'])->name('resources.history');
+
+        Route::prefix('logs')->as('logs.')->group(function () {
+            Route::get('/files', [\App\Http\Controllers\Api\Admin\System\LogViewerController::class, 'files'])->name('files');
+            Route::get('/stats', [\App\Http\Controllers\Api\Admin\System\LogViewerController::class, 'stats'])->name('stats');
+            Route::post('/', [\App\Http\Controllers\Api\Admin\System\LogViewerController::class, 'index'])->name('index');
+            Route::get('/download', [\App\Http\Controllers\Api\Admin\System\LogViewerController::class, 'download'])->name('download');
+            Route::post('/clear', [\App\Http\Controllers\Api\Admin\System\LogViewerController::class, 'clear'])->name('clear');
+            Route::get('/{id}', [\App\Http\Controllers\Api\Admin\System\LogViewerController::class, 'show'])->name('show')->whereNumber('id');
+            Route::delete('/', [\App\Http\Controllers\Api\Admin\System\LogViewerController::class, 'destroy'])->name('delete');
+        });
     });
 
     // Plans

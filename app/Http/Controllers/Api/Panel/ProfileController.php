@@ -364,6 +364,17 @@ class ProfileController extends Controller
         );
     }
 
+    public function deleteProfilePic(Request $request)
+    {
+        return $this->deletePanelImage(
+            $request,
+            'profile_pic',
+            'https://static.zanburak.ir/images/avatar/default.png',
+            'Success: Profile picture has been removed.',
+            'profilePic'
+        );
+    }
+
     public function changeCoverPic(Request $request)
     {
         return $this->uploadPanelImage(
@@ -375,6 +386,31 @@ class ProfileController extends Controller
             'Success: Cover picture has been updated.',
             'coverPic'
         );
+    }
+
+    private function deletePanelImage(
+        Request $request,
+        string $userColumn,
+        string $defaultPic,
+        string $successMessage,
+        string $responseKey
+    ) {
+        $user = auth('api')->user();
+        $prevPic = $user->{$userColumn};
+
+        if ($prevPic && $prevPic !== $defaultPic) {
+            $relativePath = $this->staticRelativePathFromUrl($prevPic);
+            if ($relativePath && Storage::disk('static')->exists($relativePath)) {
+                Storage::disk('static')->delete($relativePath);
+            }
+        }
+
+        $user->update([$userColumn => $defaultPic]);
+
+        return response()->json([
+            'message' => $successMessage,
+            $responseKey => $defaultPic,
+        ], 200);
     }
 
     private function uploadPanelImage(

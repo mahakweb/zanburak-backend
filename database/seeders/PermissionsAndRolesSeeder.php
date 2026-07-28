@@ -499,6 +499,10 @@ class PermissionsAndRolesSeeder extends Seeder
 
             // System resources
             ['name' => 'system.resources.view', 'label' => 'مشاهده منابع سیستم', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'system.logs.view', 'label' => 'مشاهده لاگ‌های Laravel', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'system.logs.download', 'label' => 'دانلود فایل لاگ', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'system.logs.clear', 'label' => 'پاک‌سازی فایل لاگ', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'system.logs.delete', 'label' => 'حذف فایل لاگ روزانه', 'created_at' => $now, 'updated_at' => $now],
 
             // Marketing / SEO
             ['name' => 'marketing.manage', 'label' => 'مدیریت مارکتینگ/بنرها', 'created_at' => $now, 'updated_at' => $now],
@@ -568,6 +572,7 @@ class PermissionsAndRolesSeeder extends Seeder
                 'security.access.view',
                 'security.routes.view',
                 'system.resources.view',
+                'system.logs.view',
             ],
 
             'security_admin' => [
@@ -589,6 +594,10 @@ class PermissionsAndRolesSeeder extends Seeder
                 'security.routes.view',
                 'security.routes.manage',
                 'system.resources.view',
+                'system.logs.view',
+                'system.logs.download',
+                'system.logs.clear',
+                'system.logs.delete',
             ],
 
             'user_admin' => [

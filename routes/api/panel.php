@@ -51,6 +51,7 @@ Route::middleware('auth:sanctum')->prefix('panel')->as('api.panel.')->group(func
         Route::post('/userData', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'getUserData'])->name('user-data');
         Route::post('/update', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'updateProfile'])->name('update');
         Route::post('/change-profile-pic', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'changeProfilePic'])->name('change-profile-pic');
+        Route::delete('/change-profile-pic', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'deleteProfilePic'])->name('delete-profile-pic');
         Route::post('/change-cover-pic', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'changeCoverPic'])->name('change-cover-pic');
         Route::post('/invite-info', [\App\Http\Controllers\Api\Panel\ProfileController::class, 'getInviteInfo'])->name('invite-info');
     });

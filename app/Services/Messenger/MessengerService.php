@@ -324,6 +324,40 @@ class MessengerService
     // Messages
     // -------------------------------------------------------------------------
 
+    /**
+     * Search message bodies across every conversation the user can see.
+     */
+    public function searchAllMessages(User $user, array $filters): LengthAwarePaginator
+    {
+        $q = Message::query()
+            ->visibleTo($user)
+            ->where('type', '!=', 'system');
+
+        if (! empty($filters['q'])) {
+            $term = trim((string) $filters['q']);
+            if ($term !== '') {
+                $q->where('body', 'like', "%{$term}%");
+            }
+        }
+
+        if (! empty($filters['from'])) {
+            $q->where('created_at', '>=', Carbon::parse($filters['from'])->startOfDay());
+        }
+
+        if (! empty($filters['to'])) {
+            $q->where('created_at', '<=', Carbon::parse($filters['to'])->endOfDay());
+        }
+
+        return $q->with([
+            'user:id,first_name,last_name,username,profile_pic',
+            'conversation' => function ($c) {
+                $c->with(['users:id,first_name,last_name,username,profile_pic']);
+            },
+        ])
+            ->orderByDesc('id')
+            ->paginate(40);
+    }
+
     public function getMessages(User $user, Conversation $conversation, ?int $beforeId = null): Paginator
     {
         $isMember = $conversation->hasParticipant($user);
@@ -395,7 +429,7 @@ class MessengerService
     /**
      * Shared media for a conversation (Telegram-style profile tabs).
      *
-     * Filters: photo | video | gif | audio | voice | links
+     * Filters: photo | video | gif | audio | voice | links | media (photo+video+gif)
      *
      * @return array{messages: \Illuminate\Support\Collection, has_more: bool}
      */
@@ -461,6 +495,12 @@ class MessengerService
                         $w->whereRaw("COALESCE((meta->>'animation')::boolean, false) = true")
                             ->orWhereRaw("COALESCE((meta->>'silent')::boolean, false) = true");
                     });
+                break;
+            case 'media':
+                $query->where(function ($w) {
+                    $w->where('type', Message::TYPE_PHOTO)
+                        ->orWhere('type', Message::TYPE_VIDEO);
+                });
                 break;
             case 'audio':
                 $query->where('type', Message::TYPE_AUDIO);

@@ -13,6 +13,7 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         Route::get('/conversations', [MessengerController::class, 'conversations'])->name('conversations.index');
         Route::post('/conversations', [MessengerController::class, 'createConversation'])->name('conversations.create');
         Route::post('/saved', [MessengerController::class, 'savedConversation'])->name('saved');
+        Route::get('/messages/search', [MessengerController::class, 'searchMessages'])->middleware('throttle:messenger.search')->name('messages.search');
         Route::get('/conversations/{conversation}', [MessengerController::class, 'showConversation'])->name('conversations.show');
         Route::delete('/conversations/{conversation}', [MessengerController::class, 'deleteConversation'])->middleware('throttle:messenger.destructive')->name('conversations.delete');
         Route::post('/conversations/{conversation}/clear', [MessengerController::class, 'clearConversation'])->middleware('throttle:messenger.destructive')->name('conversations.clear');

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Messenger;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Messenger\ConversationResource;
 use App\Http\Resources\Messenger\MessageResource;
+use App\Http\Resources\Messenger\UserBriefResource;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Services\Messenger\MessengerService;
@@ -30,6 +31,61 @@ class MessengerController extends Controller
                 'current_page' => $paginator->currentPage(),
                 'last_page' => $paginator->lastPage(),
                 'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'has_more' => $paginator->hasMorePages(),
+            ],
+        ]);
+    }
+
+    public function searchMessages(Request $request): JsonResponse
+    {
+        $filters = $request->validate([
+            'q' => 'nullable|string|max:200',
+            'from' => 'nullable|date',
+            'to' => 'nullable|date',
+        ]);
+
+        if (empty($filters['q']) && empty($filters['from']) && empty($filters['to'])) {
+            return response()->json([
+                'data' => [],
+                'meta' => [
+                    'current_page' => 1,
+                    'total' => 0,
+                    'has_more' => false,
+                ],
+            ]);
+        }
+
+        $paginator = $this->messenger->searchAllMessages($request->user(), $filters);
+        $me = $request->user();
+
+        $data = collect($paginator->items())->map(function (Message $message) use ($me) {
+            $row = (new MessageResource($message))->toArray(request());
+            $conversation = $message->conversation;
+            if ($conversation) {
+                $isCommunity = $conversation->isCommunity();
+                $row['conversation'] = [
+                    'id' => $conversation->id,
+                    'type' => $conversation->type,
+                    'title' => $isCommunity ? $conversation->title : null,
+                    'avatar' => $isCommunity ? $conversation->avatar : null,
+                    'username' => $isCommunity ? $conversation->username : null,
+                    'partner' => (! $isCommunity && $conversation->type !== Conversation::TYPE_SAVED)
+                        ? (($other = $conversation->otherUser($me)) ? new UserBriefResource($other) : null)
+                        : null,
+                    'users' => UserBriefResource::collection(
+                        $conversation->relationLoaded('users') ? $conversation->users : []
+                    ),
+                ];
+            }
+
+            return $row;
+        });
+
+        return response()->json([
+            'data' => $data,
+            'meta' => [
+                'current_page' => $paginator->currentPage(),
                 'total' => $paginator->total(),
                 'has_more' => $paginator->hasMorePages(),
             ],
@@ -181,7 +237,7 @@ class MessengerController extends Controller
     public function sharedMedia(Request $request, Conversation $conversation): JsonResponse
     {
         $data = $request->validate([
-            'type' => 'required|string|in:photo,video,gif,audio,voice,links',
+            'type' => 'required|string|in:photo,video,gif,audio,voice,links,media',
             'before_id' => 'nullable|integer|min:1',
             'limit' => 'nullable|integer|min:1|max:100',
         ]);

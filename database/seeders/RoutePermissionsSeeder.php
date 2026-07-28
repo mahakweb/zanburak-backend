@@ -172,6 +172,17 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.system.resources.history',
         ], ['system.resources.view']);
 
+        // Laravel logs
+        $assign([
+            'api.admin.system.logs.files',
+            'api.admin.system.logs.stats',
+            'api.admin.system.logs.index',
+            'api.admin.system.logs.show',
+        ], ['system.logs.view']);
+        $assign('api.admin.system.logs.download', ['system.logs.download', 'system.logs.view']);
+        $assign('api.admin.system.logs.clear', ['system.logs.clear']);
+        $assign('api.admin.system.logs.delete', ['system.logs.delete']);
+
         // Payments
         $assign('api.admin.payments.index', $paymentsView);
         $assign('api.admin.payments.stats', array_merge($paymentsView, $paymentsStats));
