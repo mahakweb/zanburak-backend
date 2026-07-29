@@ -59,6 +59,7 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         Route::get('/conversations/{conversation}/audit-logs', [GroupChannelController::class, 'auditLogs'])->name('conversations.audit-logs');
 
         Route::post('/messages/{message}/react', [GroupChannelController::class, 'react'])->name('messages.react');
+        Route::post('/messages/views', [GroupChannelController::class, 'viewBatch'])->name('messages.views');
         Route::post('/messages/{message}/view', [GroupChannelController::class, 'view'])->name('messages.view');
 
         // Messages

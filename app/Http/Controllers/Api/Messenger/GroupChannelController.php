@@ -733,4 +733,16 @@ class GroupChannelController extends Controller
 
         return response()->json(['view_count' => $count]);
     }
+
+    public function viewBatch(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'message_ids' => 'required|array|min:1|max:100',
+            'message_ids.*' => 'integer',
+        ]);
+
+        $views = $this->groups->recordViews($request->user(), $data['message_ids']);
+
+        return response()->json(['views' => $views]);
+    }
 }

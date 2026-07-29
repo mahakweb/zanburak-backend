@@ -100,19 +100,43 @@ class MessengerService
             ->groupBy('conversation_id')
             ->pluck('aggregate', 'conversation_id');
 
+        $recentLimit = (int) config('messenger.recent_messages_in_list', 50);
+
         foreach ($paginator->getCollection() as $conversation) {
             $latest = $latestByConversation->get($conversation->id);
+            $recent = $this->recentMessagesFor($user, $conversation, $recentLimit);
+
+            // Merge not-yet-flushed hot messages so list + history stay in sync
+            // when the live websocket was missed.
+            if ($this->outbox->isActive()) {
+                $hot = collect($this->outbox->hotMessagesForConversation($conversation->id))
+                    ->map(fn (array $row) => $this->hydrateMessageRow($user, $row));
+                if ($hot->isNotEmpty()) {
+                    $byId = $recent['messages']->keyBy('id');
+                    foreach ($hot as $msg) {
+                        if (! $byId->has($msg->id)) {
+                            $recent['messages']->push($msg);
+                        }
+                    }
+                    $recent['messages'] = $recent['messages']->sortBy('id')->values();
+                    if ($recent['messages']->count() > $recentLimit) {
+                        $recent['has_more'] = true;
+                        $recent['messages'] = $recent['messages']->slice(-$recentLimit)->values();
+                    }
+                    $hotLatest = $recent['messages']->last();
+                    if ($hotLatest && (! $latest || (int) $hotLatest->id > (int) $latest->id)) {
+                        $latest = $hotLatest;
+                    }
+                }
+            }
+
             $conversation->setResponseAttribute(
                 'unread_count',
                 (int) ($unreadByConversation[$conversation->id] ?? 0)
             );
             $conversation->setRelation('lastMessage', $latest);
-
-            // Keep the existing response fields while avoiding 30-message
-            // history loads for every sidebar row. The client fetches history
-            // when a conversation is opened.
-            $conversation->setRelation('recentMessages', new Collection);
-            $conversation->setResponseAttribute('messages_has_more', $latest !== null);
+            $conversation->setRelation('recentMessages', $recent['messages']);
+            $conversation->setResponseAttribute('messages_has_more', $recent['has_more']);
 
             if ($conversation->isCommunity()) {
                 $conversation->setResponseAttribute('my_role', $conversation->memberRole($user));
@@ -1938,17 +1962,17 @@ class MessengerService
 
     protected function maybeFlushOutboxAfterResponse(): void
     {
-        if (! $this->outbox->shouldFlushNow()) {
+        if (! $this->outbox->isActive()) {
             return;
         }
 
-        dispatch(function () {
-            try {
-                app(MessengerOutbox::class)->flush((int) config('messenger.flush_batch_size', 20) * 2);
-            } catch (\Throwable $e) {
-                Log::warning('Messenger opportunistic flush failed: '.$e->getMessage());
-            }
-        })->afterResponse();
+        try {
+            // Flush promptly so /sync, sidebar, and message fetches see new rows
+            // even when the live websocket delivery was missed.
+            $this->outbox->flush(max(5, (int) config('messenger.flush_batch_size', 20)));
+        } catch (\Throwable $e) {
+            Log::warning('Messenger outbox flush failed: '.$e->getMessage());
+        }
     }
 
     /**

@@ -1299,6 +1299,61 @@ class GroupChannelService
         return (int) $message->fresh()->view_count;
     }
 
+    /**
+     * Record views for many channel messages in one round-trip.
+     * Returns a map of message_id => view_count for visible messages.
+     *
+     * @param  list<int|string>  $messageIds
+     * @return array<int, int>
+     */
+    public function recordViews(User $user, array $messageIds): array
+    {
+        $ids = array_values(array_unique(array_filter(
+            array_map('intval', $messageIds),
+            fn (int $id) => $id > 0
+        )));
+
+        if ($ids === []) {
+            return [];
+        }
+
+        $messages = Message::query()
+            ->visibleTo($user)
+            ->whereIn('messages.id', $ids)
+            ->with('conversation:id,type')
+            ->get(['messages.id', 'messages.conversation_id', 'messages.view_count', 'messages.type']);
+
+        if ($messages->isEmpty()) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach ($messages as $message) {
+            $mid = (int) $message->id;
+
+            if (! $message->conversation?->isChannel() || $message->type === 'system') {
+                $result[$mid] = (int) $message->view_count;
+
+                continue;
+            }
+
+            $created = MessageView::firstOrCreate(
+                ['message_id' => $mid, 'user_id' => $user->id],
+                ['viewed_at' => now()]
+            );
+
+            if ($created->wasRecentlyCreated) {
+                $message->increment('view_count');
+                $result[$mid] = (int) $message->fresh()->view_count;
+            } else {
+                $result[$mid] = (int) $message->view_count;
+            }
+        }
+
+        return $result;
+    }
+
     // -------------------------------------------------------------------------
     // Audit logs
     // -------------------------------------------------------------------------
