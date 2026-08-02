@@ -365,6 +365,10 @@
 
 | پرمیشن | برچسب | own | any |
 |--------|-------|-----|-----|
+| `system.logs.clear` | پاک‌سازی فایل لاگ | — | — |
+| `system.logs.delete` | حذف فایل لاگ روزانه | — | — |
+| `system.logs.download` | دانلود فایل لاگ | — | — |
+| `system.logs.view` | مشاهده لاگ‌های Laravel | — | — |
 | `system.resources.view` | مشاهده منابع سیستم | — | — |
 
 ## uploads

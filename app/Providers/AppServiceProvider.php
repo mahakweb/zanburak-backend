@@ -105,7 +105,19 @@ class AppServiceProvider extends ServiceProvider
 
     private function configureMeilisearchSynonyms(): void
     {
-        $synonyms = app(SearchSynonymRegistry::class)->all();
+        // Skip during console bootstrap when tables may not exist yet (e.g. migrate)
+        if (! Schema::hasTable('courses')) {
+            return;
+        }
+
+        try {
+            $synonyms = app(SearchSynonymRegistry::class)->all();
+        } catch (\Throwable $e) {
+            report($e);
+
+            return;
+        }
+
         $indexSettings = config('scout.meilisearch.index-settings', []);
 
         foreach (array_keys($indexSettings) as $index) {
