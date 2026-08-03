@@ -18,7 +18,8 @@ class GroupChannelController extends Controller
 {
     public function __construct(
         protected GroupChannelService $groups,
-        protected GroupPermissionService $permissions
+        protected GroupPermissionService $permissions,
+        protected \App\Services\Messenger\MessengerSystemConfig $systemConfig
     ) {}
 
     // -------------------------------------------------------------------------
@@ -27,6 +28,11 @@ class GroupChannelController extends Controller
 
     public function createGroup(Request $request): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_groups')) {
+            return response()->json(['message' => 'ساخت گروه غیرفعال است.'], 403);
+        }
+
+        $maxMembers = max(2, $this->systemConfig->int('max_group_members'));
         $data = $request->validate([
             'title' => 'required|string|max:'.config('messenger_groups.max_title_length', 128),
             'description' => 'nullable|string|max:'.config('messenger_groups.max_description_length', 2000),
@@ -34,7 +40,7 @@ class GroupChannelController extends Controller
             'is_public' => 'sometimes|boolean',
             'history_visible' => 'sometimes|boolean',
             'join_approval_required' => 'sometimes|boolean',
-            'member_ids' => 'sometimes|array|max:'.config('messenger_groups.max_members_per_create', 200),
+            'member_ids' => 'sometimes|array|max:'.$maxMembers,
             'member_ids.*' => 'integer|exists:users,id',
             'avatar' => 'nullable|string|max:512',
             'cover' => 'nullable|string|max:512',
@@ -57,13 +63,22 @@ class GroupChannelController extends Controller
 
     public function createChannel(Request $request): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_channels')) {
+            return response()->json(['message' => 'ساخت کانال غیرفعال است.'], 403);
+        }
+
+        $maxSubs = $this->systemConfig->int('max_channel_subscribers');
+        $maxMembers = $maxSubs > 0
+            ? $maxSubs
+            : max(2, $this->systemConfig->int('max_group_members'));
+
         $data = $request->validate([
             'title' => 'required|string|max:'.config('messenger_groups.max_title_length', 128),
             'description' => 'nullable|string|max:'.config('messenger_groups.max_description_length', 2000),
             'username' => 'nullable|string|max:32',
             'is_public' => 'sometimes|boolean',
             'join_approval_required' => 'sometimes|boolean',
-            'member_ids' => 'sometimes|array|max:'.config('messenger_groups.max_members_per_create', 200),
+            'member_ids' => 'sometimes|array|max:'.$maxMembers,
             'member_ids.*' => 'integer|exists:users,id',
             'avatar' => 'nullable|string|max:512',
             'cover' => 'nullable|string|max:512',
@@ -710,6 +725,10 @@ class GroupChannelController extends Controller
 
     public function react(Request $request, Message $message): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_reactions')) {
+            return response()->json(['message' => 'واکنش به پیام غیرفعال است.'], 403);
+        }
+
         $request->validate(['emoji' => 'required|string|max:32']);
 
         try {

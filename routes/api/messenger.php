@@ -7,7 +7,9 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('messenger')->as('api.messenger.')->group(function () {
 
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware(['auth:sanctum', 'messenger.access'])->group(function () {
+
+        Route::get('/config', [MessengerController::class, 'systemConfig'])->name('config');
 
         // Conversations
         Route::get('/conversations', [MessengerController::class, 'conversations'])->name('conversations.index');
@@ -100,6 +102,11 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         // Settings & profiles
         Route::get('/settings', [MessengerController::class, 'getSettings'])->name('settings.show');
         Route::put('/settings', [MessengerController::class, 'updateSettings'])->name('settings.update');
+        Route::get('/wallpapers', [MessengerController::class, 'listWallpapers'])->name('wallpapers.index');
+        Route::post('/wallpapers', [MessengerController::class, 'uploadWallpaper'])->middleware('throttle:messenger.send')->name('wallpapers.upload');
+        Route::delete('/wallpapers/{wallpaper}', [MessengerController::class, 'deleteWallpaper'])->middleware('throttle:messenger.destructive')->name('wallpapers.delete');
+        Route::get('/conversations/{conversation}/wallpaper', [MessengerController::class, 'getConversationWallpaper'])->name('conversations.wallpaper.show');
+        Route::put('/conversations/{conversation}/wallpaper', [MessengerController::class, 'setConversationWallpaper'])->name('conversations.wallpaper.set');
         Route::get('/me', [MessengerController::class, 'myProfile'])->name('me.show');
         Route::put('/me', [MessengerController::class, 'updateMyProfile'])->name('me.update');
         Route::get('/me/username-check', [MessengerController::class, 'checkUsername'])->middleware('throttle:messenger.search')->name('me.username-check');

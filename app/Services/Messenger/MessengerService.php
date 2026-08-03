@@ -4,12 +4,15 @@ namespace App\Services\Messenger;
 
 use App\Events\Messenger\MessengerBroadcast;
 use App\Http\Resources\Messenger\MessageResource;
+use App\Jobs\DeleteMessengerMedia;
 use App\Models\Contact;
 use App\Models\ContactInvite;
 use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessagePin;
+use App\Models\MessengerConversationWallpaper;
 use App\Models\MessengerEvent;
+use App\Models\MessengerWallpaper;
 use App\Models\User;
 use App\Notifications\Channels\GhasedakChannel;
 use App\Notifications\Messenger\InviteToZanburak;
@@ -157,6 +160,7 @@ class MessengerService
             ->visibleTo($user)
             ->where('conversation_id', $conversation->id)
             ->with($this->messageRelations($user))
+            ->orderByDesc('created_at')
             ->orderByDesc('id');
     }
 
@@ -183,7 +187,12 @@ class MessengerService
 
         $hasMore = $rows->count() > $limit;
 
-        $messages = $rows->take($limit)->sortBy('id')->values();
+        $messages = $rows->take($limit)
+            ->sortBy([
+                ['created_at', 'asc'],
+                ['id', 'asc'],
+            ])
+            ->values();
 
         return ['messages' => $messages, 'has_more' => $hasMore];
     }
@@ -405,18 +414,34 @@ class MessengerService
                     ]),
                     'reactions',
                 ])
+                ->orderByDesc('created_at')
                 ->orderByDesc('id');
         } else {
             $query = $this->visibleMessagesQuery($user, $conversation);
         }
 
         if ($beforeId) {
-            $query->where('id', '<', $beforeId);
+            // Cursor pagination by id still works: older pages are lower ids when
+            // the shared Redis/Postgres sequence is used. Also bound by time so
+            // any legacy mis-ordered rows stay reachable.
+            $pivot = Message::query()->whereKey($beforeId)->first(['id', 'created_at']);
+            if ($pivot) {
+                $query->where(function ($q) use ($pivot) {
+                    $q->where('created_at', '<', $pivot->created_at)
+                        ->orWhere(function ($q2) use ($pivot) {
+                            $q2->where('created_at', '=', $pivot->created_at)
+                                ->where('id', '<', $pivot->id);
+                        });
+                });
+            } else {
+                $query->where('id', '<', $beforeId);
+            }
         }
 
         // A cursor-like "before_id" request does not need an expensive total
         // count. Fetch one extra row to derive has_more.
-        $perPage = (int) config('messenger.messages_per_page', 40);
+        $perPage = app(MessengerSystemConfig::class)->int('messages_per_page')
+            ?: (int) config('messenger.messages_per_page', 40);
         $rows = $query->limit($perPage + 1)->get();
 
         // Merge not-yet-flushed Redis hot messages into the latest page so a
@@ -442,9 +467,14 @@ class MessengerService
             ]
         );
 
-        // Return chronological order (oldest first) for chat UI
+        // Chronological for chat UI: created_at (precise), then id tiebreaker.
         $paginator->setCollection(
-            $paginator->getCollection()->sortBy('id')->values()
+            $paginator->getCollection()
+                ->sortBy([
+                    ['created_at', 'asc'],
+                    ['id', 'asc'],
+                ])
+                ->values()
         );
 
         return $paginator;
@@ -532,6 +562,9 @@ class MessengerService
             case 'voice':
                 $query->where('type', Message::TYPE_VOICE);
                 break;
+            case 'file':
+                $query->where('type', Message::TYPE_FILE);
+                break;
             case 'links':
                 $query->where(function ($w) {
                     $w->where('body', 'like', '%http://%')
@@ -561,7 +594,8 @@ class MessengerService
             throw new \InvalidArgumentException('Message body cannot be empty');
         }
 
-        $maxLen = config('messenger.max_message_length', 5000);
+        $maxLen = app(\App\Services\Messenger\MessengerSystemConfig::class)->int('max_message_length')
+            ?: (int) config('messenger.max_message_length', 5000);
         if (mb_strlen($body) > $maxLen) {
             throw new \InvalidArgumentException("Message exceeds maximum length of {$maxLen} characters");
         }
@@ -653,7 +687,7 @@ class MessengerService
     }
 
     /**
-     * Upload a chat media file and create a photo/video/voice/audio message.
+     * Upload a chat media file and create a photo/video/voice/audio/file message.
      */
     public function sendMediaMessage(
         User $user,
@@ -899,14 +933,17 @@ class MessengerService
     {
         $now = now();
         $id = $this->outbox->allocateMessageId();
+        // Microsecond-precision string keeps rapid sends strictly ordered even
+        // when several land in the same whole second.
+        $stamp = $now->format('Y-m-d H:i:s.u');
         $row = array_merge($attributes, [
             'id' => $id,
             'read_at' => null,
             'delivered_at' => null,
             'edited_at' => null,
             'deleted_at' => null,
-            'created_at' => $now->toDateTimeString(),
-            'updated_at' => $now->toDateTimeString(),
+            'created_at' => $stamp,
+            'updated_at' => $stamp,
         ]);
 
         $message = $this->hydrateMessageRow($user, $row);
@@ -934,16 +971,31 @@ class MessengerService
     }
 
     /**
-     * Classic DB-first send (fallback when Redis is off / unreachable).
+     * Durable DB-first send (media / location / Redis-off fallback).
+     * When the hot-path Redis sequence is active, allocate the same id space as
+     * text so photo→text never collides or reorders after refresh.
      */
     protected function sendMessageDurable(User $user, Conversation $conversation, array $attributes): Message
     {
-        $message = DB::transaction(function () use ($attributes, $conversation) {
+        $now = now();
+        $stamp = $now->format('Y-m-d H:i:s.u');
+        $allocatedId = null;
+
+        if ($this->outbox->isActive()) {
+            $allocatedId = $this->outbox->allocateMessageId();
+            $attributes['id'] = $allocatedId;
+        }
+
+        // Always stamp created_at so rapid media+text share a precise clock order.
+        $attributes['created_at'] = $attributes['created_at'] ?? $stamp;
+        $attributes['updated_at'] = $attributes['updated_at'] ?? $stamp;
+
+        $message = DB::transaction(function () use ($attributes, $conversation, $now) {
             $message = Message::create($attributes);
 
             $conversation->update([
                 'last_message_id' => $message->id,
-                'last_message_at' => now(),
+                'last_message_at' => $now,
             ]);
 
             // Restore conversation for all participants who had deleted it
@@ -954,6 +1006,30 @@ class MessengerService
 
             return $message;
         });
+
+        // Keep Redis seq ahead of any autoincrement path (Redis off mid-flight, etc.).
+        $this->outbox->ensureSequenceAtLeast((int) $message->id);
+
+        // Explicit Redis ids leave the Postgres serial behind — bump it so a
+        // later Redis-off durable create cannot collide.
+        if ($allocatedId) {
+            try {
+                DB::statement(
+                    "SELECT setval(pg_get_serial_sequence('messages', 'id'), (SELECT COALESCE(MAX(id), 1) FROM messages))"
+                );
+            } catch (\Throwable $e) {
+                // Non-Postgres or missing sequence — ignore.
+            }
+        }
+
+        if ($allocatedId && ! empty($attributes['client_id'])) {
+            $this->outbox->rememberClientId(
+                $conversation->id,
+                $user->id,
+                (string) $attributes['client_id'],
+                (int) $message->id
+            );
+        }
 
         $message->load($this->messageRelations($user));
 
@@ -1157,7 +1233,16 @@ class MessengerService
         // Pins reference this message; clear them for all participants.
         MessagePin::where('message_id', $messageId)->delete();
 
+        // Capture media meta before soft-delete so CDN objects can be purged
+        // in the background (photos / videos / voice / audio + thumbs / covers).
+        $mediaMeta = is_array($message->meta) ? $message->meta : null;
+        $mediaType = (string) ($message->type ?: 'text');
+
         $message->delete();
+
+        if ($mediaMeta && in_array($mediaType, Message::MEDIA_TYPES, true)) {
+            DeleteMessengerMedia::dispatch($mediaMeta, $mediaType)->afterResponse();
+        }
 
         $this->notifyAllParticipants($conversation, 'message.deleted', [
             'message_id' => $messageId,
@@ -1368,15 +1453,21 @@ class MessengerService
         return count($deliverable);
     }
 
-    public function sendTyping(User $user, Conversation $conversation): void
+    /**
+     * Broadcast a lightweight presence activity (typing / recording / uploading).
+     */
+    public function sendTyping(User $user, Conversation $conversation, string $activity = 'typing'): void
     {
         $this->assertParticipant($user, $conversation);
 
-        if ($this->bus->isTyping($conversation->id, $user->id)) {
+        $activity = $this->normalizeTypingActivity($activity);
+        $ttl = $this->typingActivityTtl($activity);
+        $this->bus->setTyping($conversation->id, $user->id, $activity, $ttl);
+
+        // Keep Redis warm on heartbeats; fan-out when activity changes or throttle allows.
+        if (! $this->bus->claimTypingBroadcast($conversation->id, $user->id, $activity, 2)) {
             return;
         }
-
-        $this->bus->setTyping($conversation->id, $user->id);
 
         $this->notifyConversationParticipants(
             $conversation,
@@ -1385,6 +1476,7 @@ class MessengerService
             [
                 'conversation_id' => $conversation->id,
                 'user_id' => $user->id,
+                'activity' => $activity,
                 'user' => [
                     'id' => $user->id,
                     'first_name' => $user->first_name,
@@ -1393,6 +1485,30 @@ class MessengerService
             ],
             false
         );
+    }
+
+    protected function normalizeTypingActivity(string $activity): string
+    {
+        $activity = strtolower(trim($activity));
+        $allowed = [
+            'typing',
+            'recording_voice',
+            'uploading_photo',
+            'uploading_video',
+            'uploading_audio',
+            'uploading_file',
+        ];
+
+        return in_array($activity, $allowed, true) ? $activity : 'typing';
+    }
+
+    protected function typingActivityTtl(string $activity): int
+    {
+        return match ($activity) {
+            'recording_voice' => 5,
+            'uploading_photo', 'uploading_video', 'uploading_audio', 'uploading_file' => 8,
+            default => 4,
+        };
     }
 
     // -------------------------------------------------------------------------
@@ -1699,6 +1815,275 @@ class MessengerService
     }
 
     // -------------------------------------------------------------------------
+    // Wallpapers (Telegram-like gallery + per-chat / for-both)
+    // -------------------------------------------------------------------------
+
+    public function listWallpapers(User $user): Collection
+    {
+        return MessengerWallpaper::query()
+            ->where('user_id', $user->id)
+            ->orderByDesc('id')
+            ->limit(100)
+            ->get();
+    }
+
+    public function uploadWallpaper(User $user, UploadedFile $file): MessengerWallpaper
+    {
+        $meta = $this->storeMediaFile($file, Message::TYPE_PHOTO);
+        $path = parse_url($meta['url'] ?? '', PHP_URL_PATH) ?: '';
+        $path = ltrim((string) $path, '/');
+
+        return MessengerWallpaper::create([
+            'user_id' => $user->id,
+            'path' => mb_substr($path, 0, 500),
+            'url' => $meta['url'],
+            'thumb_url' => $meta['thumb_url'] ?? null,
+            'mime' => $meta['mime'] ?? null,
+            'size' => (int) ($meta['size'] ?? 0),
+            'width' => isset($meta['width']) ? (int) $meta['width'] : null,
+            'height' => isset($meta['height']) ? (int) $meta['height'] : null,
+        ]);
+    }
+
+    public function deleteWallpaper(User $user, MessengerWallpaper $wallpaper): void
+    {
+        if ((int) $wallpaper->user_id !== (int) $user->id) {
+            throw (new ModelNotFoundException)->setModel(MessengerWallpaper::class, [$wallpaper->id]);
+        }
+
+        $meta = [
+            'url' => $wallpaper->url,
+            'thumb_url' => $wallpaper->thumb_url,
+        ];
+        $wallpaper->delete();
+
+        try {
+            DeleteMessengerMedia::dispatch($meta, 'photo')->afterResponse();
+        } catch (\Throwable $e) {
+            /* noop */
+        }
+    }
+
+    public function getConversationWallpaper(User $user, Conversation $conversation): ?array
+    {
+        $this->assertParticipant($user, $conversation);
+
+        $row = MessengerConversationWallpaper::query()
+            ->where('conversation_id', $conversation->id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if (! $row || ! is_array($row->config) || ! $row->config) {
+            return null;
+        }
+
+        return [
+            'config' => $row->config,
+            'for_both' => (bool) $row->for_both,
+            'wallpaper_id' => $row->wallpaper_id,
+            'shared_from_user_id' => $row->shared_from_user_id,
+        ];
+    }
+
+    /**
+     * Set (or clear) wallpaper for this chat.
+     * When $forBoth is true (private peer, or community staff), the same config
+     * is applied to other participants, broadcast in realtime, and a system
+     * badge is posted ("X changed the chat wallpaper").
+     */
+    public function setConversationWallpaper(
+        User $user,
+        Conversation $conversation,
+        ?array $config,
+        bool $forBoth = false,
+        ?int $wallpaperId = null
+    ): array {
+        $this->assertParticipant($user, $conversation);
+
+        if ($forBoth) {
+            if ($conversation->type === Conversation::TYPE_PRIVATE) {
+                // Either participant may share with the peer.
+            } elseif ($conversation->isCommunity()) {
+                // Groups/channels: only staff who can pin may set a shared wallpaper.
+                $this->groups()->assertCanPin($user, $conversation);
+            } else {
+                $forBoth = false;
+            }
+        }
+
+        if ($wallpaperId) {
+            $owned = MessengerWallpaper::query()
+                ->where('id', $wallpaperId)
+                ->where('user_id', $user->id)
+                ->exists();
+            if (! $owned) {
+                $wallpaperId = null;
+            }
+        }
+
+        $config = $this->normalizeWallpaperConfig($config);
+        if ($config === null) {
+            MessengerConversationWallpaper::query()
+                ->where('conversation_id', $conversation->id)
+                ->where('user_id', $user->id)
+                ->delete();
+
+            if ($forBoth) {
+                $this->applyWallpaperToPeers($user, $conversation, null, false, null);
+                $this->announceWallpaperChanged($user, $conversation, true);
+            }
+
+            $this->notifyAllParticipants(
+                $conversation,
+                'conversation.wallpaper',
+                [
+                    'conversation_id' => $conversation->id,
+                    'user_id' => $user->id,
+                    'for_both' => $forBoth,
+                    'config' => null,
+                ],
+                false
+            );
+
+            return ['config' => null, 'for_both' => false];
+        }
+
+        if ($wallpaperId) {
+            $config['wallpaper_id'] = $wallpaperId;
+            $config['type'] = 'custom';
+            $wp = MessengerWallpaper::find($wallpaperId);
+            if ($wp) {
+                $config['url'] = $wp->url;
+            }
+        }
+
+        MessengerConversationWallpaper::updateOrCreate(
+            [
+                'conversation_id' => $conversation->id,
+                'user_id' => $user->id,
+            ],
+            [
+                'wallpaper_id' => $wallpaperId,
+                'config' => $config,
+                'for_both' => $forBoth,
+                'shared_from_user_id' => null,
+            ]
+        );
+
+        if ($forBoth) {
+            $this->applyWallpaperToPeers($user, $conversation, $config, true, $wallpaperId);
+            $this->announceWallpaperChanged($user, $conversation, false);
+        }
+
+        $this->notifyAllParticipants(
+            $conversation,
+            'conversation.wallpaper',
+            [
+                'conversation_id' => $conversation->id,
+                'user_id' => $user->id,
+                'for_both' => $forBoth,
+                'config' => $config,
+            ],
+            false
+        );
+
+        return [
+            'config' => $config,
+            'for_both' => $forBoth,
+            'wallpaper_id' => $wallpaperId,
+        ];
+    }
+
+    /** Centered service badge: "{name} changed the chat wallpaper". */
+    protected function announceWallpaperChanged(User $actor, Conversation $conversation, bool $cleared = false): void
+    {
+        $name = trim("{$actor->first_name} {$actor->last_name}") ?: ($actor->username ?: '');
+        $event = $cleared ? 'wallpaper_removed' : 'wallpaper_changed';
+
+        try {
+            $this->sendSystemMessage($conversation, $actor, json_encode([
+                'event' => $event,
+                'actor_id' => $actor->id,
+                'actor_name' => $name,
+                'actor_username' => $actor->username,
+            ], JSON_UNESCAPED_UNICODE), $event);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
+    protected function applyWallpaperToPeers(
+        User $actor,
+        Conversation $conversation,
+        ?array $config,
+        bool $forBoth,
+        ?int $wallpaperId
+    ): void {
+        $peerIds = $conversation->users()
+            ->where('users.id', '!=', $actor->id)
+            ->whereNull('conversation_user.deleted_at')
+            ->pluck('users.id');
+
+        foreach ($peerIds as $peerId) {
+            if ($config === null) {
+                MessengerConversationWallpaper::query()
+                    ->where('conversation_id', $conversation->id)
+                    ->where('user_id', $peerId)
+                    ->delete();
+                continue;
+            }
+
+            MessengerConversationWallpaper::updateOrCreate(
+                [
+                    'conversation_id' => $conversation->id,
+                    'user_id' => $peerId,
+                ],
+                [
+                    'wallpaper_id' => null, // peer may not own the gallery row
+                    'config' => $config,
+                    'for_both' => $forBoth,
+                    'shared_from_user_id' => $actor->id,
+                ]
+            );
+        }
+    }
+
+    protected function normalizeWallpaperConfig(?array $config): ?array
+    {
+        if (! is_array($config) || ! $config) {
+            return null;
+        }
+
+        $type = strtolower((string) ($config['type'] ?? 'pattern'));
+        if (! in_array($type, ['pattern', 'image', 'custom'], true)) {
+            $type = 'pattern';
+        }
+
+        $out = [
+            'type' => $type,
+            'pattern' => mb_substr((string) ($config['pattern'] ?? 'none'), 0, 64),
+            'image' => mb_substr((string) ($config['image'] ?? ''), 0, 128),
+            'color' => mb_substr((string) ($config['color'] ?? '#f3e7cf'), 0, 20),
+            'intensity' => max(0, min(100, (int) ($config['intensity'] ?? 46))),
+            'blur' => max(0, min(40, (int) ($config['blur'] ?? 0))),
+            'dim' => max(0, min(80, (int) ($config['dim'] ?? 0))),
+        ];
+
+        if ($type === 'custom') {
+            $url = (string) ($config['url'] ?? '');
+            if ($url === '' || ! filter_var($url, FILTER_VALIDATE_URL)) {
+                return null;
+            }
+            $out['url'] = mb_substr($url, 0, 1000);
+            if (isset($config['wallpaper_id']) && is_numeric($config['wallpaper_id'])) {
+                $out['wallpaper_id'] = (int) $config['wallpaper_id'];
+            }
+        }
+
+        return $out;
+    }
+
+    // -------------------------------------------------------------------------
     // Settings & Profile
     // -------------------------------------------------------------------------
 
@@ -1723,8 +2108,8 @@ class MessengerService
         ];
 
         $settings->update(array_intersect_key($data, array_flip([
-            'enter_to_send', 'quote_with_title', 'forward_tap_to_chat', 'wallpaper', 'theme', 'locale',
-            'show_online', 'show_last_seen', 'show_phone', 'show_email',
+            'enter_to_send', 'quote_with_title', 'forward_tap_to_chat', 'wallpaper', 'wallpaper_config',
+            'theme', 'locale', 'show_online', 'show_last_seen', 'show_phone', 'show_email',
         ])));
 
         // Privacy preferences that change what *others* see (online state &

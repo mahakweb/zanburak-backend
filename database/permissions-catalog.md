@@ -190,6 +190,14 @@
 | `marketing.update` | ویرایش مارکتینگ/بنرها | — | — |
 | `marketing.view` | مشاهده مارکتینگ/بنرها | — | — |
 
+## messenger
+
+| پرمیشن | برچسب | own | any |
+|--------|-------|-----|-----|
+| `messenger.settings.update` | ویرایش تنظیمات پیام‌رسان | — | — |
+| `messenger.settings.view` | مشاهده تنظیمات پیام‌رسان | — | — |
+| `messenger.users.manage` | مدیریت دسترسی کاربران به پیام‌رسان | — | — |
+
 ## mission-categories
 
 | پرمیشن | برچسب | own | any |

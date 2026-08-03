@@ -72,7 +72,7 @@ class Kernel extends HttpKernel
         'student' => \App\Http\Middleware\IsStudent::class,
         'administrator' => \App\Http\Middleware\IsStaff::class,
         'permission.route' => \App\Http\Middleware\Permission::class,
-
+        'messenger.access' => \App\Http\Middleware\EnsureMessengerAccess::class,
 
         'active' => \App\Http\Middleware\CheckActiveUser::class,
         'video.player' => \App\Http\Middleware\EnsureVideoPlayerRequest::class,

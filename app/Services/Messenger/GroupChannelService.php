@@ -80,7 +80,8 @@ class GroupChannelService
             ->unique()
             ->values();
 
-        $maxMembers = config('messenger_groups.max_members_per_create', 200);
+        $maxMembers = app(\App\Services\Messenger\MessengerSystemConfig::class)->int('max_group_members')
+            ?: (int) config('messenger_groups.max_members_per_create', 200);
         if ($memberIds->count() > $maxMembers) {
             throw new \InvalidArgumentException("Cannot add more than {$maxMembers} members at creation");
         }

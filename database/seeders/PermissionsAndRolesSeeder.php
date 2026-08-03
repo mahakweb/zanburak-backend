@@ -60,6 +60,7 @@ class PermissionsAndRolesSeeder extends Seeder
             ['name' => 'file_manager', 'label' => 'مدیر فایل', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'notification_manager', 'label' => 'مدیر اعلان', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'chat_moderator', 'label' => 'ناظر گفتگو', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'messenger_manager', 'label' => 'مدیر پیام‌رسان', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'marketing_manager', 'label' => 'مدیر مارکتینگ', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'seo_manager', 'label' => 'مدیر SEO', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'analytics_viewer', 'label' => 'بیننده آمار', 'created_at' => $now, 'updated_at' => $now],
@@ -481,6 +482,11 @@ class PermissionsAndRolesSeeder extends Seeder
             ['name' => 'chat.conversations.view', 'label' => 'مشاهده گفتگوها', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'chat.contacts.view', 'label' => 'مشاهده مخاطبین', 'created_at' => $now, 'updated_at' => $now],
 
+            // Messenger admin settings
+            ['name' => 'messenger.settings.view', 'label' => 'مشاهده تنظیمات پیام‌رسان', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'messenger.settings.update', 'label' => 'ویرایش تنظیمات پیام‌رسان', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'messenger.users.manage', 'label' => 'مدیریت دسترسی کاربران به پیام‌رسان', 'created_at' => $now, 'updated_at' => $now],
+
             // Video Views / Downloads
             ['name' => 'videoviews.get', 'label' => 'دریافت وضعیت تماشا', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'videoviews.set', 'label' => 'ثبت وضعیت تماشا', 'created_at' => $now, 'updated_at' => $now],
@@ -560,6 +566,9 @@ class PermissionsAndRolesSeeder extends Seeder
                 'users.update',
                 'security.*',
                 'admin.search_user',
+                'messenger.settings.view',
+                'messenger.settings.update',
+                'messenger.users.manage',
             ],
 
             'admin_auditor' => [
@@ -573,6 +582,7 @@ class PermissionsAndRolesSeeder extends Seeder
                 'security.routes.view',
                 'system.resources.view',
                 'system.logs.view',
+                'messenger.settings.view',
             ],
 
             'security_admin' => [
@@ -598,6 +608,9 @@ class PermissionsAndRolesSeeder extends Seeder
                 'system.logs.download',
                 'system.logs.clear',
                 'system.logs.delete',
+                'messenger.settings.view',
+                'messenger.settings.update',
+                'messenger.users.manage',
             ],
 
             'user_admin' => [
@@ -1249,6 +1262,19 @@ class PermissionsAndRolesSeeder extends Seeder
                 'chat.messages.edit',
                 'chat.messages.delete',
                 'chat.conversations.view',
+                'messenger.settings.view',
+            ],
+
+            'messenger_manager' => [
+                'dashboard.view',
+                'chat.messages.view',
+                'chat.messages.edit',
+                'chat.messages.delete',
+                'chat.conversations.view',
+                'chat.contacts.view',
+                'messenger.settings.view',
+                'messenger.settings.update',
+                'messenger.users.manage',
             ],
 
             'chat_viewer' => [

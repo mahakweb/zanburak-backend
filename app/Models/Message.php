@@ -25,15 +25,19 @@ class Message extends Model
 
     public const TYPE_AUDIO = 'audio';
 
+    public const TYPE_FILE = 'file';
+
     /** @var string[] */
     public const MEDIA_TYPES = [
         self::TYPE_PHOTO,
         self::TYPE_VIDEO,
         self::TYPE_VOICE,
         self::TYPE_AUDIO,
+        self::TYPE_FILE,
     ];
 
     protected $fillable = [
+        'id', // Redis-allocated when hot path is active (shared seq with text)
         'conversation_id',
         'user_id',
         'client_id',
@@ -51,6 +55,8 @@ class Message extends Model
         'read_at',
         'delivered_at',
         'edited_at',
+        'created_at',
+        'updated_at',
     ];
 
     protected $casts = [

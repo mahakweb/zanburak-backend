@@ -183,6 +183,13 @@ class RoutePermissionsSeeder extends Seeder
         $assign('api.admin.system.logs.clear', ['system.logs.clear']);
         $assign('api.admin.system.logs.delete', ['system.logs.delete']);
 
+        // Messenger system settings
+        $assign('api.admin.messenger.settings.show', ['messenger.settings.view', 'messenger.settings.update']);
+        $assign('api.admin.messenger.settings.update', ['messenger.settings.update']);
+        $assign('api.admin.messenger.settings.reset', ['messenger.settings.update']);
+        $assign('api.admin.messenger.users.index', ['messenger.users.manage', 'messenger.settings.view', 'messenger.settings.update']);
+        $assign('api.admin.messenger.users.access', ['messenger.users.manage', 'messenger.settings.update']);
+
         // Payments
         $assign('api.admin.payments.index', $paymentsView);
         $assign('api.admin.payments.stats', array_merge($paymentsView, $paymentsStats));

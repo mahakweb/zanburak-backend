@@ -79,6 +79,15 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
         });
     });
 
+    // Messenger system settings
+    Route::prefix('messenger')->as('messenger.')->group(function () {
+        Route::get('/settings', [\App\Http\Controllers\Api\Admin\Messenger\MessengerSettingsController::class, 'show'])->name('settings.show');
+        Route::put('/settings', [\App\Http\Controllers\Api\Admin\Messenger\MessengerSettingsController::class, 'update'])->name('settings.update');
+        Route::post('/settings/reset', [\App\Http\Controllers\Api\Admin\Messenger\MessengerSettingsController::class, 'reset'])->name('settings.reset');
+        Route::get('/users', [\App\Http\Controllers\Api\Admin\Messenger\MessengerSettingsController::class, 'users'])->name('users.index');
+        Route::put('/users/{userId}/access', [\App\Http\Controllers\Api\Admin\Messenger\MessengerSettingsController::class, 'updateUserAccess'])->name('users.access')->whereNumber('userId');
+    });
+
     // Plans
     Route::post('/plans', [\App\Http\Controllers\Api\Admin\PlanController::class, 'plans'])->name('plans.index');
     Route::post('/plan/create', [\App\Http\Controllers\Api\Admin\PlanController::class, 'store'])->name('plan.create');

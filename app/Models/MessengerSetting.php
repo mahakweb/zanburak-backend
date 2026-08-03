@@ -11,10 +11,12 @@ class MessengerSetting extends Model
 
     protected $fillable = [
         'user_id',
+        'access_enabled',
         'enter_to_send',
         'quote_with_title',
         'forward_tap_to_chat',
         'wallpaper',
+        'wallpaper_config',
         'theme',
         'locale',
         'show_online',
@@ -27,11 +29,35 @@ class MessengerSetting extends Model
         'enter_to_send' => 'boolean',
         'quote_with_title' => 'boolean',
         'forward_tap_to_chat' => 'boolean',
+        'wallpaper_config' => 'array',
         'show_online' => 'boolean',
         'show_last_seen' => 'boolean',
         'show_phone' => 'boolean',
         'show_email' => 'boolean',
     ];
+
+    /**
+     * Nullable override: null inherits global default.
+     */
+    public function getAccessEnabledAttribute(mixed $value): ?bool
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    public function setAccessEnabledAttribute(mixed $value): void
+    {
+        if ($value === null) {
+            $this->attributes['access_enabled'] = null;
+
+            return;
+        }
+
+        $this->attributes['access_enabled'] = filter_var($value, FILTER_VALIDATE_BOOLEAN) ? 1 : 0;
+    }
 
     public function user()
     {

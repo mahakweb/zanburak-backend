@@ -130,6 +130,19 @@ class RouteServiceProvider extends ServiceProvider
             RateLimiter::for("messenger.{$name}", function (Request $request) use ($name) {
                 $limit = max(1, (int) config("messenger.rate_limits.{$name}", 60));
 
+                // Admin DB overrides for send/search when MessengerSystemConfig is available.
+                if (in_array($name, ['send', 'search'], true)) {
+                    try {
+                        $key = $name === 'send' ? 'rate_send_per_minute' : 'rate_search_per_minute';
+                        $override = (int) app(\App\Services\Messenger\MessengerSystemConfig::class)->int($key);
+                        if ($override > 0) {
+                            $limit = $override;
+                        }
+                    } catch (\Throwable $e) {
+                        // Fall back to config during early boot / missing tables.
+                    }
+                }
+
                 return ($name === 'invite' ? Limit::perHour($limit) : Limit::perMinute($limit))
                     ->by($this->messengerRateLimitKey($request));
             });

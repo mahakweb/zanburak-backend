@@ -64,6 +64,7 @@ class MessengerOutbox
 
     /**
      * Allocate a durable numeric message id from a Redis sequence seeded by MAX(id).
+     * Shared by hot text and durable media so send order == id order.
      */
     public function allocateMessageId(): int
     {
@@ -76,6 +77,33 @@ class MessengerOutbox
         }
 
         return (int) $conn->incr($key);
+    }
+
+    /**
+     * Raise the Redis message sequence to at least $id (after durable inserts
+     * that did not go through allocateMessageId, or after Postgres setval).
+     */
+    public function ensureSequenceAtLeast(int $id): void
+    {
+        if ($id < 1 || ! $this->bus->isAvailable()) {
+            return;
+        }
+
+        try {
+            $key = $this->prefix().':seq:messages';
+            $conn = $this->redis();
+            // Lua: set key to max(current, id) without losing concurrent incrs.
+            $conn->eval(
+                "local cur = tonumber(redis.call('GET', KEYS[1]) or '0'); "
+                ."if cur < tonumber(ARGV[1]) then redis.call('SET', KEYS[1], ARGV[1]); end; "
+                .'return 1;',
+                1,
+                $key,
+                (string) $id
+            );
+        } catch (\Throwable $e) {
+            Log::debug('Messenger seq bump failed: '.$e->getMessage());
+        }
     }
 
     public function rememberClientId(int $conversationId, int $userId, string $clientId, int $messageId): void
@@ -175,7 +203,15 @@ class MessengerOutbox
                 }
             }
 
-            usort($rows, fn ($a, $b) => ((int) $a['id']) <=> ((int) $b['id']));
+            usort($rows, function ($a, $b) {
+                $ta = (string) ($a['created_at'] ?? '');
+                $tb = (string) ($b['created_at'] ?? '');
+                if ($ta !== $tb) {
+                    return $ta <=> $tb;
+                }
+
+                return ((int) $a['id']) <=> ((int) $b['id']);
+            });
 
             return $rows;
         } catch (\Throwable $e) {
@@ -374,7 +410,9 @@ class MessengerOutbox
     protected function syncMessageSequence(): void
     {
         try {
+            $max = (int) (Message::withTrashed()->max('id') ?? 0);
             DB::statement("SELECT setval(pg_get_serial_sequence('messages', 'id'), (SELECT COALESCE(MAX(id), 1) FROM messages))");
+            $this->ensureSequenceAtLeast($max);
         } catch (\Throwable $e) {
             Log::debug('Messenger sequence sync skipped: '.$e->getMessage());
         }

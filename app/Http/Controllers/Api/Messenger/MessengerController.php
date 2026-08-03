@@ -8,7 +8,9 @@ use App\Http\Resources\Messenger\MessageResource;
 use App\Http\Resources\Messenger\UserBriefResource;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\MessengerWallpaper;
 use App\Services\Messenger\MessengerService;
+use App\Services\Messenger\MessengerSystemConfig;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,8 +20,14 @@ use Illuminate\Validation\Rule;
 class MessengerController extends Controller
 {
     public function __construct(
-        protected MessengerService $messenger
+        protected MessengerService $messenger,
+        protected MessengerSystemConfig $systemConfig
     ) {}
+
+    public function systemConfig(Request $request): JsonResponse
+    {
+        return response()->json($this->systemConfig->clientConfig($request->user()));
+    }
 
     public function conversations(Request $request): JsonResponse
     {
@@ -94,6 +102,10 @@ class MessengerController extends Controller
 
     public function createConversation(Request $request): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_private_chats')) {
+            return response()->json(['message' => 'چت خصوصی غیرفعال است.'], 403);
+        }
+
         $request->validate(['user_id' => 'required|integer|exists:users,id']);
 
         try {
@@ -112,6 +124,10 @@ class MessengerController extends Controller
 
     public function savedConversation(Request $request): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_saved_messages')) {
+            return response()->json(['message' => 'پیام‌های ذخیره‌شده غیرفعال است.'], 403);
+        }
+
         $conversation = $this->messenger->getOrCreateSavedConversation($request->user());
         $conversation->setResponseAttribute('unread_count', 0);
 
@@ -237,7 +253,7 @@ class MessengerController extends Controller
     public function sharedMedia(Request $request, Conversation $conversation): JsonResponse
     {
         $data = $request->validate([
-            'type' => 'required|string|in:photo,video,gif,audio,voice,links,media',
+            'type' => 'required|string|in:photo,video,gif,audio,voice,links,media,file',
             'before_id' => 'nullable|integer|min:1',
             'limit' => 'nullable|integer|min:1|max:100',
         ]);
@@ -267,12 +283,15 @@ class MessengerController extends Controller
 
     public function sendMessage(Request $request, Conversation $conversation): JsonResponse
     {
+        $maxLen = $this->systemConfig->int('max_message_length')
+            ?: (int) config('messenger.max_message_length', 5000);
+
         $request->validate([
-            'body' => 'nullable|string|max:'.config('messenger.max_message_length', 5000),
+            'body' => 'nullable|string|max:'.$maxLen,
             'client_id' => 'sometimes|string|max:64',
             'reply_to_id' => 'sometimes|nullable|integer',
             'reply_show_title' => 'sometimes|boolean',
-            'type' => 'sometimes|string|in:text,location,photo,video,voice,audio',
+            'type' => 'sometimes|string|in:text,location,photo,video,voice,audio,file',
             'meta' => 'sometimes|nullable|array',
             'meta.lat' => 'required_if:type,location|numeric|between:-90,90',
             'meta.lng' => 'required_if:type,location|numeric|between:-180,180',
@@ -290,13 +309,21 @@ class MessengerController extends Controller
         }
 
         // Plain JSON send is for text/location only. Media must use /media (multipart).
-        if (in_array($type, ['photo', 'video', 'voice', 'audio'], true)) {
+        if (in_array($type, ['photo', 'video', 'voice', 'audio', 'file'], true)) {
             return response()->json(['message' => 'Use the media upload endpoint to send files'], 422);
+        }
+
+        if ($type === 'location' && ! $this->systemConfig->bool('allow_location')) {
+            return response()->json(['message' => 'ارسال موقعیت مکانی غیرفعال است.'], 403);
         }
 
         $body = (string) $request->input('body', '');
         if ($type === 'text' && trim($body) === '') {
             return response()->json(['message' => 'Message body cannot be empty'], 422);
+        }
+
+        if (mb_strlen($body) > $maxLen) {
+            return response()->json(['message' => "Message exceeds maximum length of {$maxLen} characters"], 422);
         }
 
         try {
@@ -329,28 +356,44 @@ class MessengerController extends Controller
         $type = $request->input('type');
 
         $maxMap = [
-            'photo' => (int) ($cfg['max_photo_kb'] ?? 51200),
-            'video' => (int) ($cfg['max_video_kb'] ?? 51200),
-            'audio' => (int) ($cfg['max_audio_kb'] ?? 51200),
-            'voice' => (int) ($cfg['max_voice_kb'] ?? 51200),
+            'photo' => $this->systemConfig->mediaMaxKb('photo'),
+            'video' => $this->systemConfig->mediaMaxKb('video'),
+            'audio' => $this->systemConfig->mediaMaxKb('audio'),
+            'voice' => $this->systemConfig->mediaMaxKb('voice'),
+            'file' => $this->systemConfig->mediaMaxKb('file'),
         ];
         $mimeMap = [
             'photo' => $cfg['photo_mimes'] ?? ['jpeg', 'jpg', 'png', 'gif', 'webp', 'bmp'],
             'video' => $cfg['video_mimes'] ?? ['mp4', 'webm', 'mov', 'm4v', '3gp'],
             'audio' => $cfg['audio_mimes'] ?? ['mp3', 'm4a', 'aac', 'ogg', 'wav', 'flac', 'opus'],
             'voice' => $cfg['voice_mimes'] ?? ['webm', 'ogg', 'mp4', 'm4a', 'aac', 'opus'],
+            'file' => $cfg['file_mimes'] ?? [],
+        ];
+        $blockedFile = $cfg['file_blocked_mimes'] ?? [
+            'exe', 'bat', 'cmd', 'com', 'scr', 'msi', 'msp', 'pif',
+            'vbs', 'vbe', 'wsf', 'wsh', 'ps1', 'psc1',
+            'dll', 'sys', 'drv', 'cpl', 'reg', 'inf', 'lnk', 'url', 'jar', 'jnlp',
         ];
 
         if (! isset($maxMap[$type])) {
             return response()->json(['message' => 'Invalid media type'], 422);
         }
 
+        if (! $this->systemConfig->isMediaTypeAllowed((string) $type)) {
+            return response()->json([
+                'message' => $this->systemConfig->bool('uploads_enabled')
+                    ? 'آپلود این نوع فایل مجاز نیست.'
+                    : 'آپلود فایل در پیام‌رسان غیرفعال است.',
+            ], 403);
+        }
+
         $maxKb = $maxMap[$type];
+        $maxAlbum = max(1, $this->systemConfig->int('max_album_items'));
 
         $request->validate([
-            'type' => 'required|string|in:photo,video,voice,audio',
+            'type' => 'required|string|in:photo,video,voice,audio,file',
             'file' => "required|file|max:{$maxKb}",
-            'caption' => 'sometimes|nullable|string|max:'.config('messenger.max_message_length', 5000),
+            'caption' => 'sometimes|nullable|string|max:'.$this->systemConfig->int('max_message_length'),
             'client_id' => 'sometimes|string|max:64',
             'reply_to_id' => 'sometimes|nullable|integer',
             'reply_show_title' => 'sometimes|boolean',
@@ -361,19 +404,34 @@ class MessengerController extends Controller
             'silent' => 'sometimes|boolean',
             'animation' => 'sometimes|boolean',
             'album_id' => 'sometimes|nullable|string|max:64',
-            'album_index' => 'sometimes|nullable|integer|min:0|max:50',
-            'album_count' => 'sometimes|nullable|integer|min:1|max:50',
+            'album_index' => 'sometimes|nullable|integer|min:0|max:'.$maxAlbum,
+            'album_count' => 'sometimes|nullable|integer|min:1|max:'.$maxAlbum,
         ]);
 
         $file = $request->file('file');
+
+        try {
+            $this->systemConfig->assertUploadAllowed($request->user(), (string) $type, (int) $file->getSize());
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
         $ext = strtolower($file->getClientOriginalExtension() ?: '');
-        $allowed = $mimeMap[$type];
-        // Browsers often omit/guess odd extensions for MediaRecorder blobs.
-        if ($ext && ! in_array($ext, $allowed, true)) {
-            // Also accept mime-based match (e.g. audio/webm → webm).
-            $guess = strtolower((string) $file->guessExtension());
-            if (! in_array($guess, $allowed, true) && ! ($type === 'voice' && in_array($guess, ['webm', 'ogg', 'mp4'], true))) {
-                return response()->json(['message' => 'Unsupported file format'], 422);
+        $guess = strtolower((string) $file->guessExtension());
+        $resolvedExt = $ext ?: $guess;
+
+        if ($type === 'file') {
+            // Telegram-like documents: deny dangerous executables; allowlisted + other safe unknown exts.
+            if ($resolvedExt && in_array($resolvedExt, $blockedFile, true)) {
+                return response()->json(['message' => 'This file type is not allowed'], 422);
+            }
+        } else {
+            $allowed = $mimeMap[$type];
+            // Browsers often omit/guess odd extensions for MediaRecorder blobs.
+            if ($ext && ! in_array($ext, $allowed, true)) {
+                if (! in_array($guess, $allowed, true) && ! ($type === 'voice' && in_array($guess, ['webm', 'ogg', 'mp4'], true))) {
+                    return response()->json(['message' => 'Unsupported file format'], 422);
+                }
             }
         }
 
@@ -419,11 +477,17 @@ class MessengerController extends Controller
             ], 500);
         }
 
+        $this->systemConfig->recordUpload($request->user(), (int) $file->getSize());
+
         return response()->json(new MessageResource($message), 201);
     }
 
     public function forwardMessages(Request $request, Conversation $conversation): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_forward')) {
+            return response()->json(['message' => 'فوروارد پیام غیرفعال است.'], 403);
+        }
+
         $request->validate([
             'message_ids' => 'required|array|min:1|max:50',
             'message_ids.*' => 'integer',
@@ -450,6 +514,10 @@ class MessengerController extends Controller
 
     public function bulkDelete(Request $request): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_delete_messages')) {
+            return response()->json(['message' => 'حذف پیام غیرفعال است.'], 403);
+        }
+
         $request->validate([
             'message_ids' => 'required|array|min:1|max:100',
             'message_ids.*' => 'integer',
@@ -473,9 +541,19 @@ class MessengerController extends Controller
 
     public function editMessage(Request $request, Message $message): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_edit_messages')) {
+            return response()->json(['message' => 'ویرایش پیام غیرفعال است.'], 403);
+        }
+
+        $maxLen = $this->systemConfig->int('max_message_length') ?: (int) config('messenger.max_message_length', 5000);
         $request->validate([
-            'body' => 'nullable|string|max:'.config('messenger.max_message_length', 5000),
+            'body' => 'nullable|string|max:'.$maxLen,
         ]);
+
+        $window = $this->systemConfig->int('edit_window_minutes');
+        if ($window > 0 && $message->created_at && $message->created_at->lt(now()->subMinutes($window))) {
+            return response()->json(['message' => "مهلت ویرایش پیام ({$window} دقیقه) به پایان رسیده است."], 403);
+        }
 
         try {
             $message = $this->messenger->editMessage(
@@ -496,6 +574,10 @@ class MessengerController extends Controller
 
     public function deleteMessage(Request $request, Message $message): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_delete_messages')) {
+            return response()->json(['message' => 'حذف پیام غیرفعال است.'], 403);
+        }
+
         $request->validate(['scope' => 'sometimes|in:me,everyone']);
 
         try {
@@ -528,6 +610,10 @@ class MessengerController extends Controller
 
     public function pinMessage(Request $request, Message $message): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_pin_messages')) {
+            return response()->json(['message' => 'سنجاق پیام غیرفعال است.'], 403);
+        }
+
         $request->validate(['for_everyone' => 'sometimes|boolean']);
 
         try {
@@ -547,6 +633,10 @@ class MessengerController extends Controller
 
     public function unpinMessage(Request $request, Message $message): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_pin_messages')) {
+            return response()->json(['message' => 'سنجاق پیام غیرفعال است.'], 403);
+        }
+
         try {
             $this->messenger->unpinMessage($request->user(), $message);
         } catch (ModelNotFoundException $e) {
@@ -560,6 +650,10 @@ class MessengerController extends Controller
 
     public function unpinAll(Request $request, Conversation $conversation): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_pin_messages')) {
+            return response()->json(['message' => 'سنجاق پیام غیرفعال است.'], 403);
+        }
+
         try {
             $this->messenger->unpinAll($request->user(), $conversation);
         } catch (\RuntimeException $e) {
@@ -585,8 +679,10 @@ class MessengerController extends Controller
 
     public function typing(Request $request, Conversation $conversation): JsonResponse
     {
+        $activity = (string) $request->input('activity', 'typing');
+
         try {
-            $this->messenger->sendTyping($request->user(), $conversation);
+            $this->messenger->sendTyping($request->user(), $conversation, $activity);
         } catch (\RuntimeException $e) {
             return response()->json(['message' => $e->getMessage()], 403);
         }
@@ -641,11 +737,28 @@ class MessengerController extends Controller
 
     public function updateSettings(Request $request): JsonResponse
     {
+        if (
+            (! $this->systemConfig->bool('allow_wallpapers'))
+            && ($request->has('wallpaper') || $request->has('wallpaper_config'))
+        ) {
+            return response()->json(['message' => 'پس‌زمینه چت غیرفعال است.'], 403);
+        }
+
         $data = $request->validate([
             'enter_to_send' => 'sometimes|boolean',
             'quote_with_title' => 'sometimes|boolean',
             'forward_tap_to_chat' => 'sometimes|boolean',
             'wallpaper' => 'sometimes|nullable|string|max:40',
+            'wallpaper_config' => 'sometimes|nullable|array',
+            'wallpaper_config.type' => 'sometimes|string|in:pattern,image,custom',
+            'wallpaper_config.pattern' => 'sometimes|nullable|string|max:64',
+            'wallpaper_config.image' => 'sometimes|nullable|string|max:128',
+            'wallpaper_config.color' => 'sometimes|nullable|string|max:20',
+            'wallpaper_config.intensity' => 'sometimes|integer|min:0|max:100',
+            'wallpaper_config.blur' => 'sometimes|integer|min:0|max:40',
+            'wallpaper_config.dim' => 'sometimes|integer|min:0|max:80',
+            'wallpaper_config.url' => 'sometimes|nullable|string|max:1000',
+            'wallpaper_config.wallpaper_id' => 'sometimes|nullable|integer',
             'theme' => 'sometimes|nullable|string|max:20',
             'locale' => 'sometimes|nullable|string|max:5',
             'show_online' => 'sometimes|boolean',
@@ -659,6 +772,81 @@ class MessengerController extends Controller
         return response()->json($this->settingsPayload($settings));
     }
 
+    public function listWallpapers(Request $request): JsonResponse
+    {
+        if (! $this->systemConfig->bool('allow_wallpapers')) {
+            return response()->json(['message' => 'پس‌زمینه چت غیرفعال است.'], 403);
+        }
+
+        $items = $this->messenger->listWallpapers($request->user())
+            ->map(fn (MessengerWallpaper $w) => $w->toApiArray())
+            ->values();
+
+        return response()->json(['data' => $items]);
+    }
+
+    public function uploadWallpaper(Request $request): JsonResponse
+    {
+        if (! $this->systemConfig->bool('allow_wallpapers') || ! $this->systemConfig->bool('allow_custom_wallpapers')) {
+            return response()->json(['message' => 'آپلود پس‌زمینه سفارشی غیرفعال است.'], 403);
+        }
+
+        $maxKb = max(100, $this->systemConfig->int('max_wallpaper_kb'));
+        $data = $request->validate([
+            'file' => "required|file|image|max:{$maxKb}",
+        ]);
+
+        $wallpaper = $this->messenger->uploadWallpaper($request->user(), $data['file']);
+
+        return response()->json($wallpaper->toApiArray(), 201);
+    }
+
+    public function deleteWallpaper(Request $request, MessengerWallpaper $wallpaper): JsonResponse
+    {
+        $this->messenger->deleteWallpaper($request->user(), $wallpaper);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function getConversationWallpaper(Request $request, Conversation $conversation): JsonResponse
+    {
+        $payload = $this->messenger->getConversationWallpaper($request->user(), $conversation);
+
+        return response()->json($payload ?: ['config' => null]);
+    }
+
+    public function setConversationWallpaper(Request $request, Conversation $conversation): JsonResponse
+    {
+        if (! $this->systemConfig->bool('allow_wallpapers')) {
+            return response()->json(['message' => 'پس‌زمینه چت غیرفعال است.'], 403);
+        }
+
+        $data = $request->validate([
+            'config' => 'nullable|array',
+            'config.type' => 'sometimes|string|in:pattern,image,custom',
+            'config.pattern' => 'sometimes|nullable|string|max:64',
+            'config.image' => 'sometimes|nullable|string|max:128',
+            'config.color' => 'sometimes|nullable|string|max:20',
+            'config.intensity' => 'sometimes|integer|min:0|max:100',
+            'config.blur' => 'sometimes|integer|min:0|max:40',
+            'config.dim' => 'sometimes|integer|min:0|max:80',
+            'config.url' => 'sometimes|nullable|string|max:1000',
+            'config.wallpaper_id' => 'sometimes|nullable|integer',
+            'for_both' => 'sometimes|boolean',
+            'wallpaper_id' => 'sometimes|nullable|integer',
+        ]);
+
+        $result = $this->messenger->setConversationWallpaper(
+            $request->user(),
+            $conversation,
+            $data['config'] ?? null,
+            (bool) ($data['for_both'] ?? false),
+            isset($data['wallpaper_id']) ? (int) $data['wallpaper_id'] : null
+        );
+
+        return response()->json($result);
+    }
+
     private function settingsPayload(\App\Models\MessengerSetting $settings): array
     {
         return [
@@ -666,6 +854,7 @@ class MessengerController extends Controller
             'quote_with_title' => $settings->quote_with_title,
             'forward_tap_to_chat' => $settings->forward_tap_to_chat,
             'wallpaper' => $settings->wallpaper,
+            'wallpaper_config' => $settings->wallpaper_config,
             'theme' => $settings->theme,
             'locale' => $settings->locale,
             'show_online' => $settings->show_online,

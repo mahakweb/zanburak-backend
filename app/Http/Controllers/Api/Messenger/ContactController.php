@@ -13,11 +13,16 @@ use Illuminate\Http\Request;
 class ContactController extends Controller
 {
     public function __construct(
-        protected MessengerService $messenger
+        protected MessengerService $messenger,
+        protected \App\Services\Messenger\MessengerSystemConfig $systemConfig
     ) {}
 
     public function index(Request $request): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_contacts')) {
+            return response()->json(['message' => 'بخش مخاطبین غیرفعال است.'], 403);
+        }
+
         $sort = (string) $request->query('sort', 'name_asc');
         $contacts = $this->messenger->listContacts($request->user(), $sort);
 
@@ -26,6 +31,10 @@ class ContactController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_contacts')) {
+            return response()->json(['message' => 'بخش مخاطبین غیرفعال است.'], 403);
+        }
+
         $request->validate([
             'contact_user_id' => 'required|integer|exists:users,id',
             'name' => 'sometimes|string|max:255',
@@ -46,6 +55,10 @@ class ContactController extends Controller
 
     public function update(Request $request, Contact $contact): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_contacts')) {
+            return response()->json(['message' => 'بخش مخاطبین غیرفعال است.'], 403);
+        }
+
         $request->validate([
             'name' => 'sometimes|string|max:255',
             'is_blocked' => 'sometimes|boolean',
@@ -65,6 +78,10 @@ class ContactController extends Controller
 
     public function destroy(Request $request, Contact $contact): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_contacts')) {
+            return response()->json(['message' => 'بخش مخاطبین غیرفعال است.'], 403);
+        }
+
         try {
             $this->messenger->deleteContact($request->user(), $contact);
         } catch (\RuntimeException $e) {
@@ -76,6 +93,10 @@ class ContactController extends Controller
 
     public function search(Request $request): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_user_search')) {
+            return response()->json(['message' => 'جستجوی کاربران غیرفعال است.'], 403);
+        }
+
         $request->validate(['q' => 'required|string|min:2|max:100']);
 
         $users = $this->messenger->searchUsers(
@@ -93,6 +114,10 @@ class ContactController extends Controller
      */
     public function lookup(Request $request): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_contacts') && ! $this->systemConfig->bool('allow_user_search')) {
+            return response()->json(['message' => 'جستجو/مخاطبین غیرفعال است.'], 403);
+        }
+
         $request->validate(['identifier' => 'required|string|max:150']);
 
         $identifier = trim($request->input('identifier'));
@@ -119,6 +144,10 @@ class ContactController extends Controller
      */
     public function invite(Request $request): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_contacts')) {
+            return response()->json(['message' => 'بخش مخاطبین غیرفعال است.'], 403);
+        }
+
         $request->validate(['identifier' => 'required|string|max:150']);
 
         $identifier = trim($request->input('identifier'));
@@ -158,6 +187,10 @@ class ContactController extends Controller
 
     public function blocked(Request $request): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_contacts')) {
+            return response()->json(['message' => 'بخش مخاطبین غیرفعال است.'], 403);
+        }
+
         $contacts = $this->messenger->listBlocked($request->user());
 
         return response()->json(ContactResource::collection($contacts));
@@ -165,6 +198,10 @@ class ContactController extends Controller
 
     public function block(Request $request, int $userId): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_contacts')) {
+            return response()->json(['message' => 'بخش مخاطبین غیرفعال است.'], 403);
+        }
+
         try {
             $contact = $this->messenger->blockUser($request->user(), $userId);
         } catch (\InvalidArgumentException $e) {
@@ -176,6 +213,10 @@ class ContactController extends Controller
 
     public function unblock(Request $request, int $userId): JsonResponse
     {
+        if (! $this->systemConfig->bool('allow_contacts')) {
+            return response()->json(['message' => 'بخش مخاطبین غیرفعال است.'], 403);
+        }
+
         $this->messenger->unblockUser($request->user(), $userId);
 
         return response()->json(['ok' => true]);

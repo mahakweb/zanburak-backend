@@ -103,30 +103,71 @@ class RealtimeBus
         }
     }
 
-    public function setTyping(int $conversationId, int $userId): void
+    /**
+     * Persist a typing/activity presence marker.
+     *
+     * @return string|null previous activity value (if any)
+     */
+    public function setTyping(int $conversationId, int $userId, string $activity = 'typing', int $ttl = 6): ?string
     {
         if (! $this->isAvailable()) {
-            return;
+            return null;
         }
 
         try {
             $key = $this->typingKey($conversationId, $userId);
-            Redis::connection()->setex($key, 3, '1');
+            $prev = Redis::connection()->get($key);
+            Redis::connection()->setex($key, max(2, $ttl), $activity);
+
+            return is_string($prev) && $prev !== '' ? $prev : null;
         } catch (\Throwable $e) {
             Log::debug('Messenger Redis typing failed: '.$e->getMessage());
+
+            return null;
+        }
+    }
+
+    public function getTypingActivity(int $conversationId, int $userId): ?string
+    {
+        if (! $this->isAvailable()) {
+            return null;
+        }
+
+        try {
+            $val = Redis::connection()->get($this->typingKey($conversationId, $userId));
+
+            return is_string($val) && $val !== '' ? $val : null;
+        } catch (\Throwable $e) {
+            return null;
         }
     }
 
     public function isTyping(int $conversationId, int $userId): bool
     {
+        return $this->getTypingActivity($conversationId, $userId) !== null;
+    }
+
+    /**
+     * Broadcast throttle: returns true when a new broadcast should go out.
+     * Activity changes always broadcast; same activity is limited by $seconds.
+     */
+    public function claimTypingBroadcast(int $conversationId, int $userId, string $activity, int $seconds = 2): bool
+    {
         if (! $this->isAvailable()) {
-            return false;
+            return true;
         }
 
         try {
-            return (bool) Redis::connection()->exists($this->typingKey($conversationId, $userId));
+            $key = $this->typingBroadcastKey($conversationId, $userId);
+            $prev = Redis::connection()->get($key);
+            if (is_string($prev) && $prev === $activity && Redis::connection()->exists($key)) {
+                return false;
+            }
+            Redis::connection()->setex($key, max(1, $seconds), $activity);
+
+            return true;
         } catch (\Throwable $e) {
-            return false;
+            return true;
         }
     }
 
@@ -148,5 +189,10 @@ class RealtimeBus
     protected function typingKey(int $conversationId, int $userId): string
     {
         return "{$this->prefix()}:typing:{$conversationId}:{$userId}";
+    }
+
+    protected function typingBroadcastKey(int $conversationId, int $userId): string
+    {
+        return "{$this->prefix()}:typing_bc:{$conversationId}:{$userId}";
     }
 }
