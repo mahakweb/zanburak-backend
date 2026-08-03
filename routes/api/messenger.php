@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Messenger\ContactController;
 use App\Http\Controllers\Api\Messenger\GroupChannelController;
 use App\Http\Controllers\Api\Messenger\MessengerController;
+use App\Http\Controllers\Api\Messenger\MessengerCryptoController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('messenger')->as('api.messenger.')->group(function () {
@@ -10,6 +11,18 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
     Route::middleware(['auth:sanctum', 'messenger.access'])->group(function () {
 
         Route::get('/config', [MessengerController::class, 'systemConfig'])->name('config');
+
+        // End-to-end encryption (device keys + opaque package relay + private media proxy)
+        Route::post('/crypto/devices', [MessengerCryptoController::class, 'registerDevice'])->name('crypto.devices.register');
+        Route::post('/crypto/prekeys', [MessengerCryptoController::class, 'uploadPrekeys'])->name('crypto.prekeys');
+        Route::get('/crypto/devices', [MessengerCryptoController::class, 'myDevices'])->name('crypto.devices.index');
+        Route::delete('/crypto/devices/{deviceId}', [MessengerCryptoController::class, 'revokeDevice'])->name('crypto.devices.revoke');
+        Route::get('/crypto/conversations/{conversation}/bundles', [MessengerCryptoController::class, 'bundles'])->name('crypto.bundles');
+        Route::post('/crypto/conversations/{conversation}/distribute', [MessengerCryptoController::class, 'distribute'])->name('crypto.distribute');
+        Route::get('/crypto/packages', [MessengerCryptoController::class, 'packages'])->name('crypto.packages');
+        Route::post('/crypto/packages/ack', [MessengerCryptoController::class, 'ackPackages'])->name('crypto.packages.ack');
+        Route::get('/crypto/safety/{userId}', [MessengerCryptoController::class, 'safetyNumber'])->name('crypto.safety');
+        Route::get('/media/{message}', [MessengerCryptoController::class, 'streamMedia'])->name('media.stream');
 
         // Conversations
         Route::get('/conversations', [MessengerController::class, 'conversations'])->name('conversations.index');

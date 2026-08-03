@@ -48,33 +48,20 @@ return [
 
         'static' => [
             'driver' => 'ftp',
-            'host' => '78.157.38.113',
-            'username' => 'staticza',
-            'password' => 'Milad@4970',
-
-            // Optional FTP Settings...
-            // 'port' => 21,
-            'url' => 'https://static.zanburak.ir',
-            'root' => '/public_html',
+            'host' => env('STATIC_FTP_HOST', '78.157.38.113'),
+            'username' => env('STATIC_FTP_USERNAME', 'staticza'),
+            'password' => env('STATIC_FTP_PASSWORD', 'Milad@4970'),
+            'url' => env('STATIC_URL', 'https://static.zanburak.ir'),
+            'root' => env('STATIC_FTP_ROOT', '/public_html'),
             'passive' => true,
-            // 'ssl' => true,
-            // 'timeout' => 30,
         ],
 
         'dl' => [
             'driver' => 'ftp',
-            // 'host' => 'dl.zanburak.ir',
-            'host' => '185.252.28.150',
-            'username' => 'dlmahakw',
-            'password' => 'o6N8M(]Q7hTzm8',
-
-            // Optional FTP Settings...
-            // 'port' => 21,
-            // 'url' => 'http://dl.zanburak.ir',
-            'root' => '/public_html',
-            // 'passive' => true,
-            // 'ssl' => true,
-            // 'timeout' => 30,
+            'host' => env('DL_FTP_HOST', '185.252.28.150'),
+            'username' => env('DL_FTP_USERNAME', 'dlmahakw'),
+            'password' => env('DL_FTP_PASSWORD', 'o6N8M(]Q7hTzm8'),
+            'root' => env('DL_FTP_ROOT', '/public_html'),
         ],
 
         'secrets' => [

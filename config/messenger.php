@@ -82,16 +82,39 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | End-to-end encryption
+    |--------------------------------------------------------------------------
+    |
+    | When enabled, private/saved/group/private-channel chats encrypt payloads
+    | on the client. The server only stores ciphertext + relays key packages.
+    | Public channels stay plaintext by design.
+    |
+    */
+    'e2e' => [
+        'enabled' => (bool) env('MESSENGER_E2E', true),
+        // Max base64 ciphertext length accepted for encrypted bodies.
+        'max_ciphertext_length' => (int) env('MESSENGER_E2E_MAX_CIPHERTEXT', 65536),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Chat media (photo / video / voice / audio)
     |--------------------------------------------------------------------------
     |
-    | Files are stored on the `static` disk (CDN). Limits are in kilobytes.
+    | Chat media is stored under a PRIVATE folder on the static disk and is
+    | never given a public CDN URL. Clients fetch via authenticated
+    | GET /api/messenger/media/{message}. Deny web access to /private/ on the
+    | static host (see deploy/static/private.htaccess).
     |
     */
     'media' => [
         'disk' => env('MESSENGER_MEDIA_DISK', 'static'),
-        // Dedicated CDN folder (alongside images/messenger/avatars|covers).
+        // Legacy public folder (avatars/covers/wallpapers may still use related paths).
         'folder' => env('MESSENGER_MEDIA_FOLDER', 'images/messenger/chats'),
+        // Private chat media — must NOT be web-accessible on the static host.
+        'private_folder' => env('MESSENGER_MEDIA_PRIVATE_FOLDER', 'private/messenger'),
+        // Force private storage + API proxy for all new chat media.
+        'private' => (bool) env('MESSENGER_MEDIA_PRIVATE', true),
         // Defaults: 50 MB each (kilobytes). Server php.ini / nginx must allow >= this.
         'max_photo_kb' => (int) env('MESSENGER_MAX_PHOTO_KB', 51200),
         'max_video_kb' => (int) env('MESSENGER_MAX_VIDEO_KB', 51200),

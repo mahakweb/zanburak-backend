@@ -1176,7 +1176,10 @@ class GroupChannelService
         $q = Message::query()
             ->visibleTo($user)
             ->where('conversation_id', $conversation->id)
-            ->where('type', '!=', 'system');
+            ->where('type', '!=', 'system')
+            ->where(function ($w) {
+                $w->where('is_encrypted', false)->orWhereNull('is_encrypted');
+            });
 
         if (! empty($filters['q'])) {
             $term = trim($filters['q']);

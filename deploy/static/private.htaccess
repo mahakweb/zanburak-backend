@@ -1,0 +1,7 @@
+# Deny all HTTP access to private messenger media.
+# Upload this folder's contents to the static host under /private/
+# Nginx equivalent:
+#   location ^~ /private/ { deny all; return 403; }
+
+Require all denied
+Deny from all

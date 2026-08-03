@@ -22,6 +22,8 @@ class Conversation extends Model
 
     protected $fillable = [
         'type',
+        'is_encrypted',
+        'e2e_key_version',
         'title',
         'description',
         'avatar',
@@ -53,6 +55,8 @@ class Conversation extends Model
     protected $casts = [
         'last_message_at' => 'datetime',
         'is_public' => 'boolean',
+        'is_encrypted' => 'boolean',
+        'e2e_key_version' => 'integer',
         'is_verified' => 'boolean',
         'is_archived' => 'boolean',
         'history_visible' => 'boolean',

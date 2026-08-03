@@ -389,6 +389,12 @@ class MessengerSystemConfig
                 'user_search' => (bool) $all['allow_user_search'],
                 'wallpapers' => (bool) $all['allow_wallpapers'],
                 'custom_wallpapers' => (bool) $all['allow_custom_wallpapers'],
+                'e2e' => (bool) config('messenger.e2e.enabled', true),
+            ],
+            'e2e' => [
+                'enabled' => (bool) config('messenger.e2e.enabled', true),
+                'max_ciphertext_length' => (int) config('messenger.e2e.max_ciphertext_length', 65536),
+                'media_private' => (bool) config('messenger.media.private', true),
             ],
             'uploads' => [
                 'enabled' => (bool) $all['uploads_enabled'],

@@ -15,6 +15,8 @@ class ConversationResource extends JsonResource
         return [
             'id' => $this->id,
             'type' => $this->type,
+            'is_encrypted' => (bool) ($this->is_encrypted ?? false),
+            'e2e_key_version' => (int) ($this->e2e_key_version ?? 0),
             'title' => $this->when($isCommunity, $this->title),
             'description' => $this->when($isCommunity, $this->description),
             'avatar' => $this->when($isCommunity, $this->avatar),

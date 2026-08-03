@@ -287,7 +287,7 @@ class MessengerController extends Controller
             ?: (int) config('messenger.max_message_length', 5000);
 
         $request->validate([
-            'body' => 'nullable|string|max:'.$maxLen,
+            'body' => 'nullable|string|max:'.((int) config('messenger.e2e.max_ciphertext_length', 65536)),
             'client_id' => 'sometimes|string|max:64',
             'reply_to_id' => 'sometimes|nullable|integer',
             'reply_show_title' => 'sometimes|boolean',
@@ -296,16 +296,37 @@ class MessengerController extends Controller
             'meta.lat' => 'required_if:type,location|numeric|between:-90,90',
             'meta.lng' => 'required_if:type,location|numeric|between:-180,180',
             'meta.accuracy' => 'sometimes|nullable|numeric|min:0',
+            'is_encrypted' => 'sometimes|boolean',
+            'sender_device_id' => 'required_if:is_encrypted,true|nullable|string|max:64',
+            'e2e' => 'sometimes|nullable|array',
+            'e2e.v' => 'sometimes|integer|min:1',
+            'e2e.alg' => 'sometimes|string|max:32',
+            'e2e.iv' => 'sometimes|string|max:128',
+            'e2e.kid' => 'sometimes|integer|min:1',
+            'e2e.aad' => 'sometimes|integer|min:0',
+            'e2e.sid' => 'sometimes|string|max:64',
+            'e2e.wraps' => 'sometimes|array|max:32',
+            'e2e.wraps.*.did' => 'required_with:e2e.wraps|string|max:64',
+            'e2e.wraps.*.iv' => 'required_with:e2e.wraps|string|max:128',
+            'e2e.wraps.*.ct' => 'required_with:e2e.wraps|string|max:512',
+            'e2e.wraps.*.sap' => 'required_with:e2e.wraps|string|max:512',
+            'mention_ids' => 'sometimes|array|max:50',
+            'mention_ids.*' => 'integer|min:1',
         ]);
 
         $type = $request->input('type', 'text');
         $meta = $request->input('meta');
-        if ($type === 'location' && is_array($meta)) {
+        $isEncrypted = $request->boolean('is_encrypted');
+        if ($type === 'location' && is_array($meta) && ! $isEncrypted) {
             $meta = [
                 'lat' => round((float) $meta['lat'], 6),
                 'lng' => round((float) $meta['lng'], 6),
                 'accuracy' => isset($meta['accuracy']) ? round((float) $meta['accuracy'], 1) : null,
             ];
+        }
+        if ($isEncrypted) {
+            // Location coordinates live inside ciphertext; strip clear meta.
+            $meta = is_array($meta) ? array_intersect_key($meta, array_flip(['album_id', 'album_index', 'album_count', 'silent', 'animation'])) : null;
         }
 
         // Plain JSON send is for text/location only. Media must use /media (multipart).
@@ -322,6 +343,9 @@ class MessengerController extends Controller
             return response()->json(['message' => 'Message body cannot be empty'], 422);
         }
 
+        $maxLen = $isEncrypted
+            ? (int) config('messenger.e2e.max_ciphertext_length', 65536)
+            : ($this->systemConfig->int('max_message_length') ?: (int) config('messenger.max_message_length', 5000));
         if (mb_strlen($body) > $maxLen) {
             return response()->json(['message' => "Message exceeds maximum length of {$maxLen} characters"], 422);
         }
@@ -337,6 +361,10 @@ class MessengerController extends Controller
                     'reply_show_title' => $request->boolean('reply_show_title', true),
                     'type' => $type,
                     'meta' => $meta,
+                    'is_encrypted' => $isEncrypted,
+                    'sender_device_id' => $request->input('sender_device_id'),
+                    'e2e' => $request->input('e2e'),
+                    'mention_ids' => $request->input('mention_ids'),
                 ]
             );
         } catch (\InvalidArgumentException $e) {
@@ -393,7 +421,7 @@ class MessengerController extends Controller
         $request->validate([
             'type' => 'required|string|in:photo,video,voice,audio,file',
             'file' => "required|file|max:{$maxKb}",
-            'caption' => 'sometimes|nullable|string|max:'.$this->systemConfig->int('max_message_length'),
+            'caption' => 'sometimes|nullable|string|max:'.((int) config('messenger.e2e.max_ciphertext_length', 65536)),
             'client_id' => 'sometimes|string|max:64',
             'reply_to_id' => 'sometimes|nullable|integer',
             'reply_show_title' => 'sometimes|boolean',
@@ -406,9 +434,19 @@ class MessengerController extends Controller
             'album_id' => 'sometimes|nullable|string|max:64',
             'album_index' => 'sometimes|nullable|integer|min:0|max:'.$maxAlbum,
             'album_count' => 'sometimes|nullable|integer|min:1|max:'.$maxAlbum,
+            'is_encrypted' => 'sometimes|boolean',
+            'sender_device_id' => 'required_if:is_encrypted,true|nullable|string|max:64',
+            'e2e' => 'sometimes|nullable',
+            'encrypted' => 'sometimes|boolean',
         ]);
 
         $file = $request->file('file');
+        $isEncrypted = $request->boolean('is_encrypted') || $request->boolean('encrypted');
+        $e2e = $request->input('e2e');
+        if (is_string($e2e)) {
+            $decoded = json_decode($e2e, true);
+            $e2e = is_array($decoded) ? $decoded : null;
+        }
 
         try {
             $this->systemConfig->assertUploadAllowed($request->user(), (string) $type, (int) $file->getSize());
@@ -420,7 +458,9 @@ class MessengerController extends Controller
         $guess = strtolower((string) $file->guessExtension());
         $resolvedExt = $ext ?: $guess;
 
-        if ($type === 'file') {
+        if ($isEncrypted) {
+            // Ciphertext uploads are opaque; skip mime allowlists.
+        } elseif ($type === 'file') {
             // Telegram-like documents: deny dangerous executables; allowlisted + other safe unknown exts.
             if ($resolvedExt && in_array($resolvedExt, $blockedFile, true)) {
                 return response()->json(['message' => 'This file type is not allowed'], 422);
@@ -451,12 +491,16 @@ class MessengerController extends Controller
                     'duration' => $request->input('duration'),
                     'width' => $request->input('width'),
                     'height' => $request->input('height'),
-                    'cover' => $request->file('cover'),
+                    'cover' => $isEncrypted ? null : $request->file('cover'),
                     'silent' => $asAnimation,
                     'animation' => $asAnimation,
                     'album_id' => $request->input('album_id'),
                     'album_index' => $request->input('album_index'),
                     'album_count' => $request->input('album_count'),
+                    'is_encrypted' => $isEncrypted,
+                    'encrypted' => $isEncrypted,
+                    'sender_device_id' => $request->input('sender_device_id'),
+                    'e2e' => $e2e,
                 ]
             );
         } catch (\InvalidArgumentException $e) {
@@ -545,9 +589,12 @@ class MessengerController extends Controller
             return response()->json(['message' => 'ویرایش پیام غیرفعال است.'], 403);
         }
 
-        $maxLen = $this->systemConfig->int('max_message_length') ?: (int) config('messenger.max_message_length', 5000);
+        $maxLen = (int) config('messenger.e2e.max_ciphertext_length', 65536);
         $request->validate([
             'body' => 'nullable|string|max:'.$maxLen,
+            'is_encrypted' => 'sometimes|boolean',
+            'sender_device_id' => 'sometimes|nullable|string|max:64',
+            'e2e' => 'sometimes|nullable|array',
         ]);
 
         $window = $this->systemConfig->int('edit_window_minutes');
@@ -559,7 +606,12 @@ class MessengerController extends Controller
             $message = $this->messenger->editMessage(
                 $request->user(),
                 $message,
-                (string) $request->input('body', '')
+                (string) $request->input('body', ''),
+                [
+                    'is_encrypted' => $request->boolean('is_encrypted'),
+                    'sender_device_id' => $request->input('sender_device_id'),
+                    'e2e' => $request->input('e2e'),
+                ]
             );
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);

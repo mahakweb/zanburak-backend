@@ -364,7 +364,10 @@ class MessengerService
     {
         $q = Message::query()
             ->visibleTo($user)
-            ->where('type', '!=', 'system');
+            ->where('type', '!=', 'system')
+            ->where(function ($w) {
+                $w->where('is_encrypted', false)->orWhereNull('is_encrypted');
+            });
 
         if (! empty($filters['q'])) {
             $term = trim((string) $filters['q']);
@@ -585,17 +588,28 @@ class MessengerService
     {
         $this->assertParticipant($user, $conversation);
         $this->assertNotBlocked($user, $conversation);
-        $this->groups()->assertCanSend($user, $conversation, $body);
+
+        $isEncrypted = ! empty($options['is_encrypted']);
+        $crypto = app(MessengerCryptoService::class);
+        if (! $isEncrypted && $crypto->conversationShouldEncrypt($conversation) && ($options['type'] ?? 'text') !== 'system') {
+            // Clients must encrypt before send for E2E conversations.
+            throw new \InvalidArgumentException('This conversation requires end-to-end encryption');
+        }
+
+        $plainForRules = $isEncrypted ? '' : $body;
+        $this->groups()->assertCanSend($user, $conversation, $plainForRules);
 
         $msgType = $options['type'] ?? Message::TYPE_TEXT;
-        $body = trim($body);
+        $body = $isEncrypted ? (string) $body : trim($body);
         $isMedia = in_array($msgType, Message::MEDIA_TYPES, true);
         if ($body === '' && ! $isMedia) {
             throw new \InvalidArgumentException('Message body cannot be empty');
         }
 
-        $maxLen = app(\App\Services\Messenger\MessengerSystemConfig::class)->int('max_message_length')
-            ?: (int) config('messenger.max_message_length', 5000);
+        $maxLen = $isEncrypted
+            ? (int) config('messenger.e2e.max_ciphertext_length', 65536)
+            : (app(\App\Services\Messenger\MessengerSystemConfig::class)->int('max_message_length')
+                ?: (int) config('messenger.max_message_length', 5000));
         if (mb_strlen($body) > $maxLen) {
             throw new \InvalidArgumentException("Message exceeds maximum length of {$maxLen} characters");
         }
@@ -640,9 +654,13 @@ class MessengerService
             $reply ?? throw (new ModelNotFoundException)->setModel(Message::class, [$replyToId]);
         }
 
-        $mentions = $conversation->isCommunity()
-            ? $this->groups()->parseMentions($body)
-            : [];
+        $mentions = [];
+        if (! $isEncrypted && $conversation->isCommunity()) {
+            $mentions = $this->groups()->parseMentions($body);
+        } elseif ($isEncrypted && ! empty($options['mention_ids']) && is_array($options['mention_ids'])) {
+            // Opaque mention routing ids only — no plaintext body parsing.
+            $mentions = array_values(array_unique(array_map('intval', $options['mention_ids'])));
+        }
 
         $attributes = [
             'conversation_id' => $conversation->id,
@@ -650,6 +668,9 @@ class MessengerService
             'client_id' => $clientId ?? Str::uuid()->toString(),
             'body' => $body,
             'type' => $msgType,
+            'is_encrypted' => $isEncrypted,
+            'sender_device_id' => $isEncrypted ? ($options['sender_device_id'] ?? null) : null,
+            'e2e' => $isEncrypted ? ($options['e2e'] ?? null) : null,
             'reply_to_id' => $replyToId,
             'reply_show_title' => $options['reply_show_title'] ?? true,
             'forwarded_from_user_id' => $options['forwarded_from_user_id'] ?? null,
@@ -673,9 +694,13 @@ class MessengerService
             $attributes['meta'] = $meta;
         }
 
-        // Hot Redis path is for plain text only; location/media (and other typed
-        // messages) go through the durable DB write so meta is persisted.
-        if ($this->outbox->isActive() && $msgType === 'text') {
+        if ($isEncrypted && ! $conversation->is_encrypted) {
+            $conversation->forceFill(['is_encrypted' => true])->save();
+        }
+
+        // Hot Redis path is for plain text only; location/media/encrypted go durable
+        // so meta/e2e fields are persisted reliably.
+        if ($this->outbox->isActive() && $msgType === 'text' && ! $isEncrypted) {
             $message = $this->sendMessageHot($user, $conversation, $attributes);
         } else {
             $message = $this->sendMessageDurable($user, $conversation, $attributes);
@@ -711,7 +736,8 @@ class MessengerService
     }
 
     /**
-     * Persist an uploaded media file to the CDN disk and build message meta.
+     * Persist an uploaded media file to the private media folder and build
+     * message meta. Never returns a public CDN URL — clients use the media proxy.
      *
      * @return array<string, mixed>
      */
@@ -719,10 +745,23 @@ class MessengerService
     {
         $cfg = config('messenger.media', []);
         $diskName = $cfg['disk'] ?? 'static';
-        $folder = trim($cfg['folder'] ?? 'messenger/media', '/').'/'.$type.'/'.date('Y/m/d');
+        $private = (bool) ($cfg['private'] ?? true);
+        $baseFolder = $private
+            ? trim($cfg['private_folder'] ?? 'private/messenger', '/')
+            : trim($cfg['folder'] ?? 'images/messenger/chats', '/');
+        $folder = $baseFolder.'/'.$type.'/'.date('Y/m/d');
+
+        // Encrypted uploads are opaque .bin blobs from the client.
+        $encryptedUpload = ! empty($options['encrypted']);
 
         try {
-            $path = Storage::disk($diskName)->putFile($folder, $file);
+            if ($encryptedUpload) {
+                $binName = Str::uuid()->toString().'.bin';
+                $stored = Storage::disk($diskName)->putFileAs($folder, $file, $binName);
+                $path = $stored ?: null;
+            } else {
+                $path = Storage::disk($diskName)->putFile($folder, $file);
+            }
         } catch (\Throwable $e) {
             Log::error('messenger.media_store_failed', [
                 'disk' => $diskName,
@@ -742,20 +781,24 @@ class MessengerService
             throw new \RuntimeException('Failed to store media file');
         }
 
-        $baseUrl = rtrim(config("filesystems.disks.{$diskName}.url", ''), '/');
-        $url = $baseUrl.'/'.ltrim($path, '/');
-
         $origName = $file->getClientOriginalName() ?: ('media.'.$file->getClientOriginalExtension());
         $ext = strtolower($file->getClientOriginalExtension() ?: pathinfo($origName, PATHINFO_EXTENSION));
-        $mime = $file->getMimeType() ?: 'application/octet-stream';
+        $mime = $encryptedUpload
+            ? 'application/octet-stream'
+            : ($file->getMimeType() ?: 'application/octet-stream');
         $size = (int) $file->getSize();
 
+        // Private meta: path only. Proxy URL is constructed by the API resource.
         $meta = [
-            'url' => $url,
+            'disk' => $diskName,
+            'path' => $path,
+            'private' => true,
+            'encrypted' => $encryptedUpload,
             'mime' => $mime,
             'size' => $size,
-            'name' => mb_substr($origName, 0, 255),
-            'ext' => $ext,
+            // Cleartext name/ext only for non-E2E; E2E puts them inside ciphertext.
+            'name' => $encryptedUpload ? null : mb_substr($origName, 0, 255),
+            'ext' => $encryptedUpload ? 'bin' : $ext,
         ];
 
         if (isset($options['width']) && is_numeric($options['width'])) {
@@ -768,13 +811,11 @@ class MessengerService
             $meta['duration'] = round((float) $options['duration'], 1);
         }
 
-        // Silent / GIF-like looping video (Telegram animation style).
         if (! empty($options['silent']) || ! empty($options['animation'])) {
             $meta['silent'] = true;
             $meta['animation'] = true;
         }
 
-        // Grouped media album (Telegram media_group style).
         if (! empty($options['album_id']) && is_string($options['album_id'])) {
             $meta['album_id'] = mb_substr($options['album_id'], 0, 64);
             if (isset($options['album_index']) && is_numeric($options['album_index'])) {
@@ -785,69 +826,51 @@ class MessengerService
             }
         }
 
-        if ($type === Message::TYPE_PHOTO) {
+        // Thumbnails only for non-encrypted photos (ciphertext cannot be imaged).
+        if (! $encryptedUpload && $type === Message::TYPE_PHOTO) {
             $dims = $this->readImageDimensions($file);
             if ($dims) {
                 $meta['width'] = $meta['width'] ?? $dims[0];
                 $meta['height'] = $meta['height'] ?? $dims[1];
             }
-            $thumbUrl = $this->storePhotoThumb($file, $folder, $diskName, $baseUrl);
-            if ($thumbUrl) {
-                $meta['thumb_url'] = $thumbUrl;
+            $thumbPath = $this->storePhotoThumbPrivate($file, $folder, $diskName);
+            if ($thumbPath) {
+                $meta['thumb_path'] = $thumbPath;
             }
         }
 
-        if ($type === Message::TYPE_AUDIO) {
+        if (! $encryptedUpload && $type === Message::TYPE_AUDIO) {
             $cover = $options['cover'] ?? null;
             if ($cover instanceof UploadedFile && $cover->isValid()) {
-                $coverUrl = $this->storeAudioCover($cover, $folder, $diskName, $baseUrl);
-                if ($coverUrl) {
-                    $meta['cover_url'] = $coverUrl;
+                $coverPath = $this->storeAudioCoverPrivate($cover, $folder, $diskName);
+                if ($coverPath) {
+                    $meta['cover_path'] = $coverPath;
                 }
             }
         }
 
+        // Ensure private deny marker exists on the static disk (Apache .htaccess).
+        $this->ensurePrivateDenyMarker($diskName, $baseFolder);
+
         return $meta;
     }
 
-    /**
-     * Store an optional album-art image next to the audio file.
-     */
-    protected function storeAudioCover(UploadedFile $cover, string $folder, string $diskName, string $baseUrl): ?string
+    protected function storeAudioCoverPrivate(UploadedFile $cover, string $folder, string $diskName): ?string
     {
         try {
             $path = Storage::disk($diskName)->putFile($folder.'/covers', $cover);
-            if (! $path) {
-                return null;
-            }
 
-            return $baseUrl.'/'.ltrim($path, '/');
+            return $path ?: null;
         } catch (\Throwable $e) {
             return null;
         }
     }
 
     /**
-     * @return array{0:int,1:int}|null
-     */
-    protected function readImageDimensions(UploadedFile $file): ?array
-    {
-        try {
-            $info = @getimagesize($file->getRealPath());
-            if ($info && ! empty($info[0]) && ! empty($info[1])) {
-                return [(int) $info[0], (int) $info[1]];
-            }
-        } catch (\Throwable $e) {
-            // ignore
-        }
-
-        return null;
-    }
-
-    /**
      * Tiny low-quality JPEG used as the pre-download (blurred) preview.
+     * Stored privately (path only, no public URL).
      */
-    protected function storePhotoThumb(UploadedFile $file, string $folder, string $diskName, string $baseUrl): ?string
+    protected function storePhotoThumbPrivate(UploadedFile $file, string $folder, string $diskName): ?string
     {
         if (! function_exists('imagecreatetruecolor')) {
             return null;
@@ -897,12 +920,90 @@ class MessengerService
                 return null;
             }
 
-            return $baseUrl.'/'.ltrim($thumbPath, '/');
+            return $thumbPath;
         } catch (\Throwable $e) {
             Log::warning('messenger.thumb_failed', ['error' => $e->getMessage()]);
 
             return null;
         }
+    }
+
+    /**
+     * Best-effort: drop an Apache deny-all .htaccess under private/ on the static disk.
+     */
+    protected function ensurePrivateDenyMarker(string $diskName, string $privateRoot): void
+    {
+        static $done = [];
+        $key = $diskName.':'.$privateRoot;
+        if (isset($done[$key])) {
+            return;
+        }
+        $done[$key] = true;
+
+        try {
+            $disk = Storage::disk($diskName);
+            $htaccess = trim($privateRoot, '/').'/.htaccess';
+            if (! $disk->exists($htaccess)) {
+                $disk->put($htaccess, "Require all denied\nDeny from all\n");
+            }
+            // Also place nginx snippet note for operators (non-executable).
+            $note = trim($privateRoot, '/').'/README.PRIVATE.txt';
+            if (! $disk->exists($note)) {
+                $disk->put($note, "This folder must not be publicly web-accessible.\n"
+                    ."Nginx: location ^~ /private/ { deny all; return 403; }\n"
+                    ."Apache: .htaccess Deny from all (auto-created).\n"
+                    ."Clients must use authenticated GET /api/messenger/media/{id}.\n");
+            }
+        } catch (\Throwable $e) {
+            // Non-fatal — deploy config is the real enforcement.
+        }
+    }
+
+    /**
+     * @deprecated Kept for wallpaper uploads that still need a public URL temporarily.
+     */
+    protected function storeAudioCover(UploadedFile $cover, string $folder, string $diskName, string $baseUrl): ?string
+    {
+        try {
+            $path = Storage::disk($diskName)->putFile($folder.'/covers', $cover);
+            if (! $path) {
+                return null;
+            }
+
+            return $baseUrl.'/'.ltrim($path, '/');
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * @return array{0:int,1:int}|null
+     */
+    protected function readImageDimensions(UploadedFile $file): ?array
+    {
+        try {
+            $info = @getimagesize($file->getRealPath());
+            if ($info && ! empty($info[0]) && ! empty($info[1])) {
+                return [(int) $info[0], (int) $info[1]];
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        return null;
+    }
+
+    /**
+     * @deprecated Use storePhotoThumbPrivate for chat media.
+     */
+    protected function storePhotoThumb(UploadedFile $file, string $folder, string $diskName, string $baseUrl): ?string
+    {
+        $path = $this->storePhotoThumbPrivate($file, $folder, $diskName);
+        if (! $path) {
+            return null;
+        }
+
+        return rtrim($baseUrl, '/').'/'.ltrim($path, '/');
     }
 
     /**
@@ -1068,8 +1169,16 @@ class MessengerService
 
         return DB::transaction(function () use ($user, $messageIds, $target, $dropAuthor, $sources) {
             $created = [];
+            $crypto = app(MessengerCryptoService::class);
             foreach ($messageIds as $messageId) {
                 $source = $sources->get((int) $messageId);
+
+                if (! empty($source->is_encrypted) || ! empty(($source->meta['encrypted'] ?? false))) {
+                    throw new \InvalidArgumentException(
+                        'Encrypted messages must be re-encrypted on the client before forwarding'
+                    );
+                }
+
                 // When $dropAuthor is true we forward "without quote": the
                 // message is re-sent as if authored by the forwarder.
                 if ($dropAuthor) {
@@ -1096,6 +1205,11 @@ class MessengerService
                 } elseif (in_array($sourceType, Message::MEDIA_TYPES, true)) {
                     $srcMeta = is_array($source->meta) ? $source->meta : [];
                     $mediaMeta = array_filter([
+                        'disk' => $srcMeta['disk'] ?? null,
+                        'path' => $srcMeta['path'] ?? null,
+                        'thumb_path' => $srcMeta['thumb_path'] ?? null,
+                        'cover_path' => $srcMeta['cover_path'] ?? null,
+                        'private' => $srcMeta['private'] ?? true,
                         'url' => $srcMeta['url'] ?? null,
                         'thumb_url' => $srcMeta['thumb_url'] ?? null,
                         'mime' => $srcMeta['mime'] ?? null,
@@ -1107,6 +1221,13 @@ class MessengerService
                         'duration' => $srcMeta['duration'] ?? null,
                     ], fn ($v) => $v !== null && $v !== '');
                     $options['meta'] = array_merge($options['meta'] ?? [], $mediaMeta);
+                }
+
+                // Server-side forward only works into non-E2E targets (public channels).
+                if ($crypto->conversationShouldEncrypt($target)) {
+                    throw new \InvalidArgumentException(
+                        'Forwarding into encrypted chats must be done client-side'
+                    );
                 }
 
                 $created[] = $this->sendMessage($user, $target, $source->body ?? '', null, $options);
@@ -1152,7 +1273,7 @@ class MessengerService
         ]);
     }
 
-    public function editMessage(User $user, Message $message, string $body): Message
+    public function editMessage(User $user, Message $message, string $body, array $options = []): Message
     {
         $message = $this->visibleMessageOrFail($user, $message->id);
         $conversation = $message->conversation;
@@ -1167,20 +1288,37 @@ class MessengerService
 
         $this->groups()->assertCanEdit($user, $conversation, $message);
 
-        $body = trim($body);
+        $isEncrypted = ! empty($options['is_encrypted']) || ! empty($message->is_encrypted);
+        if ($isEncrypted && empty($options['is_encrypted'])) {
+            throw new \InvalidArgumentException('Encrypted messages must be edited with ciphertext');
+        }
+
+        $body = $isEncrypted ? (string) $body : trim($body);
         if ($body === '' && ! $message->isMedia()) {
             throw new \InvalidArgumentException('Message body cannot be empty');
         }
 
-        $mentions = $conversation->isCommunity()
-            ? $this->groups()->parseMentions($body)
-            : null;
+        $mentions = null;
+        if (! $isEncrypted && $conversation->isCommunity()) {
+            $mentions = $this->groups()->parseMentions($body);
+        }
 
-        $message->update([
+        $update = [
             'body' => $body,
             'edited_at' => now(),
             'mentions' => $mentions,
-        ]);
+        ];
+        if ($isEncrypted) {
+            $update['is_encrypted'] = true;
+            if (! empty($options['e2e'])) {
+                $update['e2e'] = $options['e2e'];
+            }
+            if (! empty($options['sender_device_id'])) {
+                $update['sender_device_id'] = $options['sender_device_id'];
+            }
+        }
+
+        $message->update($update);
 
         $message->load($this->messageRelations($user));
 
@@ -1829,19 +1967,27 @@ class MessengerService
 
     public function uploadWallpaper(User $user, UploadedFile $file): MessengerWallpaper
     {
-        $meta = $this->storeMediaFile($file, Message::TYPE_PHOTO);
-        $path = parse_url($meta['url'] ?? '', PHP_URL_PATH) ?: '';
-        $path = ltrim((string) $path, '/');
+        $diskName = config('messenger.media.disk', 'static');
+        $folder = 'images/messenger/wallpapers/'.date('Y/m/d');
+        $path = Storage::disk($diskName)->putFile($folder, $file);
+        if (! $path) {
+            throw new \RuntimeException('Failed to store wallpaper');
+        }
+        $baseUrl = rtrim((string) config("filesystems.disks.{$diskName}.url", ''), '/');
+        $url = $baseUrl.'/'.ltrim($path, '/');
+        $dims = $this->readImageDimensions($file);
+        $thumbPath = $this->storePhotoThumbPrivate($file, $folder, $diskName);
+        $thumbUrl = $thumbPath ? $baseUrl.'/'.ltrim($thumbPath, '/') : null;
 
         return MessengerWallpaper::create([
             'user_id' => $user->id,
             'path' => mb_substr($path, 0, 500),
-            'url' => $meta['url'],
-            'thumb_url' => $meta['thumb_url'] ?? null,
-            'mime' => $meta['mime'] ?? null,
-            'size' => (int) ($meta['size'] ?? 0),
-            'width' => isset($meta['width']) ? (int) $meta['width'] : null,
-            'height' => isset($meta['height']) ? (int) $meta['height'] : null,
+            'url' => $url,
+            'thumb_url' => $thumbUrl,
+            'mime' => $file->getMimeType() ?: 'image/jpeg',
+            'size' => (int) $file->getSize(),
+            'width' => $dims[0] ?? null,
+            'height' => $dims[1] ?? null,
         ]);
     }
 
@@ -2272,6 +2418,9 @@ class MessengerService
             'client_id' => $row['client_id'] ?? null,
             'body' => $row['body'] ?? '',
             'type' => $row['type'] ?? 'text',
+            'is_encrypted' => (bool) ($row['is_encrypted'] ?? false),
+            'sender_device_id' => $row['sender_device_id'] ?? null,
+            'e2e' => $row['e2e'] ?? null,
             'reply_to_id' => $row['reply_to_id'] ?? null,
             'reply_show_title' => (bool) ($row['reply_show_title'] ?? true),
             'forwarded_from_user_id' => $row['forwarded_from_user_id'] ?? null,

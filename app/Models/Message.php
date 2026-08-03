@@ -43,6 +43,9 @@ class Message extends Model
         'client_id',
         'body',
         'type',
+        'is_encrypted',
+        'sender_device_id',
+        'e2e',
         'is_silent',
         'scheduled_at',
         'auto_delete_at',
@@ -67,8 +70,10 @@ class Message extends Model
         'auto_delete_at' => 'datetime',
         'reply_show_title' => 'boolean',
         'is_silent' => 'boolean',
+        'is_encrypted' => 'boolean',
         'mentions' => 'array',
         'meta' => 'array',
+        'e2e' => 'array',
     ];
 
     /**
