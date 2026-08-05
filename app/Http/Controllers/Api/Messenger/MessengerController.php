@@ -296,6 +296,8 @@ class MessengerController extends Controller
             'meta.lat' => 'required_if:type,location|numeric|between:-90,90',
             'meta.lng' => 'required_if:type,location|numeric|between:-180,180',
             'meta.accuracy' => 'sometimes|nullable|numeric|min:0',
+            'meta.fwd_chat' => 'sometimes|nullable|array',
+            'meta.fwd_message_id' => 'sometimes|nullable|integer',
             'is_encrypted' => 'sometimes|boolean',
             'sender_device_id' => 'required_if:is_encrypted,true|nullable|string|max:64',
             'e2e' => 'sometimes|nullable|array',
@@ -312,11 +314,16 @@ class MessengerController extends Controller
             'e2e.wraps.*.sap' => 'required_with:e2e.wraps|string|max:512',
             'mention_ids' => 'sometimes|array|max:50',
             'mention_ids.*' => 'integer|min:1',
+            'forwarded_from_user_id' => 'sometimes|nullable|integer|min:1',
+            'forward_from_message_id' => 'sometimes|nullable|integer|min:1',
+            'drop_author' => 'sometimes|boolean',
         ]);
 
         $type = $request->input('type', 'text');
         $meta = $request->input('meta');
         $isEncrypted = $request->boolean('is_encrypted');
+        $forwardFromId = $request->input('forward_from_message_id');
+
         if ($type === 'location' && is_array($meta) && ! $isEncrypted) {
             $meta = [
                 'lat' => round((float) $meta['lat'], 6),
@@ -324,9 +331,58 @@ class MessengerController extends Controller
                 'accuracy' => isset($meta['accuracy']) ? round((float) $meta['accuracy'], 1) : null,
             ];
         }
-        if ($isEncrypted) {
-            // Location coordinates live inside ciphertext; strip clear meta.
-            $meta = is_array($meta) ? array_intersect_key($meta, array_flip(['album_id', 'album_index', 'album_count', 'silent', 'animation'])) : null;
+        if ($isEncrypted && is_array($meta)) {
+            // Only non-sensitive clear fields may ride alongside ciphertext.
+            $meta = array_intersect_key($meta, array_flip([
+                'album_id', 'album_index', 'album_count', 'silent', 'animation',
+                'fwd_chat', 'fwd_message_id', 'post_author',
+            ]));
+            if ($meta === []) {
+                $meta = null;
+            }
+        } elseif ($isEncrypted) {
+            $meta = null;
+        }
+
+        // Referenced media forward reuses storage paths — no multipart upload.
+        if ($forwardFromId) {
+            $body = (string) $request->input('body', '');
+            $maxLen = $isEncrypted
+                ? (int) config('messenger.e2e.max_ciphertext_length', 65536)
+                : ($this->systemConfig->int('max_message_length') ?: (int) config('messenger.max_message_length', 5000));
+            if (mb_strlen($body) > $maxLen) {
+                return response()->json(['message' => "Message exceeds maximum length of {$maxLen} characters"], 422);
+            }
+
+            try {
+                $message = $this->messenger->sendReferencedForward(
+                    $request->user(),
+                    $conversation,
+                    (int) $forwardFromId,
+                    $body,
+                    $request->input('client_id'),
+                    [
+                        'reply_to_id' => $request->input('reply_to_id'),
+                        'reply_show_title' => $request->boolean('reply_show_title', true),
+                        'is_encrypted' => $isEncrypted,
+                        'sender_device_id' => $request->input('sender_device_id'),
+                        'e2e' => $request->input('e2e'),
+                        'forwarded_from_user_id' => $request->boolean('drop_author')
+                            ? null
+                            : $request->input('forwarded_from_user_id'),
+                        'drop_author' => $request->boolean('drop_author'),
+                        'meta' => $meta,
+                    ]
+                );
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            } catch (ModelNotFoundException $e) {
+                return response()->json(['message' => 'Message not found'], 404);
+            } catch (\RuntimeException $e) {
+                return response()->json(['message' => $e->getMessage()], 403);
+            }
+
+            return response()->json(new MessageResource($message), 201);
         }
 
         // Plain JSON send is for text/location only. Media must use /media (multipart).
@@ -365,6 +421,9 @@ class MessengerController extends Controller
                     'sender_device_id' => $request->input('sender_device_id'),
                     'e2e' => $request->input('e2e'),
                     'mention_ids' => $request->input('mention_ids'),
+                    'forwarded_from_user_id' => $request->boolean('drop_author')
+                        ? null
+                        : $request->input('forwarded_from_user_id'),
                 ]
             );
         } catch (\InvalidArgumentException $e) {
@@ -438,6 +497,11 @@ class MessengerController extends Controller
             'sender_device_id' => 'required_if:is_encrypted,true|nullable|string|max:64',
             'e2e' => 'sometimes|nullable',
             'encrypted' => 'sometimes|boolean',
+            'forwarded_from_user_id' => 'sometimes|nullable|integer|min:1',
+            'drop_author' => 'sometimes|boolean',
+            'meta' => 'sometimes|nullable|array',
+            'meta.fwd_chat' => 'sometimes|nullable|array',
+            'meta.fwd_message_id' => 'sometimes|nullable|integer',
         ]);
 
         $file = $request->file('file');
@@ -446,6 +510,16 @@ class MessengerController extends Controller
         if (is_string($e2e)) {
             $decoded = json_decode($e2e, true);
             $e2e = is_array($decoded) ? $decoded : null;
+        }
+
+        $fwdMeta = [];
+        $rawMeta = $request->input('meta');
+        if (is_string($rawMeta)) {
+            $decodedMeta = json_decode($rawMeta, true);
+            $rawMeta = is_array($decodedMeta) ? $decodedMeta : null;
+        }
+        if (is_array($rawMeta)) {
+            $fwdMeta = array_intersect_key($rawMeta, array_flip(['fwd_chat', 'fwd_message_id', 'post_author']));
         }
 
         try {
@@ -501,6 +575,10 @@ class MessengerController extends Controller
                     'encrypted' => $isEncrypted,
                     'sender_device_id' => $request->input('sender_device_id'),
                     'e2e' => $e2e,
+                    'forwarded_from_user_id' => $request->boolean('drop_author')
+                        ? null
+                        : $request->input('forwarded_from_user_id'),
+                    'meta' => $fwdMeta ?: null,
                 ]
             );
         } catch (\InvalidArgumentException $e) {
@@ -800,6 +878,23 @@ class MessengerController extends Controller
             'enter_to_send' => 'sometimes|boolean',
             'quote_with_title' => 'sometimes|boolean',
             'forward_tap_to_chat' => 'sometimes|boolean',
+            'auto_download' => 'sometimes|array',
+            'auto_download.private' => 'sometimes|array',
+            'auto_download.groups' => 'sometimes|array',
+            'auto_download.channels' => 'sometimes|array',
+            'auto_download.*.photos' => 'sometimes|boolean',
+            'auto_download.*.videos' => 'sometimes|boolean',
+            'auto_download.*.files' => 'sometimes|boolean',
+            'auto_download.*.voice' => 'sometimes|boolean',
+            'auto_download.*.audio' => 'sometimes|boolean',
+            'auto_play' => 'sometimes|array',
+            'auto_play.gifs' => 'sometimes|boolean',
+            'auto_play.videos' => 'sometimes|boolean',
+            'auto_download_photos' => 'sometimes|boolean',
+            'auto_download_videos' => 'sometimes|boolean',
+            'auto_download_files' => 'sometimes|boolean',
+            'auto_download_voice' => 'sometimes|boolean',
+            'auto_download_audio' => 'sometimes|boolean',
             'wallpaper' => 'sometimes|nullable|string|max:40',
             'wallpaper_config' => 'sometimes|nullable|array',
             'wallpaper_config.type' => 'sometimes|string|in:pattern,image,custom',
@@ -901,10 +996,22 @@ class MessengerController extends Controller
 
     private function settingsPayload(\App\Models\MessengerSetting $settings): array
     {
+        $autoDownload = $settings->resolvedAutoDownload();
+        $autoPlay = $settings->resolvedAutoPlay();
+        $private = $autoDownload['private'] ?? [];
+
         return [
             'enter_to_send' => $settings->enter_to_send,
             'quote_with_title' => $settings->quote_with_title,
             'forward_tap_to_chat' => $settings->forward_tap_to_chat,
+            'auto_download' => $autoDownload,
+            'auto_play' => $autoPlay,
+            // Legacy flat keys (private-chat prefs) for older clients.
+            'auto_download_photos' => (bool) ($private['photos'] ?? false),
+            'auto_download_videos' => (bool) ($private['videos'] ?? false),
+            'auto_download_files' => (bool) ($private['files'] ?? false),
+            'auto_download_voice' => (bool) ($private['voice'] ?? false),
+            'auto_download_audio' => (bool) ($private['audio'] ?? false),
             'wallpaper' => $settings->wallpaper,
             'wallpaper_config' => $settings->wallpaper_config,
             'theme' => $settings->theme,

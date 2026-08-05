@@ -698,9 +698,9 @@ class MessengerService
             $conversation->forceFill(['is_encrypted' => true])->save();
         }
 
-        // Hot Redis path is for plain text only; location/media/encrypted go durable
-        // so meta/e2e fields are persisted reliably.
-        if ($this->outbox->isActive() && $msgType === 'text' && ! $isEncrypted) {
+        // Hot Redis path for text (including E2E ciphertext). Media/location stay
+        // durable so file meta is written with the row. Outbox flush persists e2e.
+        if ($this->outbox->isActive() && $msgType === 'text') {
             $message = $this->sendMessageHot($user, $conversation, $attributes);
         } else {
             $message = $this->sendMessageDurable($user, $conversation, $attributes);
@@ -1235,6 +1235,91 @@ class MessengerService
 
             return $created;
         });
+    }
+
+    /**
+     * Create a message that reuses another message's media storage paths
+     * (no re-upload). Used by client-side E2E forwards: same ciphertext blob,
+     * new conversation-key envelope. Source must be visible to the forwarder.
+     */
+    public function sendReferencedForward(
+        User $user,
+        Conversation $target,
+        int $sourceMessageId,
+        string $body = '',
+        ?string $clientId = null,
+        array $options = []
+    ): Message {
+        $this->assertParticipant($user, $target);
+        $this->assertNotBlocked($user, $target);
+
+        $source = Message::query()
+            ->visibleTo($user)
+            ->whereKey($sourceMessageId)
+            ->with('conversation')
+            ->firstOrFail();
+
+        $sourceType = $source->type ?: 'text';
+        if (! in_array($sourceType, Message::MEDIA_TYPES, true)) {
+            throw new \InvalidArgumentException('Only media messages can be forwarded by reference');
+        }
+
+        $srcMeta = is_array($source->meta) ? $source->meta : [];
+        if (empty($srcMeta['path']) && empty($srcMeta['url'])) {
+            throw new \InvalidArgumentException('Source media has no storage path');
+        }
+
+        $srcEncrypted = ! empty($source->is_encrypted) || ! empty($srcMeta['encrypted']);
+        $dstEncrypted = ! empty($options['is_encrypted']);
+
+        // Ciphertext and plaintext blobs are not interchangeable.
+        if ($srcEncrypted !== $dstEncrypted) {
+            throw new \InvalidArgumentException(
+                'Referenced media forward requires matching encryption mode on source and target'
+            );
+        }
+
+        $mediaMeta = array_filter([
+            'disk' => $srcMeta['disk'] ?? null,
+            'path' => $srcMeta['path'] ?? null,
+            'thumb_path' => $srcMeta['thumb_path'] ?? null,
+            'cover_path' => $srcMeta['cover_path'] ?? null,
+            'private' => $srcMeta['private'] ?? true,
+            'encrypted' => $dstEncrypted ? true : ($srcMeta['encrypted'] ?? null),
+            'mime' => $dstEncrypted ? 'application/octet-stream' : ($srcMeta['mime'] ?? null),
+            'size' => $srcMeta['size'] ?? null,
+            'name' => $dstEncrypted ? null : ($srcMeta['name'] ?? null),
+            'ext' => $dstEncrypted ? 'bin' : ($srcMeta['ext'] ?? null),
+            'width' => $srcMeta['width'] ?? null,
+            'height' => $srcMeta['height'] ?? null,
+            'duration' => $srcMeta['duration'] ?? null,
+            'silent' => $srcMeta['silent'] ?? null,
+            'animation' => $srcMeta['animation'] ?? null,
+        ], fn ($v) => $v !== null && $v !== '');
+
+        // Clear attribution fields from the client (fwd_chat) + media paths.
+        $clientMeta = is_array($options['meta'] ?? null) ? $options['meta'] : [];
+        $fwdMeta = array_intersect_key($clientMeta, array_flip(['fwd_chat', 'fwd_message_id', 'post_author']));
+        if (empty($options['drop_author'])) {
+            if (empty($fwdMeta)) {
+                $fwdMeta = $this->buildForwardMeta($source);
+            }
+            if (empty($options['forwarded_from_user_id'])) {
+                $options['forwarded_from_user_id'] = $source->forwarded_from_user_id ?: $source->user_id;
+            }
+        } else {
+            $options['forwarded_from_user_id'] = null;
+            $fwdMeta = [];
+        }
+
+        $merged = array_merge($fwdMeta, $mediaMeta);
+
+        return $this->sendMessage($user, $target, $body, $clientId, array_merge($options, [
+            'type' => $sourceType,
+            'meta' => $merged,
+            'is_encrypted' => $dstEncrypted,
+            'encrypted' => $dstEncrypted,
+        ]));
     }
 
     /**
@@ -1851,12 +1936,17 @@ class MessengerService
             return new Collection;
         }
 
+        $mobileVariants = $this->mobileLookupVariants($query);
+
         return User::where('id', '!=', $user->id)
             ->where('active', true)
-            ->where(function ($q) use ($query) {
+            ->where(function ($q) use ($query, $mobileVariants) {
                 $q->where('first_name', 'like', "%{$query}%")
                     ->orWhere('last_name', 'like', "%{$query}%")
                     ->orWhere('username', 'like', "%{$query}%");
+                if ($mobileVariants !== []) {
+                    $q->orWhereIn('mobile', $mobileVariants);
+                }
             })
             ->select('id', 'first_name', 'last_name', 'username', 'profile_pic', 'last_seen')
             ->with('messengerSettings')
@@ -2253,10 +2343,36 @@ class MessengerService
             'show_last_seen' => (bool) $settings->show_last_seen,
         ];
 
-        $settings->update(array_intersect_key($data, array_flip([
-            'enter_to_send', 'quote_with_title', 'forward_tap_to_chat', 'wallpaper', 'wallpaper_config',
+        $payload = array_intersect_key($data, array_flip([
+            'enter_to_send', 'quote_with_title', 'forward_tap_to_chat',
+            'auto_download_photos', 'auto_download_videos', 'auto_download_files',
+            'auto_download_voice', 'auto_download_audio',
+            'wallpaper', 'wallpaper_config',
             'theme', 'locale', 'show_online', 'show_last_seen', 'show_phone', 'show_email',
-        ])));
+        ]));
+
+        if (isset($data['auto_download']) && is_array($data['auto_download'])) {
+            $payload['auto_download'] = \App\Models\MessengerSetting::mergeAutoDownload(
+                is_array($settings->auto_download) ? $settings->auto_download : null,
+                $data['auto_download']
+            );
+            // Keep legacy flat columns in sync with private-chat prefs.
+            $private = $payload['auto_download']['private'] ?? [];
+            $payload['auto_download_photos'] = (bool) ($private['photos'] ?? false);
+            $payload['auto_download_videos'] = (bool) ($private['videos'] ?? false);
+            $payload['auto_download_files'] = (bool) ($private['files'] ?? false);
+            $payload['auto_download_voice'] = (bool) ($private['voice'] ?? false);
+            $payload['auto_download_audio'] = (bool) ($private['audio'] ?? false);
+        }
+
+        if (isset($data['auto_play']) && is_array($data['auto_play'])) {
+            $payload['auto_play'] = \App\Models\MessengerSetting::mergeAutoPlay(
+                is_array($settings->auto_play) ? $settings->auto_play : null,
+                $data['auto_play']
+            );
+        }
+
+        $settings->update($payload);
 
         // Privacy preferences that change what *others* see (online state &
         // last seen) must propagate in realtime to everyone in contact.
@@ -2371,13 +2487,49 @@ class MessengerService
     /**
      * Serialize message relations against each recipient's visibility rules so
      * a hidden reply target can never leak through a realtime payload.
+     *
+     * E2E ciphertext (no reply) is identical for every viewer — serialize once
+     * and fan out so send latency stays O(1) DB work instead of O(N) reloads.
      */
     protected function notifyMessageToAllParticipants(
         Conversation $conversation,
         Message $message,
         string $type
     ): void {
-        foreach ($conversation->users()->get() as $recipient) {
+        $recipients = $conversation->users()->get();
+        if ($recipients->isEmpty()) {
+            return;
+        }
+
+        $canSharePayload = (bool) $message->is_encrypted && empty($message->reply_to_id);
+
+        if ($canSharePayload) {
+            $shared = null;
+            if (! $message->exists) {
+                $shared = (new MessageResource($message))->resolve();
+            } else {
+                $author = $recipients->firstWhere('id', $message->user_id) ?: $recipients->first();
+                $loaded = Message::query()
+                    ->whereKey($message->id)
+                    ->with($this->messageRelations($author))
+                    ->first();
+                if ($loaded) {
+                    $shared = (new MessageResource($loaded))->resolve();
+                }
+            }
+
+            if (is_array($shared)) {
+                foreach ($recipients as $recipient) {
+                    $this->emitEvent($recipient->id, $conversation->id, $type, [
+                        'message' => $shared,
+                    ]);
+                }
+
+                return;
+            }
+        }
+
+        foreach ($recipients as $recipient) {
             // Hot-path messages are not in Postgres yet — serialize from the
             // in-memory model (reply visibility already validated for sender).
             if (! $message->exists) {
@@ -2500,13 +2652,15 @@ class MessengerService
             return;
         }
 
-        try {
-            // Flush promptly so /sync, sidebar, and message fetches see new rows
-            // even when the live websocket delivery was missed.
-            $this->outbox->flush(max(5, (int) config('messenger.flush_batch_size', 20)));
-        } catch (\Throwable $e) {
-            Log::warning('Messenger outbox flush failed: '.$e->getMessage());
-        }
+        // Never block the HTTP response on Postgres write-behind — schedule
+        // flush after the client already got 200 (live delivery is Redis/Reverb).
+        dispatch(function () {
+            try {
+                $this->outbox->flush(max(5, (int) config('messenger.flush_batch_size', 20)));
+            } catch (\Throwable $e) {
+                Log::warning('Messenger outbox flush failed: '.$e->getMessage());
+            }
+        })->afterResponse();
     }
 
     /**
@@ -2662,15 +2816,15 @@ class MessengerService
             return null;
         }
 
-        $normalizedMobile = $this->normalizeMobile($identifier);
+        $mobileVariants = $this->mobileLookupVariants($identifier);
 
         return User::query()
             ->where('active', true)
-            ->where(function ($q) use ($identifier, $normalizedMobile) {
+            ->where(function ($q) use ($identifier, $mobileVariants) {
                 $q->where('email', $identifier)
                     ->orWhere('username', ltrim($identifier, '@'));
-                if ($normalizedMobile) {
-                    $q->orWhere('mobile', $normalizedMobile);
+                if ($mobileVariants !== []) {
+                    $q->orWhereIn('mobile', $mobileVariants);
                 }
             })
             ->with('messengerSettings')
@@ -2690,23 +2844,58 @@ class MessengerService
         return null;
     }
 
+    /**
+     * Normalize Iranian mobile inputs to canonical +98XXXXXXXXXX (same as auth).
+     * Accepts +98 / 98 / 0098 / 0 / bare 9xxxxxxxxx and Persian/Arabic digits.
+     */
     protected function normalizeMobile(string $value): ?string
     {
-        $digits = preg_replace('/[^0-9]/', '', $value);
+        $raw = $this->toAsciiDigits(trim($value));
+        $digits = preg_replace('/\D+/', '', $raw);
         if ($digits === null || $digits === '') {
             return null;
         }
-        // Iranian mobile normalization: 0098/+98/98 → 0XXXXXXXXXX
+
         if (str_starts_with($digits, '0098')) {
-            $digits = '0'.substr($digits, 4);
-        } elseif (str_starts_with($digits, '98') && strlen($digits) === 12) {
-            $digits = '0'.substr($digits, 2);
-        }
-        if (strlen($digits) === 10 && $digits[0] === '9') {
-            $digits = '0'.$digits;
+            $digits = substr($digits, 4);
+        } elseif (str_starts_with($digits, '98') && strlen($digits) >= 12) {
+            $digits = substr($digits, 2);
+        } elseif (str_starts_with($digits, '0')) {
+            $digits = substr($digits, 1);
         }
 
-        return preg_match('/^09\d{9}$/', $digits) ? $digits : null;
+        if (strlen($digits) !== 10 || ! preg_match('/^9\d{9}$/', $digits)) {
+            return null;
+        }
+
+        return '+98'.$digits;
+    }
+
+    /** All common DB / input variants for an Iranian mobile (for OR lookups). */
+    protected function mobileLookupVariants(string $value): array
+    {
+        $e164 = $this->normalizeMobile($value);
+        if (! $e164) {
+            return [];
+        }
+        $national = substr($e164, 3); // 9XXXXXXXXX
+
+        return array_values(array_unique([
+            $e164,            // +989123456789
+            '0'.$national,    // 09123456789
+            '98'.$national,   // 989123456789
+            '0098'.$national, // 00989123456789
+            $national,        // 9123456789
+        ]));
+    }
+
+    protected function toAsciiDigits(string $value): string
+    {
+        $persian = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
+        $arabic = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+        $latin = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+
+        return str_replace($arabic, $latin, str_replace($persian, $latin, $value));
     }
 
     /**

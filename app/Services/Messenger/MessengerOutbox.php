@@ -318,6 +318,11 @@ class MessengerOutbox
             'client_id' => $row['client_id'] ?? null,
             'body' => $row['body'],
             'type' => $row['type'] ?? 'text',
+            'is_encrypted' => (bool) ($row['is_encrypted'] ?? false),
+            'sender_device_id' => $row['sender_device_id'] ?? null,
+            'e2e' => isset($row['e2e'])
+                ? (is_string($row['e2e']) ? $row['e2e'] : json_encode($row['e2e']))
+                : null,
             'reply_to_id' => $row['reply_to_id'] ?? null,
             'reply_show_title' => (bool) ($row['reply_show_title'] ?? true),
             'forwarded_from_user_id' => $row['forwarded_from_user_id'] ?? null,
