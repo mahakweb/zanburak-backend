@@ -97,7 +97,7 @@ class ContactController extends Controller
             return response()->json(['message' => 'جستجوی کاربران غیرفعال است.'], 403);
         }
 
-        $request->validate(['q' => 'required|string|min:2|max:100']);
+        $request->validate(['q' => 'required|string|min:3|max:100']);
 
         $users = $this->messenger->searchUsers(
             $request->user(),

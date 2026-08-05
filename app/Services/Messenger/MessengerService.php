@@ -1932,7 +1932,7 @@ class MessengerService
     public function searchUsers(User $user, string $query, int $limit = 10): Collection
     {
         $query = trim($query);
-        if (mb_strlen($query) < 2) {
+        if (mb_strlen($query) < 3) {
             return new Collection;
         }
 
@@ -2291,17 +2291,21 @@ class MessengerService
         }
 
         $type = strtolower((string) ($config['type'] ?? 'pattern'));
-        if (! in_array($type, ['pattern', 'image', 'custom'], true)) {
+        if (! in_array($type, ['pattern', 'image', 'custom', 'neon'], true)) {
             $type = 'pattern';
         }
+
+        $blurMax = $type === 'neon' ? 80 : 40;
 
         $out = [
             'type' => $type,
             'pattern' => mb_substr((string) ($config['pattern'] ?? 'none'), 0, 64),
             'image' => mb_substr((string) ($config['image'] ?? ''), 0, 128),
             'color' => mb_substr((string) ($config['color'] ?? '#f3e7cf'), 0, 20),
+            'glow' => mb_substr((string) ($config['glow'] ?? '#3390ec'), 0, 20),
             'intensity' => max(0, min(100, (int) ($config['intensity'] ?? 46))),
-            'blur' => max(0, min(40, (int) ($config['blur'] ?? 0))),
+            'scale' => max(50, min(200, (int) ($config['scale'] ?? 100))),
+            'blur' => max(0, min($blurMax, (int) ($config['blur'] ?? ($type === 'neon' ? 48 : 0)))),
             'dim' => max(0, min(80, (int) ($config['dim'] ?? 0))),
         ];
 
