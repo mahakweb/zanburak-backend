@@ -19,6 +19,7 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         Route::delete('/crypto/devices/{deviceId}', [MessengerCryptoController::class, 'revokeDevice'])->name('crypto.devices.revoke');
         Route::get('/crypto/conversations/{conversation}/bundles', [MessengerCryptoController::class, 'bundles'])->name('crypto.bundles');
         Route::post('/crypto/conversations/{conversation}/distribute', [MessengerCryptoController::class, 'distribute'])->name('crypto.distribute');
+        Route::post('/crypto/conversations/{conversation}/key-request', [MessengerCryptoController::class, 'requestKey'])->name('crypto.key-request');
         Route::get('/crypto/packages', [MessengerCryptoController::class, 'packages'])->name('crypto.packages');
         Route::post('/crypto/packages/ack', [MessengerCryptoController::class, 'ackPackages'])->name('crypto.packages.ack');
         Route::get('/crypto/safety/{userId}', [MessengerCryptoController::class, 'safetyNumber'])->name('crypto.safety');

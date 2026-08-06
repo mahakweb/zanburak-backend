@@ -125,6 +125,17 @@ class MessengerCryptoController extends Controller
         ]);
     }
 
+    public function requestKey(Request $request, Conversation $conversation): JsonResponse
+    {
+        try {
+            $this->crypto->requestConversationKey($request->user(), $conversation);
+        } catch (\RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 403);
+        }
+
+        return response()->json(['requested' => true]);
+    }
+
     public function packages(Request $request): JsonResponse
     {
         $data = $request->validate([

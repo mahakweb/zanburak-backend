@@ -88,12 +88,33 @@ class MessengerCryptoService
 
         // Sibling devices must redistribute conversation keys so this device
         // can decrypt history (Saved Messages / multi-device private chats).
+        // Also notify peers sharing a conversation so their next send includes
+        // wraps for the new device (avoids «پیام رمزنگاری‌شده» on the new laptop).
         if ($notifySiblings) {
             $this->emitCryptoEvent((int) $user->id, [
                 'type' => 'e2e.device_added',
                 'device_id' => $deviceId,
                 'user_id' => (int) $user->id,
             ]);
+
+            $peerIds = Conversation::query()
+                ->whereHas('users', fn ($q) => $q->where('users.id', $user->id))
+                ->with(['users:id'])
+                ->get()
+                ->flatMap(fn (Conversation $c) => $c->users->pluck('id'))
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->reject(fn ($id) => $id === (int) $user->id)
+                ->values();
+
+            foreach ($peerIds as $peerId) {
+                $this->emitCryptoEvent($peerId, [
+                    'type' => 'e2e.device_added',
+                    'device_id' => $deviceId,
+                    'user_id' => (int) $user->id,
+                    'peer' => true,
+                ]);
+            }
         }
 
         return $result;
@@ -258,6 +279,27 @@ class MessengerCryptoService
         }
 
         return $created;
+    }
+
+    /**
+     * Ask every other participant (all their devices' holders) to redistribute
+     * the conversation key so this device can decrypt locked history.
+     */
+    public function requestConversationKey(User $user, Conversation $conversation): void
+    {
+        $this->assertParticipant($user, $conversation);
+
+        $participants = $conversation->users()->get();
+        foreach ($participants as $participant) {
+            if ((int) $participant->id === (int) $user->id) {
+                // Still notify own siblings — they may hold the key this device lacks.
+            }
+            $this->emitCryptoEvent((int) $participant->id, [
+                'type' => 'e2e.key_request',
+                'conversation_id' => (int) $conversation->id,
+                'requester_user_id' => (int) $user->id,
+            ]);
+        }
     }
 
     public function pullPackages(User $user, string $deviceId, ?int $conversationId = null): array
