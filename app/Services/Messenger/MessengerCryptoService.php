@@ -52,8 +52,15 @@ class MessengerCryptoService
     {
         $deviceId = (string) $payload['device_id'];
         $prekeys = $payload['one_time_prekeys'] ?? [];
+        $notifySiblings = false;
 
-        return DB::transaction(function () use ($user, $payload, $deviceId, $prekeys) {
+        $result = DB::transaction(function () use ($user, $payload, $deviceId, $prekeys, &$notifySiblings) {
+            $wasNew = ! MessengerCryptoDevice::query()
+                ->where('user_id', $user->id)
+                ->where('device_id', $deviceId)
+                ->whereNull('revoked_at')
+                ->exists();
+
             $device = MessengerCryptoDevice::query()->updateOrCreate(
                 [
                     'user_id' => $user->id,
@@ -74,8 +81,22 @@ class MessengerCryptoService
                 $this->replaceOneTimePrekeys($device, $prekeys);
             }
 
+            $notifySiblings = $wasNew || $device->wasRecentlyCreated;
+
             return $device->fresh();
         });
+
+        // Sibling devices must redistribute conversation keys so this device
+        // can decrypt history (Saved Messages / multi-device private chats).
+        if ($notifySiblings) {
+            $this->emitCryptoEvent((int) $user->id, [
+                'type' => 'e2e.device_added',
+                'device_id' => $deviceId,
+                'user_id' => (int) $user->id,
+            ]);
+        }
+
+        return $result;
     }
 
     public function uploadPrekeys(User $user, string $deviceId, array $prekeys): int
@@ -447,13 +468,21 @@ class MessengerCryptoService
     protected function emitCryptoEvent(int $userId, array $payload): void
     {
         $conversationId = isset($payload['conversation_id']) ? (int) $payload['conversation_id'] : null;
+        // Wire event type (dot) may differ from legacy payload.type (underscore).
+        $rawType = (string) ($payload['type'] ?? 'e2e.package');
+        $type = match ($rawType) {
+            'e2e_package', 'e2e.package' => 'e2e.package',
+            'e2e.device_added', 'e2e_device_added' => 'e2e.device_added',
+            'e2e.key_request', 'e2e_key_request' => 'e2e.key_request',
+            default => $rawType,
+        };
 
         if ($this->outbox->isActive()) {
             $this->outbox->enqueue([
                 'op' => 'event.create',
                 'user_id' => $userId,
                 'conversation_id' => $conversationId,
-                'type' => 'e2e.package',
+                'type' => $type,
                 'payload' => $payload,
                 'created_at' => now()->toDateTimeString(),
             ]);
@@ -461,14 +490,14 @@ class MessengerCryptoService
             MessengerEvent::query()->create([
                 'user_id' => $userId,
                 'conversation_id' => $conversationId,
-                'type' => 'e2e.package',
+                'type' => $type,
                 'payload' => $payload,
                 'created_at' => now(),
             ]);
         }
 
         try {
-            broadcast(new MessengerBroadcast($userId, 'e2e.package', $payload, 0));
+            broadcast(new MessengerBroadcast($userId, $type, $payload, 0));
         } catch (\Throwable $e) {
             // Realtime is best-effort; packages remain pullable via API.
         }
