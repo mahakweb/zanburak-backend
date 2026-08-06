@@ -345,6 +345,13 @@ class ProfileController extends Controller
             $updateInfo = $current_user->info()->update($infoData);
 
             if ($updateUser && $updateInfo) {
+                try {
+                    app(\App\Services\Messenger\MessengerService::class)
+                        ->broadcastUserProfileUpdated($current_user->fresh());
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+
                 return response()->json(['message' => 'Success: Data has been updated.'], 200);
             }
 
@@ -407,6 +414,15 @@ class ProfileController extends Controller
 
         $user->update([$userColumn => $defaultPic]);
 
+        if ($userColumn === 'profile_pic') {
+            try {
+                app(\App\Services\Messenger\MessengerService::class)
+                    ->broadcastUserProfileUpdated($user->fresh());
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
         return response()->json([
             'message' => $successMessage,
             $responseKey => $defaultPic,
@@ -456,6 +472,15 @@ class ProfileController extends Controller
             }
 
             $user->update([$userColumn => $newPic]);
+
+            if ($userColumn === 'profile_pic') {
+                try {
+                    app(\App\Services\Messenger\MessengerService::class)
+                        ->broadcastUserProfileUpdated($user->fresh());
+                } catch (\Throwable $e) {
+                    report($e);
+                }
+            }
 
             return response()->json([
                 'message' => $successMessage,

@@ -2489,6 +2489,37 @@ class MessengerService
     }
 
     /**
+     * Push profile field changes to every peer that shares a conversation with
+     * this user (and the user's other devices) so avatars / names update live.
+     */
+    public function broadcastUserProfileUpdated(User $user): void
+    {
+        $payload = [
+            'user_id' => (int) $user->id,
+            'id' => (int) $user->id,
+            'profile_pic' => $user->profile_pic,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'username' => $user->username,
+            'last_seen' => $user->last_seen?->toIso8601String(),
+            'is_online' => true,
+        ];
+
+        $peerIds = Conversation::query()
+            ->whereHas('users', fn ($q) => $q->where('users.id', $user->id))
+            ->with(['users:id'])
+            ->get()
+            ->flatMap(fn (Conversation $c) => $c->users->pluck('id'))
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+
+        foreach ($peerIds as $peerId) {
+            $this->emitEvent($peerId, null, 'user.updated', $payload, false);
+        }
+    }
+
+    /**
      * Serialize message relations against each recipient's visibility rules so
      * a hidden reply target can never leak through a realtime payload.
      *
