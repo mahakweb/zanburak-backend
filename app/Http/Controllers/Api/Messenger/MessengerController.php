@@ -407,6 +407,7 @@ class MessengerController extends Controller
         }
 
         try {
+            $t0 = microtime(true);
             $message = $this->messenger->sendMessage(
                 $request->user(),
                 $conversation,
@@ -426,6 +427,7 @@ class MessengerController extends Controller
                         : $request->input('forwarded_from_user_id'),
                 ]
             );
+            $elapsedMs = (int) round((microtime(true) - $t0) * 1000);
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         } catch (ModelNotFoundException $e) {
@@ -434,7 +436,8 @@ class MessengerController extends Controller
             return response()->json(['message' => $e->getMessage()], 403);
         }
 
-        return response()->json(new MessageResource($message), 201);
+        return response()->json(new MessageResource($message), 201)
+            ->header('X-Messenger-Send-Ms', (string) $elapsedMs);
     }
 
     public function sendMedia(Request $request, Conversation $conversation): JsonResponse

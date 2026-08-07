@@ -182,6 +182,130 @@ class MessengerCryptoController extends Controller
         return response()->json($this->crypto->safetyNumberMaterial($request->user(), $userId));
     }
 
+    public function getUserIdentity(Request $request): JsonResponse
+    {
+        $userId = $request->query('user_id');
+        $material = $this->crypto->getUserIdentity(
+            $request->user(),
+            $userId !== null ? (int) $userId : null
+        );
+
+        return response()->json(['identity' => $material]);
+    }
+
+    public function publishUserIdentity(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'signing_public' => 'required|string|max:4096',
+            'agreement_public' => 'required|string|max:4096',
+            'encrypted_backup' => 'sometimes|nullable|string|max:65536',
+            'backup_salt' => 'sometimes|nullable|string|max:128',
+            'backup_version' => 'sometimes|integer|min:0',
+            'force_reset' => 'sometimes|boolean',
+        ]);
+
+        try {
+            $row = $this->crypto->publishUserIdentity($request->user(), $data);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['identity' => $row->toPublicMaterial()]);
+    }
+
+    public function updateIdentityBackup(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'encrypted_backup' => 'required|string|max:65536',
+            'backup_salt' => 'sometimes|nullable|string|max:128',
+            'backup_version' => 'sometimes|integer|min:0',
+        ]);
+
+        try {
+            $row = $this->crypto->updateIdentityBackup($request->user(), $data);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'identity' => $row->toPublicMaterial(),
+            'has_backup' => true,
+        ]);
+    }
+
+    public function distributeIdentity(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'sender_device_id' => 'required|string|max:64',
+            'packages' => 'required|array|min:1|max:50',
+            'packages.*.recipient_device_id' => 'required|string|max:64',
+            'packages.*.ciphertext' => 'required|string|max:65536',
+        ]);
+
+        try {
+            $count = $this->crypto->distributeIdentityPackages(
+                $request->user(),
+                $data['sender_device_id'],
+                $data['packages']
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['distributed' => $count]);
+    }
+
+    public function identityPackages(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'device_id' => 'required|string|max:64',
+        ]);
+
+        try {
+            $rows = $this->crypto->pullIdentityPackages($request->user(), $data['device_id']);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['packages' => $rows]);
+    }
+
+    public function ackIdentityPackages(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'device_id' => 'required|string|max:64',
+            'ids' => 'required|array|min:1|max:50',
+            'ids.*' => 'integer|min:1',
+        ]);
+
+        try {
+            $n = $this->crypto->ackIdentityPackages(
+                $request->user(),
+                $data['device_id'],
+                $data['ids']
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['acked' => $n]);
+    }
+
+    public function requestIdentity(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'device_id' => 'required|string|max:64',
+        ]);
+
+        try {
+            $this->crypto->requestIdentityTransfer($request->user(), $data['device_id']);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['requested' => true]);
+    }
+
     /**
      * Authenticated media proxy — never expose raw CDN URLs for chat media.
      */

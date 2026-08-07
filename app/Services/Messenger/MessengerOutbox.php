@@ -175,6 +175,118 @@ class MessengerOutbox
     }
 
     /**
+     * Cache active participant user ids for a conversation (membership hot path).
+     *
+     * @param  int[]  $userIds
+     */
+    public function cacheParticipantIds(int $conversationId, array $userIds): void
+    {
+        if (! $this->bus->isAvailable()) {
+            return;
+        }
+
+        try {
+            $key = $this->participantsKey($conversationId);
+            $conn = $this->redis();
+            $conn->del($key);
+            $ids = array_values(array_unique(array_map('intval', $userIds)));
+            if ($ids === []) {
+                return;
+            }
+            $conn->sadd($key, ...array_map('strval', $ids));
+            $conn->expire($key, (int) config('messenger.outbox_ttl', 86400));
+        } catch (\Throwable $e) {
+            Log::debug('Messenger participant cache failed: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * @return int[]|null null when cache miss / Redis off
+     */
+    public function getCachedParticipantIds(int $conversationId): ?array
+    {
+        if (! $this->bus->isAvailable()) {
+            return null;
+        }
+
+        try {
+            $members = $this->redis()->smembers($this->participantsKey($conversationId));
+            if ($members === [] || $members === null) {
+                return null;
+            }
+
+            return array_values(array_map('intval', $members));
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    public function isCachedParticipant(int $conversationId, int $userId): ?bool
+    {
+        if (! $this->bus->isAvailable()) {
+            return null;
+        }
+
+        try {
+            $key = $this->participantsKey($conversationId);
+            if (! $this->redis()->exists($key)) {
+                return null;
+            }
+
+            return (bool) $this->redis()->sismember($key, (string) $userId);
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    public function forgetParticipantCache(int $conversationId): void
+    {
+        if (! $this->bus->isAvailable()) {
+            return;
+        }
+
+        try {
+            $this->redis()->del($this->participantsKey($conversationId));
+        } catch (\Throwable $e) {
+            // ignore
+        }
+    }
+
+    /**
+     * Cached pairwise block check. null = unknown (must hit DB).
+     */
+    public function getCachedBlock(int $userA, int $userB): ?bool
+    {
+        if (! $this->bus->isAvailable()) {
+            return null;
+        }
+
+        try {
+            $val = $this->redis()->get($this->blockKey($userA, $userB));
+            if ($val === null) {
+                return null;
+            }
+
+            return $val === '1';
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    public function cacheBlock(int $userA, int $userB, bool $blocked, int $ttl = 60): void
+    {
+        if (! $this->bus->isAvailable()) {
+            return;
+        }
+
+        try {
+            $this->redis()->setex($this->blockKey($userA, $userB), max(5, $ttl), $blocked ? '1' : '0');
+        } catch (\Throwable $e) {
+            // ignore
+        }
+    }
+
+    /**
      * Pending (not-yet-flushed) messages for a conversation, oldest first.
      *
      * @return array<int, array>
@@ -451,5 +563,18 @@ class MessengerOutbox
     protected function hotConversationKey(int $conversationId): string
     {
         return $this->prefix().":hot:conv:{$conversationId}";
+    }
+
+    protected function participantsKey(int $conversationId): string
+    {
+        return $this->prefix().":participants:{$conversationId}";
+    }
+
+    protected function blockKey(int $userA, int $userB): string
+    {
+        $lo = min($userA, $userB);
+        $hi = max($userA, $userB);
+
+        return $this->prefix().":block:{$lo}:{$hi}";
     }
 }

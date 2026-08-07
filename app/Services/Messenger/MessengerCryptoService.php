@@ -7,7 +7,9 @@ use App\Models\Conversation;
 use App\Models\MessengerCryptoDevice;
 use App\Models\MessengerE2ePackage;
 use App\Models\MessengerEvent;
+use App\Models\MessengerIdentityPackage;
 use App\Models\MessengerOneTimePrekey;
+use App\Models\MessengerUserIdentity;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -163,6 +165,9 @@ class MessengerCryptoService
                 'last_seen_at' => $d->last_seen_at?->toIso8601String(),
                 'created_at' => $d->created_at?->toIso8601String(),
                 'prekey_count' => $d->oneTimePrekeys()->whereNull('consumed_at')->count(),
+                // Device public keys — needed so siblings can wrap User Identity
+                // transfers without opening a conversation.
+                'identity_public_key' => $d->identity_public_key,
             ]);
     }
 
@@ -345,26 +350,264 @@ class MessengerCryptoService
             ->update(['consumed_at' => now()]);
     }
 
+    /**
+     * Safety number material is based on the stable per-user Identity Key,
+     * not per-device keys. Adding a browser/device must not change the code.
+     */
     public function safetyNumberMaterial(User $viewer, int $otherUserId): array
     {
-        $my = MessengerCryptoDevice::query()
-            ->where('user_id', $viewer->id)
-            ->active()
-            ->orderBy('id')
-            ->pluck('identity_public_key')
-            ->all();
+        $local = MessengerUserIdentity::query()->find($viewer->id);
+        $remote = MessengerUserIdentity::query()->find($otherUserId);
 
-        $their = MessengerCryptoDevice::query()
-            ->where('user_id', $otherUserId)
-            ->active()
-            ->orderBy('id')
-            ->pluck('identity_public_key')
-            ->all();
+        // Legacy fallback: older clients that have not published a user identity
+        // yet — prefer the oldest active device agreement key so the code stays
+        // as stable as possible until migration completes.
+        $localKeys = $local
+            ? [$this->encodeUserIdentityPublic($local)]
+            : $this->legacyDeviceIdentityKeys((int) $viewer->id);
+
+        $remoteKeys = $remote
+            ? [$this->encodeUserIdentityPublic($remote)]
+            : $this->legacyDeviceIdentityKeys($otherUserId);
 
         return [
-            'local_identity_keys' => $my,
-            'remote_identity_keys' => $their,
+            'local_identity_keys' => $localKeys,
+            'remote_identity_keys' => $remoteKeys,
+            'local_user_identity' => $local?->toPublicMaterial(),
+            'remote_user_identity' => $remote?->toPublicMaterial(),
+            'uses_user_identity' => (bool) ($local && $remote),
         ];
+    }
+
+    /**
+     * Publish / confirm the account-level User Identity public keys.
+     * First writer wins — subsequent calls may only refresh backup or confirm
+     * the same publics (never silently replace identity).
+     */
+    public function publishUserIdentity(User $user, array $payload): MessengerUserIdentity
+    {
+        $signing = (string) ($payload['signing_public'] ?? '');
+        $agreement = (string) ($payload['agreement_public'] ?? '');
+        if ($signing === '' || $agreement === '') {
+            throw new \InvalidArgumentException('User identity public keys required');
+        }
+
+        $existing = MessengerUserIdentity::query()->find($user->id);
+        if ($existing) {
+            if ($existing->signing_public !== $signing || $existing->agreement_public !== $agreement) {
+                // Allow explicit reset only when client sends force_reset=true
+                // (wipes account encryption identity — Security Code will change).
+                if (empty($payload['force_reset'])) {
+                    throw new \InvalidArgumentException(
+                        'User identity already published; use force_reset to rotate'
+                    );
+                }
+            }
+
+            $existing->forceFill([
+                'signing_public' => $signing,
+                'agreement_public' => $agreement,
+                'encrypted_backup' => array_key_exists('encrypted_backup', $payload)
+                    ? $payload['encrypted_backup']
+                    : $existing->encrypted_backup,
+                'backup_salt' => array_key_exists('backup_salt', $payload)
+                    ? $payload['backup_salt']
+                    : $existing->backup_salt,
+                'backup_version' => array_key_exists('backup_version', $payload)
+                    ? (int) $payload['backup_version']
+                    : $existing->backup_version,
+            ])->save();
+
+            return $existing->fresh();
+        }
+
+        return MessengerUserIdentity::query()->create([
+            'user_id' => $user->id,
+            'signing_public' => $signing,
+            'agreement_public' => $agreement,
+            'encrypted_backup' => $payload['encrypted_backup'] ?? null,
+            'backup_salt' => $payload['backup_salt'] ?? null,
+            'backup_version' => (int) ($payload['backup_version'] ?? 0),
+        ]);
+    }
+
+    public function getUserIdentity(User $viewer, ?int $userId = null): ?array
+    {
+        $targetId = $userId ?: (int) $viewer->id;
+        $row = MessengerUserIdentity::query()->find($targetId);
+        if (! $row) {
+            return null;
+        }
+
+        $out = $row->toPublicMaterial();
+
+        // Encrypted backup is only returned to the identity owner.
+        if ($targetId === (int) $viewer->id) {
+            $out['encrypted_backup'] = $row->encrypted_backup;
+            $out['backup_salt'] = $row->backup_salt;
+        }
+
+        return $out;
+    }
+
+    public function updateIdentityBackup(User $user, array $payload): MessengerUserIdentity
+    {
+        $row = MessengerUserIdentity::query()->find($user->id);
+        if (! $row) {
+            throw new \InvalidArgumentException('Publish user identity before uploading a backup');
+        }
+
+        $row->forceFill([
+            'encrypted_backup' => (string) ($payload['encrypted_backup'] ?? ''),
+            'backup_salt' => isset($payload['backup_salt']) ? (string) $payload['backup_salt'] : $row->backup_salt,
+            'backup_version' => (int) ($payload['backup_version'] ?? ((int) $row->backup_version + 1)),
+        ])->save();
+
+        return $row->fresh();
+    }
+
+    /**
+     * Sibling device → sibling device opaque transfer of User Identity privates.
+     *
+     * @param  array<int, array{recipient_device_id:string,ciphertext:string}>  $packages
+     */
+    public function distributeIdentityPackages(User $sender, string $senderDeviceId, array $packages): int
+    {
+        $this->requireOwnDevice($sender, $senderDeviceId);
+        $created = 0;
+        $notifyDevices = [];
+
+        DB::transaction(function () use ($sender, $senderDeviceId, $packages, &$created, &$notifyDevices) {
+            foreach ($packages as $pkg) {
+                $recipientDeviceId = (string) ($pkg['recipient_device_id'] ?? '');
+                $ciphertext = (string) ($pkg['ciphertext'] ?? '');
+                if ($recipientDeviceId === '' || $ciphertext === '') {
+                    continue;
+                }
+
+                $ok = MessengerCryptoDevice::query()
+                    ->where('user_id', $sender->id)
+                    ->where('device_id', $recipientDeviceId)
+                    ->active()
+                    ->exists();
+                if (! $ok) {
+                    continue;
+                }
+
+                MessengerIdentityPackage::query()->create([
+                    'sender_user_id' => $sender->id,
+                    'sender_device_id' => $senderDeviceId,
+                    'recipient_user_id' => $sender->id,
+                    'recipient_device_id' => $recipientDeviceId,
+                    'ciphertext' => $ciphertext,
+                ]);
+                $created++;
+                $notifyDevices[$recipientDeviceId] = true;
+            }
+        });
+
+        if ($created > 0) {
+            $this->emitCryptoEvent((int) $sender->id, [
+                'type' => 'e2e.identity_package',
+                'count' => $created,
+            ]);
+        }
+
+        return $created;
+    }
+
+    public function pullIdentityPackages(User $user, string $deviceId): array
+    {
+        $this->requireOwnDevice($user, $deviceId);
+
+        $rows = MessengerIdentityPackage::query()
+            ->where('recipient_user_id', $user->id)
+            ->where('recipient_device_id', $deviceId)
+            ->whereNull('consumed_at')
+            ->orderBy('id')
+            ->limit(50)
+            ->get();
+
+        return $rows->map(fn (MessengerIdentityPackage $p) => [
+            'id' => $p->id,
+            'sender_device_id' => $p->sender_device_id,
+            'ciphertext' => $p->ciphertext,
+            'created_at' => $p->created_at?->toIso8601String(),
+        ])->all();
+    }
+
+    public function ackIdentityPackages(User $user, string $deviceId, array $ids): int
+    {
+        $this->requireOwnDevice($user, $deviceId);
+        $ids = array_values(array_filter(array_map('intval', $ids)));
+        if ($ids === []) {
+            return 0;
+        }
+
+        return MessengerIdentityPackage::query()
+            ->where('recipient_user_id', $user->id)
+            ->where('recipient_device_id', $deviceId)
+            ->whereIn('id', $ids)
+            ->whereNull('consumed_at')
+            ->update(['consumed_at' => now()]);
+    }
+
+    /** Ask siblings that hold the User Identity to transfer it to this device. */
+    public function requestIdentityTransfer(User $user, string $deviceId): void
+    {
+        $this->requireOwnDevice($user, $deviceId);
+        $this->emitCryptoEvent((int) $user->id, [
+            'type' => 'e2e.identity_request',
+            'device_id' => $deviceId,
+            'user_id' => (int) $user->id,
+        ]);
+    }
+
+    /**
+     * Notify participants that group/channel membership changed and they should
+     * rotate the conversation key (forward secrecy for future messages).
+     * Only the initiator's devices mint a new kid; everyone else pulls packages.
+     */
+    public function notifyKeyRotationNeeded(
+        Conversation $conversation,
+        string $reason = 'membership',
+        ?int $initiatorUserId = null
+    ): void {
+        if (! $this->conversationShouldEncrypt($conversation)) {
+            return;
+        }
+
+        $participants = $conversation->users()
+            ->whereNull('conversation_user.deleted_at')
+            ->pluck('users.id');
+
+        foreach ($participants as $uid) {
+            $this->emitCryptoEvent((int) $uid, [
+                'type' => 'e2e.key_rotate',
+                'conversation_id' => (int) $conversation->id,
+                'reason' => $reason,
+                'initiator_user_id' => $initiatorUserId,
+            ]);
+        }
+    }
+
+    protected function encodeUserIdentityPublic(MessengerUserIdentity $row): string
+    {
+        return json_encode([
+            'signing' => $row->signing_public,
+            'agreement' => $row->agreement_public,
+        ], JSON_UNESCAPED_SLASHES);
+    }
+
+    /** @return string[] */
+    protected function legacyDeviceIdentityKeys(int $userId): array
+    {
+        return MessengerCryptoDevice::query()
+            ->where('user_id', $userId)
+            ->active()
+            ->orderBy('id')
+            ->pluck('identity_public_key')
+            ->all();
     }
 
     protected function replaceOneTimePrekeys(MessengerCryptoDevice $device, array $prekeys, bool $replaceAll = true): void
@@ -516,6 +759,9 @@ class MessengerCryptoService
             'e2e_package', 'e2e.package' => 'e2e.package',
             'e2e.device_added', 'e2e_device_added' => 'e2e.device_added',
             'e2e.key_request', 'e2e_key_request' => 'e2e.key_request',
+            'e2e.identity_package', 'e2e_identity_package' => 'e2e.identity_package',
+            'e2e.identity_request', 'e2e_identity_request' => 'e2e.identity_request',
+            'e2e.key_rotate', 'e2e_key_rotate' => 'e2e.key_rotate',
             default => $rawType,
         };
 

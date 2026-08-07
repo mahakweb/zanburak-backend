@@ -23,6 +23,13 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         Route::get('/crypto/packages', [MessengerCryptoController::class, 'packages'])->name('crypto.packages');
         Route::post('/crypto/packages/ack', [MessengerCryptoController::class, 'ackPackages'])->name('crypto.packages.ack');
         Route::get('/crypto/safety/{userId}', [MessengerCryptoController::class, 'safetyNumber'])->name('crypto.safety');
+        Route::get('/crypto/identity', [MessengerCryptoController::class, 'getUserIdentity'])->name('crypto.identity.show');
+        Route::post('/crypto/identity', [MessengerCryptoController::class, 'publishUserIdentity'])->name('crypto.identity.publish');
+        Route::put('/crypto/identity/backup', [MessengerCryptoController::class, 'updateIdentityBackup'])->name('crypto.identity.backup');
+        Route::post('/crypto/identity/distribute', [MessengerCryptoController::class, 'distributeIdentity'])->name('crypto.identity.distribute');
+        Route::get('/crypto/identity/packages', [MessengerCryptoController::class, 'identityPackages'])->name('crypto.identity.packages');
+        Route::post('/crypto/identity/packages/ack', [MessengerCryptoController::class, 'ackIdentityPackages'])->name('crypto.identity.ack');
+        Route::post('/crypto/identity/request', [MessengerCryptoController::class, 'requestIdentity'])->name('crypto.identity.request');
         Route::get('/media/{message}', [MessengerCryptoController::class, 'streamMedia'])->name('media.stream');
 
         // Conversations

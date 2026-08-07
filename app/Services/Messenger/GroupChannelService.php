@@ -26,7 +26,8 @@ class GroupChannelService
 {
     public function __construct(
         protected MessengerService $messenger,
-        protected GroupPermissionService $permissions
+        protected GroupPermissionService $permissions,
+        protected MessengerCryptoService $crypto
     ) {}
 
     // -------------------------------------------------------------------------
@@ -390,6 +391,7 @@ class GroupChannelService
 
         $conversation = $this->loadCommunity($conversation->fresh(), $actor);
         $this->broadcastConversationUpdated($conversation);
+        $this->crypto->notifyKeyRotationNeeded($conversation, 'member_added', (int) $actor->id);
 
         return $conversation;
     }
@@ -649,6 +651,23 @@ class GroupChannelService
         $this->messenger->emitEvent($user->id, $conversation->id, 'conversation.deleted', [
             'conversation_id' => $conversation->id,
         ]);
+
+        // Leaver cannot distribute a new key — ask a remaining member to rotate.
+        $remainingId = DB::table('conversation_user')
+            ->where('conversation_id', $conversation->id)
+            ->whereNull('deleted_at')
+            ->where(function ($q) {
+                $q->where('is_active', true)->orWhereNull('is_active');
+            })
+            ->orderBy('user_id')
+            ->value('user_id');
+        if ($remainingId) {
+            $this->crypto->notifyKeyRotationNeeded(
+                $conversation->fresh(),
+                'member_left',
+                (int) $remainingId
+            );
+        }
     }
 
     public function kick(User $actor, Conversation $conversation, int $userId, ?string $reason = null): void
@@ -680,6 +699,7 @@ class GroupChannelService
         $this->messenger->emitEvent($userId, $conversation->id, 'conversation.deleted', [
             'conversation_id' => $conversation->id,
         ]);
+        $this->crypto->notifyKeyRotationNeeded($conversation->fresh(), 'member_kicked', (int) $actor->id);
     }
 
     // -------------------------------------------------------------------------

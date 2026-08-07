@@ -17,13 +17,25 @@ return [
     */
 
     'redis' => [
-        'enabled' => env('MESSENGER_REDIS', false),
+        'enabled' => env('MESSENGER_REDIS', true),
         'connection' => env('MESSENGER_REDIS_CONNECTION', 'default'),
         'prefix' => env('MESSENGER_REDIS_PREFIX', 'messenger'),
     ],
 
     // Redis-first send/read/delivered when Redis is available.
     'hot_path' => (bool) env('MESSENGER_HOT_PATH', true),
+
+    /*
+    |--------------------------------------------------------------------------
+    | WebSocket peer relay (Reverb client events)
+    |--------------------------------------------------------------------------
+    |
+    | Text messages are whispered on private-conversation.{id} so online peers
+    | receive ciphertext without a PHP hop. Durable id + multi-device fan-out
+    | still use the Redis outbox + messenger.{userId} broadcasts.
+    |
+    */
+    'ws_peer_relay' => (bool) env('MESSENGER_WS_PEER_RELAY', true),
 
     // Flush outbox when this many pending ops accumulate (also scheduled).
     'flush_batch_size' => (int) env('MESSENGER_FLUSH_BATCH', 20),

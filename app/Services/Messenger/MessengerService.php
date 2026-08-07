@@ -106,6 +106,14 @@ class MessengerService
         $recentLimit = (int) config('messenger.recent_messages_in_list', 50);
 
         foreach ($paginator->getCollection() as $conversation) {
+            // Warm Redis membership for WS auth + DB-free sends.
+            if ($conversation->relationLoaded('users')) {
+                $this->outbox->cacheParticipantIds(
+                    (int) $conversation->id,
+                    $conversation->users->pluck('id')->map(fn ($id) => (int) $id)->all()
+                );
+            }
+
             $latest = $latestByConversation->get($conversation->id);
             $recent = $this->recentMessagesFor($user, $conversation, $recentLimit);
 
@@ -273,6 +281,7 @@ class MessengerService
                 'users.messengerSettings',
             ]);
             $existing->setRelation('lastMessage', $this->lastVisibleMessageFor($me, $existing));
+            $this->warmParticipantCache($existing);
 
             return $existing;
         }
@@ -281,10 +290,13 @@ class MessengerService
             $conversation = Conversation::create(['type' => 'saved']);
             $conversation->users()->attach([$me->id]);
 
-            return $conversation->load([
+            $conversation->load([
                 'users:id,first_name,last_name,username,profile_pic,last_seen',
                 'users.messengerSettings',
             ]);
+            $this->warmParticipantCache($conversation);
+
+            return $conversation;
         });
     }
 
@@ -619,7 +631,7 @@ class MessengerService
             throw new \InvalidArgumentException('Replies are disabled in channels');
         }
 
-        // Idempotent send via client_id (Redis cache first, then DB)
+        // Idempotent send via client_id (Redis first; DB only on cold/durable path)
         if ($clientId) {
             if ($this->outbox->isActive()) {
                 $hotId = $this->outbox->findMessageIdByClient($conversation->id, $user->id, $clientId);
@@ -629,29 +641,40 @@ class MessengerService
                         return $this->hydrateMessageRow($user, $hot);
                     }
                 }
-            }
+                // Hot path: skip Postgres client_id lookup — Redis is source of
+                // truth for in-flight sends; durable flush will enforce uniqueness.
+            } else {
+                $existing = Message::where('conversation_id', $conversation->id)
+                    ->where('user_id', $user->id)
+                    ->where('client_id', $clientId)
+                    ->first();
 
-            $existing = Message::where('conversation_id', $conversation->id)
-                ->where('user_id', $user->id)
-                ->where('client_id', $clientId)
-                ->first();
-
-            if ($existing) {
-                return $this->visibleMessageOrFail($user, $existing->id)
-                    ->load($this->messageRelations($user));
+                if ($existing) {
+                    return $this->visibleMessageOrFail($user, $existing->id)
+                        ->load($this->messageRelations($user));
+                }
             }
         }
 
         // A hidden, cleared, deleted, or cross-conversation reply target is
-        // indistinguishable from an unknown ID.
+        // indistinguishable from an unknown ID. Prefer Redis hot row on hot path.
         $replyToId = $options['reply_to_id'] ?? null;
         if ($replyToId) {
-            $reply = Message::query()
-                ->visibleTo($user)
-                ->whereKey($replyToId)
-                ->where('conversation_id', $conversation->id)
-                ->first();
-            $reply ?? throw (new ModelNotFoundException)->setModel(Message::class, [$replyToId]);
+            $replyOk = false;
+            if ($this->outbox->isActive()) {
+                $hotReply = $this->outbox->getHotMessage((int) $replyToId);
+                if ($hotReply && (int) ($hotReply['conversation_id'] ?? 0) === (int) $conversation->id) {
+                    $replyOk = true;
+                }
+            }
+            if (! $replyOk) {
+                $reply = Message::query()
+                    ->visibleTo($user)
+                    ->whereKey($replyToId)
+                    ->where('conversation_id', $conversation->id)
+                    ->first();
+                $reply ?? throw (new ModelNotFoundException)->setModel(Message::class, [$replyToId]);
+            }
         }
 
         $mentions = [];
@@ -706,7 +729,18 @@ class MessengerService
             $message = $this->sendMessageDurable($user, $conversation, $attributes);
         }
 
-        $this->groups()->onMessageSent($user, $conversation);
+        // Community counters / slow-mode must not sit on the live delivery path.
+        if ($conversation->isCommunity()) {
+            $actorId = (int) $user->id;
+            $conversationId = (int) $conversation->id;
+            dispatch(function () use ($actorId, $conversationId) {
+                $actor = User::query()->find($actorId);
+                $conv = Conversation::query()->find($conversationId);
+                if ($actor && $conv) {
+                    $this->groups()->onMessageSent($actor, $conv);
+                }
+            })->afterResponse();
+        }
 
         return $message;
     }
@@ -2454,9 +2488,49 @@ class MessengerService
 
     protected function assertParticipant(User $user, Conversation $conversation): void
     {
+        // Positive cache hits skip DB. Negative/miss always verify — a stale
+        // Redis set must never permanently block Saved Messages / legitimate sends.
+        $cached = $this->outbox->isCachedParticipant((int) $conversation->id, (int) $user->id);
+        if ($cached === true) {
+            return;
+        }
+
         if (! $conversation->hasParticipant($user)) {
             throw new \RuntimeException('Forbidden');
         }
+
+        $this->warmParticipantCache($conversation);
+    }
+
+    /**
+     * Load + cache active participant ids (Redis). Safe no-op when Redis is off.
+     *
+     * @return int[]
+     */
+    public function warmParticipantCache(Conversation $conversation): array
+    {
+        $ids = $conversation->users()
+            ->whereNull('conversation_user.deleted_at')
+            ->pluck('users.id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        $this->outbox->cacheParticipantIds((int) $conversation->id, $ids);
+
+        return $ids;
+    }
+
+    /**
+     * @return int[]
+     */
+    protected function participantIds(Conversation $conversation): array
+    {
+        $cached = $this->outbox->getCachedParticipantIds((int) $conversation->id);
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        return $this->warmParticipantCache($conversation);
     }
 
     protected function notifyConversationParticipants(
@@ -2531,31 +2605,44 @@ class MessengerService
         Message $message,
         string $type
     ): void {
-        $recipients = $conversation->users()->get();
-        if ($recipients->isEmpty()) {
+        $recipientIds = $this->participantIds($conversation);
+        if ($recipientIds === []) {
             return;
         }
 
         $canSharePayload = (bool) $message->is_encrypted && empty($message->reply_to_id);
 
-        if ($canSharePayload) {
+        // Hot-path / shared ciphertext: serialize once, fan-out by cached ids
+        // — zero per-recipient DB work on the live path.
+        if ($canSharePayload || ! $message->exists) {
             $shared = null;
             if (! $message->exists) {
-                $shared = (new MessageResource($message))->resolve();
+                if ($canSharePayload) {
+                    $shared = (new MessageResource($message))->resolve();
+                } else {
+                    $author = ($message->relationLoaded('user') && $message->user)
+                        ? $message->user
+                        : User::query()->find($message->user_id);
+                    if ($author) {
+                        $shared = $this->serializeMessageForViewer($message, $author);
+                    }
+                }
             } else {
-                $author = $recipients->firstWhere('id', $message->user_id) ?: $recipients->first();
-                $loaded = Message::query()
-                    ->whereKey($message->id)
-                    ->with($this->messageRelations($author))
-                    ->first();
-                if ($loaded) {
-                    $shared = (new MessageResource($loaded))->resolve();
+                $author = User::query()->find($message->user_id);
+                if ($author) {
+                    $loaded = Message::query()
+                        ->whereKey($message->id)
+                        ->with($this->messageRelations($author))
+                        ->first();
+                    if ($loaded) {
+                        $shared = (new MessageResource($loaded))->resolve();
+                    }
                 }
             }
 
             if (is_array($shared)) {
-                foreach ($recipients as $recipient) {
-                    $this->emitEvent($recipient->id, $conversation->id, $type, [
+                foreach ($recipientIds as $recipientId) {
+                    $this->emitEvent((int) $recipientId, $conversation->id, $type, [
                         'message' => $shared,
                     ]);
                 }
@@ -2564,18 +2651,9 @@ class MessengerService
             }
         }
 
+        // Durable plaintext with per-viewer reply visibility — rare vs E2E hot path.
+        $recipients = $conversation->users()->whereIn('users.id', $recipientIds)->get();
         foreach ($recipients as $recipient) {
-            // Hot-path messages are not in Postgres yet — serialize from the
-            // in-memory model (reply visibility already validated for sender).
-            if (! $message->exists) {
-                $payloadMessage = $this->serializeMessageForViewer($message, $recipient);
-                $this->emitEvent($recipient->id, $conversation->id, $type, [
-                    'message' => $payloadMessage,
-                ]);
-
-                continue;
-            }
-
             $visibleMessage = Message::query()
                 ->visibleTo($recipient)
                 ->whereKey($message->id)
@@ -2595,7 +2673,7 @@ class MessengerService
     /**
      * Build an Eloquent Message from a Redis hot-path row (not yet persisted).
      */
-    protected function hydrateMessageRow(User $viewer, array $row): Message
+    protected function hydrateMessageRow(User $viewer, array $row, bool $includeReply = true): Message
     {
         $message = new Message;
         $message->forceFill([
@@ -2624,12 +2702,18 @@ class MessengerService
         ]);
         $message->exists = false;
 
-        $author = User::query()
-            ->select('id', 'first_name', 'last_name', 'username', 'profile_pic', 'last_seen')
-            ->with('messengerSettings')
-            ->find((int) $row['user_id']);
-        if ($author) {
-            $message->setRelation('user', $author);
+        // Sender is almost always the author on the hot send path — reuse the
+        // already-authenticated User and avoid an extra Postgres round-trip.
+        if ((int) $viewer->id === (int) $row['user_id']) {
+            $message->setRelation('user', $viewer);
+        } else {
+            $author = User::query()
+                ->select('id', 'first_name', 'last_name', 'username', 'profile_pic', 'last_seen')
+                ->with('messengerSettings')
+                ->find((int) $row['user_id']);
+            if ($author) {
+                $message->setRelation('user', $author);
+            }
         }
 
         if (! empty($row['forwarded_from_user_id'])) {
@@ -2642,15 +2726,24 @@ class MessengerService
             $message->setRelation('forwardedFromUser', null);
         }
 
-        if (! empty($row['reply_to_id'])) {
-            $reply = Message::query()
-                ->visibleTo($viewer)
-                ->whereKey((int) $row['reply_to_id'])
-                ->with([
-                    'user:id,first_name,last_name,username,profile_pic,last_seen',
-                    'user.messengerSettings',
-                ])
-                ->first();
+        if ($includeReply && ! empty($row['reply_to_id'])) {
+            $reply = null;
+            if ($this->outbox->isActive()) {
+                $hotReply = $this->outbox->getHotMessage((int) $row['reply_to_id']);
+                if ($hotReply && (int) ($hotReply['conversation_id'] ?? 0) === (int) $row['conversation_id']) {
+                    $reply = $this->hydrateMessageRow($viewer, $hotReply, false);
+                }
+            }
+            if (! $reply) {
+                $reply = Message::query()
+                    ->visibleTo($viewer)
+                    ->whereKey((int) $row['reply_to_id'])
+                    ->with([
+                        'user:id,first_name,last_name,username,profile_pic,last_seen',
+                        'user.messengerSettings',
+                    ])
+                    ->first();
+            }
             $message->setRelation('replyTo', $reply);
         } else {
             $message->setRelation('replyTo', null);
@@ -2703,30 +2796,60 @@ class MessengerService
      */
     protected function assertNotBlocked(User $user, Conversation $conversation): void
     {
-        $other = $conversation->otherUser($user)
-            ?? $conversation->users()->where('users.id', '!=', $user->id)->first();
+        if ($conversation->type !== Conversation::TYPE_PRIVATE) {
+            return;
+        }
 
-        if (! $other) {
+        $otherId = null;
+        $cachedIds = $this->outbox->getCachedParticipantIds((int) $conversation->id);
+        if ($cachedIds !== null) {
+            foreach ($cachedIds as $id) {
+                if ((int) $id !== (int) $user->id) {
+                    $otherId = (int) $id;
+                    break;
+                }
+            }
+        }
+
+        if ($otherId === null) {
+            $other = $conversation->otherUser($user)
+                ?? $conversation->users()->where('users.id', '!=', $user->id)->first();
+            $otherId = $other?->id ? (int) $other->id : null;
+        }
+
+        if (! $otherId) {
+            return;
+        }
+
+        $cached = $this->outbox->getCachedBlock((int) $user->id, $otherId);
+        if ($cached === true) {
+            throw new \RuntimeException('You have blocked this user');
+        }
+        if ($cached === false) {
             return;
         }
 
         $iBlocked = Contact::where('user_id', $user->id)
-            ->where('contact_user_id', $other->id)
+            ->where('contact_user_id', $otherId)
             ->where('is_blocked', true)
             ->exists();
 
         if ($iBlocked) {
+            $this->outbox->cacheBlock((int) $user->id, $otherId, true);
             throw new \RuntimeException('You have blocked this user');
         }
 
-        $blockedByThem = Contact::where('user_id', $other->id)
+        $blockedByThem = Contact::where('user_id', $otherId)
             ->where('contact_user_id', $user->id)
             ->where('is_blocked', true)
             ->exists();
 
         if ($blockedByThem) {
+            $this->outbox->cacheBlock((int) $user->id, $otherId, true);
             throw new \RuntimeException('This user has blocked you');
         }
+
+        $this->outbox->cacheBlock((int) $user->id, $otherId, false);
     }
 
     // -------------------------------------------------------------------------
@@ -2823,6 +2946,7 @@ class MessengerService
             ['name' => trim("{$target->first_name} {$target->last_name}") ?: $target->username]
         );
         $contact->update(['is_blocked' => true]);
+        $this->outbox->cacheBlock((int) $user->id, $targetUserId, true);
 
         return $contact->load([
             'contactUser:id,first_name,last_name,username,profile_pic,last_seen',
@@ -2835,6 +2959,7 @@ class MessengerService
         Contact::where('user_id', $user->id)
             ->where('contact_user_id', $targetUserId)
             ->update(['is_blocked' => false]);
+        $this->outbox->cacheBlock((int) $user->id, $targetUserId, false);
     }
 
     // -------------------------------------------------------------------------
