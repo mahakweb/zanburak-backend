@@ -84,7 +84,7 @@ return [
     'max_message_length' => (int) env('MESSENGER_MAX_MESSAGE_LENGTH', 5000),
 
     // Messages page size.
-    'messages_per_page' => (int) env('MESSENGER_MESSAGES_PER_PAGE', 40),
+    'messages_per_page' => (int) env('MESSENGER_MESSAGES_PER_PAGE', 50),
 
     // Conversations page size (sidebar pagination / infinite scroll).
     'conversations_per_page' => (int) env('MESSENGER_CONVERSATIONS_PER_PAGE', 30),

@@ -82,7 +82,7 @@ function Show-ServiceSubMenu {
 
         $names = @()
         if ($choice -eq 'A') {
-            $names = $services | ForEach-Object { $_.Name }
+            $names = @($services | ForEach-Object { $_.Name })
         }
         elseif ($choice -match '^\d+$') {
             $idx = [int]$choice - 1
@@ -97,7 +97,16 @@ function Show-ServiceSubMenu {
             continue
         }
 
-        Invoke-SafeAction -Action { & $Action $names }
+        # Call action directly — do NOT wrap in Invoke-SafeAction's -Action
+        # scriptblock. That parameter is also named $Action and shadows this
+        # function's $Action, so restart/stop "All" silently did nothing.
+        try {
+            & $Action $names
+        }
+        catch {
+            Write-DeployError $_.Exception.Message
+        }
+        Wait-Continue
     }
 }
 

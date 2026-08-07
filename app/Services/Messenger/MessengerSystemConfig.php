@@ -226,7 +226,7 @@ class MessengerSystemConfig
             ],
             'messages_per_page' => [
                 'type' => 'integer',
-                'default' => (int) config('messenger.messages_per_page', 40),
+                'default' => (int) config('messenger.messages_per_page', 50),
                 'section' => 'limits', 'label' => 'تعداد پیام در هر صفحه',
                 'min' => 10, 'max' => 200,
             ],

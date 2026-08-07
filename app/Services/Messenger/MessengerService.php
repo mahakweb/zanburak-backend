@@ -96,11 +96,20 @@ class MessengerService
             ->keyBy('conversation_id');
         $unreadByConversation = Message::query()
             ->visibleTo($user)
-            ->whereIn('conversation_id', $conversationIds)
-            ->where('user_id', '!=', $user->id)
-            ->whereNull('read_at')
-            ->selectRaw('conversation_id, COUNT(*) as aggregate')
-            ->groupBy('conversation_id')
+            ->whereIn('messages.conversation_id', $conversationIds)
+            ->where('messages.user_id', '!=', $user->id)
+            ->whereNull('messages.read_at')
+            ->join('conversation_user', function ($join) use ($user) {
+                $join->on('conversation_user.conversation_id', '=', 'messages.conversation_id')
+                    ->where('conversation_user.user_id', '=', $user->id)
+                    ->whereNull('conversation_user.deleted_at');
+            })
+            ->where(function ($q) {
+                $q->whereNull('conversation_user.last_read_at')
+                    ->orWhereColumn('messages.created_at', '>', 'conversation_user.last_read_at');
+            })
+            ->selectRaw('messages.conversation_id, COUNT(*) as aggregate')
+            ->groupBy('messages.conversation_id')
             ->pluck('aggregate', 'conversation_id');
 
         $recentLimit = (int) config('messenger.recent_messages_in_list', 50);
@@ -141,10 +150,22 @@ class MessengerService
                 }
             }
 
-            $conversation->setResponseAttribute(
-                'unread_count',
-                (int) ($unreadByConversation[$conversation->id] ?? 0)
-            );
+            $unread = (int) ($unreadByConversation[$conversation->id] ?? 0);
+
+            // Hot incoming not yet flushed: count only rows not stamped read.
+            if ($this->outbox->isActive()) {
+                foreach ($this->outbox->hotMessagesForConversation((int) $conversation->id) as $row) {
+                    if ((int) ($row['user_id'] ?? 0) === (int) $user->id) {
+                        continue;
+                    }
+                    if (! empty($row['read_at'])) {
+                        continue;
+                    }
+                    $unread++;
+                }
+            }
+
+            $conversation->setResponseAttribute('unread_count', $unread);
             $conversation->setRelation('lastMessage', $latest);
             $conversation->setRelation('recentMessages', $recent['messages']);
             $conversation->setResponseAttribute('messages_has_more', $recent['has_more']);
@@ -456,7 +477,7 @@ class MessengerService
         // A cursor-like "before_id" request does not need an expensive total
         // count. Fetch one extra row to derive has_more.
         $perPage = app(MessengerSystemConfig::class)->int('messages_per_page')
-            ?: (int) config('messenger.messages_per_page', 40);
+            ?: (int) config('messenger.messages_per_page', 50);
         $rows = $query->limit($perPage + 1)->get();
 
         // Merge not-yet-flushed Redis hot messages into the latest page so a
@@ -1552,6 +1573,13 @@ class MessengerService
     {
         $this->assertParticipant($user, $conversation);
 
+        // Always stamp pivot immediately (cheap). Unread APIs key off last_read_at
+        // so badges clear before the write-behind message.read_at flush finishes.
+        $readAt = now();
+        $conversation->users()->updateExistingPivot($user->id, [
+            'last_read_at' => $readAt,
+        ]);
+
         if ($this->outbox->isActive()) {
             // Count unread from DB + treat any hot incoming messages as unread.
             $updated = Message::query()
@@ -1568,12 +1596,12 @@ class MessengerService
             $updated += $hotIncoming;
 
             if ($updated > 0) {
-                $readAt = now()->toDateTimeString();
+                $readAtStr = $readAt->toDateTimeString();
                 $this->outbox->enqueue([
                     'op' => 'messages.read',
                     'conversation_id' => $conversation->id,
                     'reader_id' => $user->id,
-                    'read_at' => $readAt,
+                    'read_at' => $readAtStr,
                 ]);
 
                 // Stamp hot-cache rows so a subsequent merge does not resurrect unread.
@@ -1581,7 +1609,7 @@ class MessengerService
                     if ((int) $row['user_id'] === (int) $user->id) {
                         continue;
                     }
-                    $row['read_at'] = $readAt;
+                    $row['read_at'] = $readAtStr;
                     $this->outbox->cacheHotMessage($row);
                 }
 
@@ -1606,9 +1634,7 @@ class MessengerService
             ->where('conversation_id', $conversation->id)
             ->where('user_id', '!=', $user->id)
             ->whereNull('read_at')
-            ->update(['read_at' => now()]);
-
-        $conversation->users()->updateExistingPivot($user->id, ['last_read_at' => now()]);
+            ->update(['read_at' => $readAt]);
 
         if ($updated > 0) {
             // Notify everyone: the partner sees read ticks, and the reader's
@@ -2062,10 +2088,19 @@ class MessengerService
 
     public function totalUnreadCount(User $user): int
     {
-        return Message::query()
+        return (int) Message::query()
             ->visibleTo($user)
-            ->where('user_id', '!=', $user->id)
-            ->whereNull('read_at')
+            ->where('messages.user_id', '!=', $user->id)
+            ->whereNull('messages.read_at')
+            ->join('conversation_user', function ($join) use ($user) {
+                $join->on('conversation_user.conversation_id', '=', 'messages.conversation_id')
+                    ->where('conversation_user.user_id', '=', $user->id)
+                    ->whereNull('conversation_user.deleted_at');
+            })
+            ->where(function ($q) {
+                $q->whereNull('conversation_user.last_read_at')
+                    ->orWhereColumn('messages.created_at', '>', 'conversation_user.last_read_at');
+            })
             ->count();
     }
 

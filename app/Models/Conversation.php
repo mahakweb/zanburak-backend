@@ -261,14 +261,25 @@ class Conversation extends Model
 
     /**
      * Number of unread (incoming) messages for a given user.
+     * Respects pivot last_read_at so a hot-path markRead (which stamps the
+     * pivot immediately) clears badges before message.read_at flush lands.
      */
     public function unreadCountFor(User $user): int
     {
-        return $this->messages()
+        $lastReadAt = $this->users()
+            ->where('users.id', $user->id)
+            ->value('conversation_user.last_read_at');
+
+        $query = $this->messages()
             ->visibleTo($user)
             ->where('user_id', '!=', $user->id)
-            ->whereNull('read_at')
-            ->count();
+            ->whereNull('read_at');
+
+        if ($lastReadAt) {
+            $query->where('created_at', '>', $lastReadAt);
+        }
+
+        return (int) $query->count();
     }
 
     /**
