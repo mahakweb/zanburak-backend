@@ -221,4 +221,47 @@ class ContactController extends Controller
 
         return response()->json(['ok' => true]);
     }
+
+    /**
+     * Sync device address-book contacts (name + phone). Matches Iranian formats,
+     * auto-adds registered users, returns inviteable non-members separately.
+     */
+    public function sync(Request $request): JsonResponse
+    {
+        if (! $this->systemConfig->bool('allow_contacts')) {
+            return response()->json(['message' => 'بخش مخاطبین غیرفعال است.'], 403);
+        }
+
+        $data = $request->validate([
+            'contacts' => 'required|array|max:5000',
+            'contacts.*.phone' => 'required|string|max:40',
+            'contacts.*.name' => 'sometimes|nullable|string|max:255',
+        ]);
+
+        $result = $this->messenger->syncDeviceContacts($request->user(), $data['contacts']);
+
+        return response()->json($result);
+    }
+
+    /** Re-match stored synced phones against current registrations. */
+    public function refreshSync(Request $request): JsonResponse
+    {
+        if (! $this->systemConfig->bool('allow_contacts')) {
+            return response()->json(['message' => 'بخش مخاطبین غیرفعال است.'], 403);
+        }
+
+        $result = $this->messenger->refreshSyncedContacts($request->user());
+
+        return response()->json($result);
+    }
+
+    /** List previously synced contacts split into registered / inviteable. */
+    public function synced(Request $request): JsonResponse
+    {
+        if (! $this->systemConfig->bool('allow_contacts')) {
+            return response()->json(['message' => 'بخش مخاطبین غیرفعال است.'], 403);
+        }
+
+        return response()->json($this->messenger->listSyncedContacts($request->user()));
+    }
 }

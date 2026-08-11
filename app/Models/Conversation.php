@@ -130,6 +130,11 @@ class Conversation extends Model
         return $this->type === self::TYPE_CHANNEL;
     }
 
+    public function isSaved(): bool
+    {
+        return $this->type === self::TYPE_SAVED;
+    }
+
     public function isCommunity(): bool
     {
         return $this->isGroup() || $this->isChannel();
@@ -300,7 +305,7 @@ class Conversation extends Model
             return $this->title;
         }
 
-        if ($this->type === self::TYPE_SAVED) {
+        if ($this->isSaved()) {
             return 'Saved Messages';
         }
 

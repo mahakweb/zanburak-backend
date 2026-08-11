@@ -97,8 +97,9 @@ return [
     | End-to-end encryption
     |--------------------------------------------------------------------------
     |
-    | When enabled, private/saved/group/private-channel chats encrypt payloads
-    | on the client. The server only stores ciphertext + relays key packages.
+    | When enabled, private/group/private-channel chats encrypt payloads on the
+    | client. The server only stores ciphertext + relays key packages.
+    | Saved Messages is a plaintext cloud self-chat (Telegram-style).
     | Public channels stay plaintext by design.
     |
     */
@@ -166,6 +167,20 @@ return [
         ],
         'thumb_max_edge' => 48,
         'thumb_quality' => 45,
+        // Browser / edge cache for private proxy responses (seconds).
+        'cache_max_age' => (int) env('MESSENGER_MEDIA_CACHE_MAX_AGE', 3600),
+        // Temporary signed URL lifetime (minutes) for CDN-ready byte fetch.
+        'signed_url_ttl' => (int) env('MESSENGER_MEDIA_SIGNED_TTL', 20),
+        // Content-addressed deduplication for non-encrypted uploads.
+        'dedupe' => (bool) env('MESSENGER_MEDIA_DEDUPE', true),
+        // Async metadata / video thumb / HLS pipeline.
+        'process_async' => (bool) env('MESSENGER_MEDIA_PROCESS_ASYNC', true),
+        'hls' => [
+            'enabled' => (bool) env('MESSENGER_MEDIA_HLS', true),
+            // Only HLS-encode videos larger than this (bytes).
+            'min_bytes' => (int) env('MESSENGER_MEDIA_HLS_MIN_BYTES', 2097152),
+            'segment_length' => (int) env('MESSENGER_MEDIA_HLS_SEGMENT', 6),
+        ],
     ],
 
     /*

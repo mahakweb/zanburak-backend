@@ -15,9 +15,9 @@ On production, Redis is the **Linux package** `redis-server` (apt), not the Wind
 ## One-time / after deploy (Deploy Manager menu)
 
 1. Upload+extract (option 1)
-2. **[20] Install/create service unit files** — installs Redis via apt if missing, uploads scheduler/reverb/queue/meilisearch units
-3. **[21] Start services**
-4. **[5] migrate --force**
+2. **[21] Install/create service unit files** — installs Redis via apt if missing, uploads scheduler/reverb/queue/meilisearch units
+3. **[22] Start services**
+4. **[6] migrate --force**
 5. **[13] Rebuild cache**
 
 Or manually on the server:
@@ -28,7 +28,7 @@ sudo apt-get install -y redis-server
 sudo systemctl enable --now redis-server
 redis-cli ping   # PONG
 
-# From deploy menu [20]/[21], or:
+# From deploy menu [21]/[22], or:
 sudo systemctl enable --now laravel-reverb laravel-scheduler laravel-queue
 sudo systemctl status redis-server laravel-reverb laravel-scheduler
 ```

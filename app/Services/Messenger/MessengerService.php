@@ -12,7 +12,9 @@ use App\Models\Message;
 use App\Models\MessagePin;
 use App\Models\MessengerConversationWallpaper;
 use App\Models\MessengerEvent;
+use App\Models\MessengerMedia;
 use App\Models\MessengerWallpaper;
+use App\Models\SyncedContact;
 use App\Models\User;
 use App\Notifications\Channels\GhasedakChannel;
 use App\Notifications\Messenger\InviteToZanburak;
@@ -32,7 +34,8 @@ class MessengerService
 {
     public function __construct(
         protected RealtimeBus $bus,
-        protected MessengerOutbox $outbox
+        protected MessengerOutbox $outbox,
+        protected PrivacyService $privacy
     ) {}
 
     // -------------------------------------------------------------------------
@@ -129,8 +132,12 @@ class MessengerService
             // Merge not-yet-flushed hot messages so list + history stay in sync
             // when the live websocket was missed.
             if ($this->outbox->isActive()) {
-                $hot = collect($this->outbox->hotMessagesForConversation($conversation->id))
-                    ->map(fn (array $row) => $this->hydrateMessageRow($user, $row));
+                $hot = $this->rejectClearedHotRows(
+                    $user,
+                    $conversation,
+                    collect($this->outbox->hotMessagesForConversation($conversation->id))
+                        ->map(fn (array $row) => $this->hydrateMessageRow($user, $row))
+                );
                 if ($hot->isNotEmpty()) {
                     $byId = $recent['messages']->keyBy('id');
                     foreach ($hot as $msg) {
@@ -154,7 +161,11 @@ class MessengerService
 
             // Hot incoming not yet flushed: count only rows not stamped read.
             if ($this->outbox->isActive()) {
-                foreach ($this->outbox->hotMessagesForConversation((int) $conversation->id) as $row) {
+                foreach ($this->rejectClearedHotRows(
+                    $user,
+                    $conversation,
+                    $this->outbox->hotMessagesForConversation((int) $conversation->id)
+                ) as $row) {
                     if ((int) ($row['user_id'] ?? 0) === (int) $user->id) {
                         continue;
                     }
@@ -200,6 +211,57 @@ class MessengerService
     public function lastVisibleMessageFor(User $user, Conversation $conversation): ?Message
     {
         return $this->visibleMessagesQuery($user, $conversation)->first();
+    }
+
+    /**
+     * Per-user history cutoff from conversation_user.cleared_at (if any).
+     */
+    protected function clearedAtFor(User $user, Conversation $conversation): ?\Carbon\CarbonInterface
+    {
+        $pivot = null;
+        if ($conversation->relationLoaded('users')) {
+            $pivot = $conversation->users->firstWhere('id', $user->id)?->pivot;
+        }
+        if (! $pivot) {
+            $pivot = $conversation->users()->where('users.id', $user->id)->first()?->pivot;
+        }
+        $raw = $pivot?->cleared_at ?? null;
+        if (! $raw) {
+            return null;
+        }
+
+        return $raw instanceof \Carbon\CarbonInterface
+            ? $raw
+            : \Carbon\Carbon::parse($raw);
+    }
+
+    /**
+     * Hot Redis rows are not covered by Message::visibleTo — enforce cleared_at.
+     *
+     * @param  iterable<int, Message|array>  $rows
+     * @return \Illuminate\Support\Collection<int, Message|array>
+     */
+    protected function rejectClearedHotRows(User $user, Conversation $conversation, iterable $rows): \Illuminate\Support\Collection
+    {
+        $cutoff = $this->clearedAtFor($user, $conversation);
+        $collection = collect($rows);
+        if (! $cutoff) {
+            return $collection->values();
+        }
+
+        return $collection->filter(function ($row) use ($cutoff) {
+            $created = is_array($row)
+                ? ($row['created_at'] ?? null)
+                : ($row->created_at ?? null);
+            if (! $created) {
+                return false;
+            }
+            $at = $created instanceof \Carbon\CarbonInterface
+                ? $created
+                : \Carbon\Carbon::parse($created);
+
+            return $at->gt($cutoff);
+        })->values();
     }
 
     /**
@@ -286,29 +348,54 @@ class MessengerService
     /**
      * The user's personal "Saved Messages" chat: a single-participant
      * conversation of type 'saved' where a user can forward / keep notes.
+     * First-class cloud self-chat (Telegram-style) — not an E2E peer chat.
      */
     public function getOrCreateSavedConversation(User $me): Conversation
     {
-        $existing = Conversation::where('type', 'saved')
-            ->whereHas('users', fn ($q) => $q->where('users.id', $me->id))
-            ->first();
-
-        if ($existing) {
-            // Restore visibility in case the user had hidden it.
-            $existing->users()->updateExistingPivot($me->id, ['deleted_at' => null]);
-
-            $existing->load([
-                'users:id,first_name,last_name,username,profile_pic,last_seen',
-                'users.messengerSettings',
-            ]);
-            $existing->setRelation('lastMessage', $this->lastVisibleMessageFor($me, $existing));
-            $this->warmParticipantCache($existing);
-
-            return $existing;
-        }
-
         return DB::transaction(function () use ($me) {
-            $conversation = Conversation::create(['type' => 'saved']);
+            // Serialize concurrent opens so we never create duplicate saved rows.
+            User::query()->whereKey($me->id)->lockForUpdate()->first();
+
+            $existing = Conversation::query()
+                ->where('type', Conversation::TYPE_SAVED)
+                ->where(function ($q) use ($me) {
+                    $q->where('owner_id', $me->id)
+                        ->orWhereHas('users', fn ($uq) => $uq->where('users.id', $me->id));
+                })
+                ->orderByRaw('case when owner_id = ? then 0 else 1 end', [$me->id])
+                ->orderBy('id')
+                ->first();
+
+            if ($existing) {
+                if ((int) ($existing->owner_id ?? 0) !== (int) $me->id) {
+                    $existing->forceFill(['owner_id' => $me->id])->saveQuietly();
+                }
+
+                // Restore list visibility only. Never wipe cleared_at — intentional
+                // Clear history must survive swipe-hide + reopen / forward.
+                $pivot = $existing->users()->where('users.id', $me->id)->first()?->pivot;
+                if (! $pivot) {
+                    $existing->users()->attach([$me->id]);
+                } else {
+                    $existing->users()->updateExistingPivot($me->id, [
+                        'deleted_at' => null,
+                    ]);
+                }
+
+                $existing->load([
+                    'users:id,first_name,last_name,username,profile_pic,last_seen',
+                    'users.messengerSettings',
+                ]);
+                $existing->setRelation('lastMessage', $this->lastVisibleMessageFor($me, $existing));
+                $this->warmParticipantCache($existing);
+
+                return $existing;
+            }
+
+            $conversation = Conversation::create([
+                'type' => Conversation::TYPE_SAVED,
+                'owner_id' => $me->id,
+            ]);
             $conversation->users()->attach([$me->id]);
 
             $conversation->load([
@@ -326,6 +413,20 @@ class MessengerService
         $this->assertParticipant($user, $conversation);
 
         $now = now();
+        // Saved Messages is a durable self-chat (Telegram-style): swipe-delete only
+        // hides it from the list. History must survive so reopening from the menu
+        // restores the same notes / forwarded media.
+        if ($conversation->isSaved()) {
+            $conversation->users()->updateExistingPivot($user->id, [
+                'deleted_at' => $now,
+            ]);
+            $this->emitEvent($user->id, $conversation->id, 'conversation.deleted', [
+                'conversation_id' => $conversation->id,
+            ]);
+
+            return;
+        }
+
         // Delete-for-me: hide from my list AND start fresh if it is reopened
         // (a new message restores it, but old history stays hidden for me).
         $conversation->users()->updateExistingPivot($user->id, [
@@ -344,30 +445,128 @@ class MessengerService
             ->count();
 
         if ($remaining === 0) {
-            DB::transaction(function () use ($conversation) {
-                $conversation->update(['last_message_id' => null]);
-                $conversation->messages()->forceDelete();
-                $conversation->users()->detach();
-                $conversation->delete();
-            });
+            $this->purgeConversationWithMedia($conversation);
         }
     }
 
+    /**
+     * Permanently remove a conversation after every participant has deleted it.
+     * Releases shared media via live reference counts (forwards/stickers stay
+     * until no message still points at the blob).
+     */
+    protected function purgeConversationWithMedia(Conversation $conversation): void
+    {
+        DB::transaction(function () use ($conversation) {
+            $conversation->update(['last_message_id' => null]);
+
+            $mediaIds = Message::withTrashed()
+                ->where('conversation_id', $conversation->id)
+                ->whereNotNull('media_id')
+                ->pluck('media_id')
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->all();
+
+            Message::withTrashed()
+                ->where('conversation_id', $conversation->id)
+                ->forceDelete();
+
+            foreach ($mediaIds as $mediaId) {
+                $this->releaseMediaIfUnreferenced($mediaId);
+            }
+
+            $conversation->users()->detach();
+            $conversation->delete();
+        });
+    }
+
+    /**
+     * Soft-delete a media row and enqueue blob cleanup when nothing live
+     * references it. Safe to call inside an open DB transaction (disk delete
+     * runs after commit).
+     */
+    protected function releaseMediaIfUnreferenced(int $mediaId, ?string $fallbackType = null): void
+    {
+        $media = MessengerMedia::query()->find($mediaId);
+        if (! $media) {
+            return;
+        }
+
+        $live = $media->liveReferenceCount();
+        if ($live > 0) {
+            // Keep ref_count aligned with reality after force-deletes / races.
+            if ((int) $media->ref_count !== $live) {
+                $media->forceFill(['ref_count' => $live])->saveQuietly();
+            }
+
+            return;
+        }
+
+        $meta = $media->toMessageMeta();
+        $type = $fallbackType
+            ?: (in_array($media->kind, Message::MEDIA_TYPES, true) ? $media->kind : 'file');
+        $media->delete();
+
+        DB::afterCommit(function () use ($meta, $type, $mediaId) {
+            DeleteMessengerMedia::dispatch($meta, $type, $mediaId);
+        });
+    }
+
+    /**
+     * Clear history for everyone: permanently wipe messages (Postgres + Redis)
+     * while keeping the conversation shell so members can keep chatting.
+     * Delete-chat remains a separate for-me hide.
+     */
     public function clearConversation(User $user, Conversation $conversation): void
     {
         $this->assertParticipant($user, $conversation);
 
-        $now = now();
-        // Clearing history wipes it for *both* participants (Telegram-style),
-        // while attributing who performed the action.
-        foreach ($conversation->users()->pluck('users.id') as $uid) {
-            $conversation->users()->updateExistingPivot($uid, ['cleared_at' => $now]);
-        }
+        $conversationId = (int) $conversation->id;
+        $clearedAt = now();
+
+        DB::transaction(function () use ($conversation, $conversationId, $clearedAt) {
+            // Collect media before wipe so shared stickers/forwards stay alive.
+            $mediaIds = Message::withTrashed()
+                ->where('conversation_id', $conversationId)
+                ->whereNotNull('media_id')
+                ->pluck('media_id')
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->all();
+
+            // Pins / deletions / reactions cascade from messages FK.
+            MessagePin::where('conversation_id', $conversationId)->delete();
+
+            Message::withTrashed()
+                ->where('conversation_id', $conversationId)
+                ->forceDelete();
+
+            $conversation->update([
+                'last_message_id' => null,
+                'last_message_at' => null,
+            ]);
+
+            // Safety watermark: any late flush of pre-clear rows is ignored.
+            foreach ($conversation->users()->pluck('users.id') as $uid) {
+                $conversation->users()->updateExistingPivot($uid, [
+                    'cleared_at' => $clearedAt,
+                ]);
+            }
+
+            foreach ($mediaIds as $mediaId) {
+                $this->releaseMediaIfUnreferenced($mediaId);
+            }
+        });
+
+        // Drop hot Redis rows + tombstone so outbox cannot resurrect them.
+        $this->outbox->clearHotConversation($conversationId, $clearedAt);
 
         $clearedByName = trim("{$user->first_name} {$user->last_name}") ?: ($user->username ?: '');
 
         $this->notifyAllParticipants($conversation, 'conversation.cleared', [
-            'conversation_id' => $conversation->id,
+            'conversation_id' => $conversationId,
             'cleared_by' => $user->id,
             'cleared_by_name' => $clearedByName,
         ]);
@@ -483,8 +682,12 @@ class MessengerService
         // Merge not-yet-flushed Redis hot messages into the latest page so a
         // refresh never hides a message that already arrived over the live path.
         if ($isMember && ! $beforeId && $this->outbox->isActive()) {
-            $hot = collect($this->outbox->hotMessagesForConversation($conversation->id))
-                ->map(fn (array $row) => $this->hydrateMessageRow($user, $row));
+            $hot = $this->rejectClearedHotRows(
+                $user,
+                $conversation,
+                collect($this->outbox->hotMessagesForConversation($conversation->id))
+                    ->map(fn (array $row) => $this->hydrateMessageRow($user, $row))
+            );
             $byId = $rows->keyBy('id');
             foreach ($hot as $msg) {
                 if (! $byId->has($msg->id)) {
@@ -572,7 +775,9 @@ class MessengerService
     {
         switch ($filter) {
             case 'photo':
-                $query->where('type', Message::TYPE_PHOTO);
+                // Stickers are stored as photo + meta.sticker — exclude from gallery/shared media.
+                $query->where('type', Message::TYPE_PHOTO)
+                    ->whereRaw("COALESCE((meta->>'sticker')::boolean, false) = false");
                 break;
             case 'video':
                 $query->where('type', Message::TYPE_VIDEO)
@@ -588,8 +793,10 @@ class MessengerService
                 break;
             case 'media':
                 $query->where(function ($w) {
-                    $w->where('type', Message::TYPE_PHOTO)
-                        ->orWhere('type', Message::TYPE_VIDEO);
+                    $w->where(function ($photo) {
+                        $photo->where('type', Message::TYPE_PHOTO)
+                            ->whereRaw("COALESCE((meta->>'sticker')::boolean, false) = false");
+                    })->orWhere('type', Message::TYPE_VIDEO);
                 });
                 break;
             case 'audio':
@@ -624,7 +831,15 @@ class MessengerService
 
         $isEncrypted = ! empty($options['is_encrypted']);
         $crypto = app(MessengerCryptoService::class);
-        if (! $isEncrypted && $crypto->conversationShouldEncrypt($conversation) && ($options['type'] ?? 'text') !== 'system') {
+        // Stickers are shared pack assets (Telegram-like) — not secret-chat ciphertext blobs.
+        $metaOpt = is_array($options['meta'] ?? null) ? $options['meta'] : [];
+        $isPublicSticker = ! empty($metaOpt['sticker']);
+        if (
+            ! $isEncrypted
+            && $crypto->conversationShouldEncrypt($conversation)
+            && ($options['type'] ?? 'text') !== 'system'
+            && ! $isPublicSticker
+        ) {
             // Clients must encrypt before send for E2E conversations.
             throw new \InvalidArgumentException('This conversation requires end-to-end encryption');
         }
@@ -718,12 +933,20 @@ class MessengerService
             'reply_to_id' => $replyToId,
             'reply_show_title' => $options['reply_show_title'] ?? true,
             'forwarded_from_user_id' => $options['forwarded_from_user_id'] ?? null,
+            'media_id' => $options['media_id'] ?? null,
             'is_silent' => (bool) ($options['is_silent'] ?? false),
             'scheduled_at' => $options['scheduled_at'] ?? null,
             'auto_delete_at' => $options['auto_delete_at'] ?? null,
             'mentions' => $mentions ?: null,
             'meta' => $options['meta'] ?? null,
         ];
+
+        // Keep media_id on meta for older clients / debugging.
+        if (! empty($attributes['media_id'])) {
+            $meta = is_array($attributes['meta']) ? $attributes['meta'] : [];
+            $meta['media_id'] = (int) $attributes['media_id'];
+            $attributes['meta'] = $meta;
+        }
 
         // Channel signatures: stamp the human poster on the post meta.
         $signable = array_merge(['text', 'location'], Message::MEDIA_TYPES);
@@ -783,16 +1006,91 @@ class MessengerService
         }
 
         $meta = $this->storeMediaFile($file, $type, $options);
+        $media = MessengerMedia::createFromStoredMeta($user->id, $type, $meta);
+        $meta = array_merge($meta, [
+            'media_id' => $media->id,
+            'media_uuid' => $media->uuid,
+        ]);
 
-        return $this->sendMessage($user, $conversation, $caption, $clientId, array_merge($options, [
+        $message = $this->sendMessage($user, $conversation, $caption, $clientId, array_merge($options, [
             'type' => $type,
+            'media_id' => $media->id,
             'meta' => array_merge($options['meta'] ?? [], $meta),
         ]));
+
+        $media->bumpRef(1);
+
+        // Async: metadata, video thumbs, HLS (skip encrypted / dedup aliases).
+        if (config('messenger.media.process_async', true)
+            && empty($meta['encrypted'])
+            && empty($meta['canonical_media_id'])
+            && in_array($type, [Message::TYPE_VIDEO, Message::TYPE_AUDIO, Message::TYPE_VOICE], true)
+        ) {
+            $media->forceFill([
+                'processing_status' => 'pending',
+                'hls_status' => $type === Message::TYPE_VIDEO ? 'pending' : 'none',
+            ])->saveQuietly();
+            \App\Jobs\ProcessMessengerMedia::dispatch($media->id)->afterResponse();
+        }
+
+        return $message;
     }
 
     /**
-     * Persist an uploaded media file to the private media folder and build
-     * message meta. Never returns a public CDN URL — clients use the media proxy.
+     * Send a media message that reuses an existing messenger_media row (no re-upload).
+     * Used for forwards and sticker sends that already live on static storage.
+     */
+    public function sendExistingMediaMessage(
+        User $user,
+        Conversation $conversation,
+        MessengerMedia|int $media,
+        string $caption = '',
+        ?string $clientId = null,
+        array $options = []
+    ): Message {
+        $media = $media instanceof MessengerMedia
+            ? $media
+            : MessengerMedia::query()->findOrFail((int) $media);
+
+        $this->assertCanUseMedia($user, $media);
+
+        $type = $options['type'] ?? $media->kind;
+        if (! in_array($type, Message::MEDIA_TYPES, true)) {
+            // Stickers are stored as kind=sticker but sent as photo messages.
+            $type = Message::TYPE_PHOTO;
+        }
+
+        $meta = array_merge($media->toMessageMeta(), $options['meta'] ?? []);
+        // Public stickers must expose a CDN-capable url for recipients even when
+        // reusing an existing messenger_media row (pack send / forward).
+        if (! empty($meta['sticker']) && empty($meta['encrypted'])) {
+            $meta['private'] = false;
+            if (empty($meta['url']) && ! empty($media->url)) {
+                $meta['url'] = $media->url;
+            }
+            if (empty($meta['url']) && ! empty($media->path)) {
+                $diskName = (string) ($media->disk ?: config('messenger.media.disk', 'static'));
+                $baseUrl = rtrim((string) config("filesystems.disks.{$diskName}.url", ''), '/');
+                if ($baseUrl !== '') {
+                    $meta['url'] = $baseUrl.'/'.ltrim((string) $media->path, '/');
+                }
+            }
+        }
+        $message = $this->sendMessage($user, $conversation, $caption, $clientId, array_merge($options, [
+            'type' => $type,
+            'media_id' => $media->id,
+            'meta' => $meta,
+        ]));
+
+        $media->bumpRef(1);
+
+        return $message;
+    }
+
+    /**
+     * Persist an uploaded media file and build message meta.
+     * Stickers are stored publicly (like pack assets) so recipients can load via CDN/proxy
+     * without depending on photo auto-download. Other chat media stays private by default.
      *
      * @return array<string, mixed>
      */
@@ -800,14 +1098,20 @@ class MessengerService
     {
         $cfg = config('messenger.media', []);
         $diskName = $cfg['disk'] ?? 'static';
-        $private = (bool) ($cfg['private'] ?? true);
-        $baseFolder = $private
-            ? trim($cfg['private_folder'] ?? 'private/messenger', '/')
-            : trim($cfg['folder'] ?? 'images/messenger/chats', '/');
-        $folder = $baseFolder.'/'.$type.'/'.date('Y/m/d');
-
-        // Encrypted uploads are opaque .bin blobs from the client.
         $encryptedUpload = ! empty($options['encrypted']);
+        $isSticker = ! $encryptedUpload && ! empty($options['meta']['sticker']);
+
+        // Stickers use the public stickers folder (same as StickerPackController).
+        if ($isSticker) {
+            $private = false;
+            $folder = 'images/messenger/stickers/'.date('Y/m/d');
+        } else {
+            $private = (bool) ($cfg['private'] ?? true);
+            $baseFolder = $private
+                ? trim($cfg['private_folder'] ?? 'private/messenger', '/')
+                : trim($cfg['folder'] ?? 'images/messenger/chats', '/');
+            $folder = $baseFolder.'/'.$type.'/'.date('Y/m/d');
+        }
 
         try {
             if ($encryptedUpload) {
@@ -815,6 +1119,79 @@ class MessengerService
                 $stored = Storage::disk($diskName)->putFileAs($folder, $file, $binName);
                 $path = $stored ?: null;
             } else {
+                // Content-addressed deduplication: reuse an existing blob for identical files.
+                $sha256 = @hash_file('sha256', $file->getRealPath()) ?: null;
+                $size = (int) $file->getSize();
+                if ($sha256 && config('messenger.media.dedupe', true)) {
+                    $existing = MessengerMedia::findDedupCandidate($sha256, $size, $type);
+                    if ($existing) {
+                        // Stickers must stay on a public path — never alias onto
+                        // private chat media (recipients would get a broken CDN).
+                        if ($isSticker && $existing->is_private) {
+                            $existing = null;
+                        }
+                    }
+                    if ($existing) {
+                        $root = $existing->storageRoot();
+                        $meta = [
+                            'disk' => $root->disk,
+                            'path' => $root->path,
+                            'thumb_path' => $root->thumb_path,
+                            'cover_path' => $root->cover_path,
+                            'hls_path' => $root->hls_path,
+                            'hls_status' => $root->hls_status,
+                            'processing_status' => $root->processing_status,
+                            'variants' => $root->variants,
+                            'metadata' => $root->metadata,
+                            'canonical_media_id' => $root->id,
+                            'private' => $private,
+                            'encrypted' => false,
+                            'mime' => $root->mime ?: ($file->getMimeType() ?: 'application/octet-stream'),
+                            'size' => $root->size_bytes ?: $size,
+                            'name' => mb_substr($file->getClientOriginalName() ?: 'media', 0, 255),
+                            'ext' => strtolower($file->getClientOriginalExtension() ?: pathinfo($file->getClientOriginalName() ?: '', PATHINFO_EXTENSION)),
+                            'sha256' => $sha256,
+                            'etag' => $root->etag ?: $sha256,
+                            'width' => $root->width,
+                            'height' => $root->height,
+                            'duration' => $root->duration,
+                            'shared' => true,
+                        ];
+                        if (! $private) {
+                            $baseUrl = rtrim((string) config("filesystems.disks.{$diskName}.url", ''), '/');
+                            $publicUrl = $existing->url
+                                ?: ($root->url ?? null)
+                                ?: ($baseUrl !== '' ? $baseUrl.'/'.ltrim((string) $root->path, '/') : null);
+                            if ($publicUrl) {
+                                $meta['url'] = $publicUrl;
+                            }
+                        }
+                        if (isset($options['width']) && is_numeric($options['width'])) {
+                            $meta['width'] = (int) $options['width'];
+                        }
+                        if (isset($options['height']) && is_numeric($options['height'])) {
+                            $meta['height'] = (int) $options['height'];
+                        }
+                        if (isset($options['duration']) && is_numeric($options['duration'])) {
+                            $meta['duration'] = round((float) $options['duration'], 1);
+                        }
+                        if (! empty($options['silent']) || ! empty($options['animation'])) {
+                            $meta['silent'] = true;
+                            $meta['animation'] = true;
+                        }
+                        if (! empty($options['album_id']) && is_string($options['album_id'])) {
+                            $meta['album_id'] = mb_substr($options['album_id'], 0, 64);
+                            if (isset($options['album_index']) && is_numeric($options['album_index'])) {
+                                $meta['album_index'] = (int) $options['album_index'];
+                            }
+                            if (isset($options['album_count']) && is_numeric($options['album_count'])) {
+                                $meta['album_count'] = (int) $options['album_count'];
+                            }
+                        }
+
+                        return $meta;
+                    }
+                }
                 $path = Storage::disk($diskName)->putFile($folder, $file);
             }
         } catch (\Throwable $e) {
@@ -842,19 +1219,34 @@ class MessengerService
             ? 'application/octet-stream'
             : ($file->getMimeType() ?: 'application/octet-stream');
         $size = (int) $file->getSize();
+        $sha256 = $encryptedUpload
+            ? null
+            : (@hash_file('sha256', $file->getRealPath()) ?: null);
 
         // Private meta: path only. Proxy URL is constructed by the API resource.
+        // Public stickers also keep a CDN url for direct <img> load on recipients.
         $meta = [
             'disk' => $diskName,
             'path' => $path,
-            'private' => true,
+            'private' => $private,
             'encrypted' => $encryptedUpload,
             'mime' => $mime,
             'size' => $size,
             // Cleartext name/ext only for non-E2E; E2E puts them inside ciphertext.
             'name' => $encryptedUpload ? null : mb_substr($origName, 0, 255),
             'ext' => $encryptedUpload ? 'bin' : $ext,
+            'sha256' => $sha256,
+            'etag' => $sha256,
+            'hls_status' => 'none',
+            'processing_status' => 'ready',
         ];
+
+        if (! $private && ! $encryptedUpload) {
+            $baseUrl = rtrim((string) config("filesystems.disks.{$diskName}.url", ''), '/');
+            if ($baseUrl !== '') {
+                $meta['url'] = $baseUrl.'/'.ltrim($path, '/');
+            }
+        }
 
         if (isset($options['width']) && is_numeric($options['width'])) {
             $meta['width'] = (int) $options['width'];
@@ -905,7 +1297,12 @@ class MessengerService
         }
 
         // Ensure private deny marker exists on the static disk (Apache .htaccess).
-        $this->ensurePrivateDenyMarker($diskName, $baseFolder);
+        if ($private) {
+            $this->ensurePrivateDenyMarker(
+                $diskName,
+                $baseFolder ?? trim((string) ($cfg['private_folder'] ?? 'private/messenger'), '/')
+            );
+        }
 
         return $meta;
     }
@@ -1214,11 +1611,18 @@ class MessengerService
         $sources = Message::query()
             ->visibleTo($user)
             ->whereIn('id', $uniqueIds)
-            ->with('conversation')
+            ->with(['conversation', 'media'])
             ->get()
             ->keyBy('id');
 
         if ($sources->count() !== $uniqueIds->count()) {
+            Log::warning('messenger.forward.invisible_source', [
+                'user_id' => $user->id,
+                'target_id' => $target->id,
+                'target_type' => $target->type,
+                'requested' => $uniqueIds->all(),
+                'found' => $sources->keys()->all(),
+            ]);
             throw (new ModelNotFoundException)->setModel(Message::class, $uniqueIds->all());
         }
 
@@ -1229,6 +1633,12 @@ class MessengerService
                 $source = $sources->get((int) $messageId);
 
                 if (! empty($source->is_encrypted) || ! empty(($source->meta['encrypted'] ?? false))) {
+                    Log::info('messenger.forward.encrypted_source_requires_client', [
+                        'user_id' => $user->id,
+                        'target_id' => $target->id,
+                        'target_type' => $target->type,
+                        'source_id' => $source->id,
+                    ]);
                     throw new \InvalidArgumentException(
                         'Encrypted messages must be re-encrypted on the client before forwarding'
                     );
@@ -1257,36 +1667,74 @@ class MessengerService
                         'accuracy' => $srcMeta['accuracy'] ?? null,
                     ];
                     $options['meta'] = array_merge($options['meta'] ?? [], $locMeta);
-                } elseif (in_array($sourceType, Message::MEDIA_TYPES, true)) {
-                    $srcMeta = is_array($source->meta) ? $source->meta : [];
-                    $mediaMeta = array_filter([
-                        'disk' => $srcMeta['disk'] ?? null,
-                        'path' => $srcMeta['path'] ?? null,
-                        'thumb_path' => $srcMeta['thumb_path'] ?? null,
-                        'cover_path' => $srcMeta['cover_path'] ?? null,
-                        'private' => $srcMeta['private'] ?? true,
-                        'url' => $srcMeta['url'] ?? null,
-                        'thumb_url' => $srcMeta['thumb_url'] ?? null,
-                        'mime' => $srcMeta['mime'] ?? null,
-                        'size' => $srcMeta['size'] ?? null,
-                        'name' => $srcMeta['name'] ?? null,
-                        'ext' => $srcMeta['ext'] ?? null,
-                        'width' => $srcMeta['width'] ?? null,
-                        'height' => $srcMeta['height'] ?? null,
-                        'duration' => $srcMeta['duration'] ?? null,
-                    ], fn ($v) => $v !== null && $v !== '');
-                    $options['meta'] = array_merge($options['meta'] ?? [], $mediaMeta);
                 }
 
-                // Server-side forward only works into non-E2E targets (public channels).
+                // Server-side forward only works into non-E2E targets (Saved Messages,
+                // public channels). Private/group E2E targets must use the client path.
                 if ($crypto->conversationShouldEncrypt($target)) {
+                    Log::info('messenger.forward.encrypted_target_requires_client', [
+                        'user_id' => $user->id,
+                        'target_id' => $target->id,
+                        'target_type' => $target->type,
+                        'source_id' => $source->id,
+                    ]);
                     throw new \InvalidArgumentException(
                         'Forwarding into encrypted chats must be done client-side'
                     );
                 }
 
+                // Media forwards reuse messenger_media by id (no re-upload).
+                if (in_array($sourceType, Message::MEDIA_TYPES, true)) {
+                    $media = $this->resolveOrCreateMediaFromMessage($source);
+                    if (! $media) {
+                        Log::warning('messenger.forward.missing_media_path', [
+                            'user_id' => $user->id,
+                            'target_id' => $target->id,
+                            'source_id' => $source->id,
+                        ]);
+                        throw new \InvalidArgumentException('Source media has no storage path');
+                    }
+                    $srcMeta = is_array($source->meta) ? $source->meta : [];
+                    $extraMeta = array_filter([
+                        'silent' => $srcMeta['silent'] ?? null,
+                        'animation' => $srcMeta['animation'] ?? null,
+                        'sticker' => $srcMeta['sticker'] ?? null,
+                        'sticker_id' => $srcMeta['sticker_id'] ?? null,
+                        'sticker_pack_id' => $srcMeta['sticker_pack_id'] ?? null,
+                        'sticker_emoji' => $srcMeta['sticker_emoji'] ?? null,
+                        'sticker_kind' => $srcMeta['sticker_kind'] ?? null,
+                        'album_id' => $srcMeta['album_id'] ?? null,
+                        'album_index' => $srcMeta['album_index'] ?? null,
+                        'album_count' => $srcMeta['album_count'] ?? null,
+                    ], fn ($v) => $v !== null && $v !== '');
+                    if (! $dropAuthor) {
+                        $extraMeta = array_merge($options['meta'] ?? [], $extraMeta);
+                    }
+                    $created[] = $this->sendExistingMediaMessage(
+                        $user,
+                        $target,
+                        $media,
+                        $source->body ?? '',
+                        null,
+                        array_merge($options, [
+                            'type' => $sourceType,
+                            'meta' => $extraMeta,
+                        ])
+                    );
+
+                    continue;
+                }
+
                 $created[] = $this->sendMessage($user, $target, $source->body ?? '', null, $options);
             }
+
+            Log::info('messenger.forward.ok', [
+                'user_id' => $user->id,
+                'target_id' => $target->id,
+                'target_type' => $target->type,
+                'count' => count($created),
+                'source_ids' => array_values(array_map('intval', $messageIds)),
+            ]);
 
             return $created;
         });
@@ -1319,8 +1767,9 @@ class MessengerService
             throw new \InvalidArgumentException('Only media messages can be forwarded by reference');
         }
 
+        $media = $this->resolveOrCreateMediaFromMessage($source);
         $srcMeta = is_array($source->meta) ? $source->meta : [];
-        if (empty($srcMeta['path']) && empty($srcMeta['url'])) {
+        if (! $media && empty($srcMeta['path']) && empty($srcMeta['url'])) {
             throw new \InvalidArgumentException('Source media has no storage path');
         }
 
@@ -1334,23 +1783,47 @@ class MessengerService
             );
         }
 
-        $mediaMeta = array_filter([
-            'disk' => $srcMeta['disk'] ?? null,
-            'path' => $srcMeta['path'] ?? null,
-            'thumb_path' => $srcMeta['thumb_path'] ?? null,
-            'cover_path' => $srcMeta['cover_path'] ?? null,
-            'private' => $srcMeta['private'] ?? true,
-            'encrypted' => $dstEncrypted ? true : ($srcMeta['encrypted'] ?? null),
-            'mime' => $dstEncrypted ? 'application/octet-stream' : ($srcMeta['mime'] ?? null),
-            'size' => $srcMeta['size'] ?? null,
-            'name' => $dstEncrypted ? null : ($srcMeta['name'] ?? null),
-            'ext' => $dstEncrypted ? 'bin' : ($srcMeta['ext'] ?? null),
-            'width' => $srcMeta['width'] ?? null,
-            'height' => $srcMeta['height'] ?? null,
-            'duration' => $srcMeta['duration'] ?? null,
+        $mediaMeta = $media
+            ? $media->toMessageMeta()
+            : array_filter([
+                'disk' => $srcMeta['disk'] ?? null,
+                'path' => $srcMeta['path'] ?? null,
+                'thumb_path' => $srcMeta['thumb_path'] ?? null,
+                'cover_path' => $srcMeta['cover_path'] ?? null,
+                'private' => $srcMeta['private'] ?? true,
+                'url' => $srcMeta['url'] ?? null,
+                'mime' => $srcMeta['mime'] ?? null,
+                'size' => $srcMeta['size'] ?? null,
+                'name' => $srcMeta['name'] ?? null,
+                'ext' => $srcMeta['ext'] ?? null,
+                'width' => $srcMeta['width'] ?? null,
+                'height' => $srcMeta['height'] ?? null,
+                'duration' => $srcMeta['duration'] ?? null,
+            ], fn ($v) => $v !== null && $v !== '');
+
+        if ($dstEncrypted) {
+            $mediaMeta['encrypted'] = true;
+            $mediaMeta['mime'] = 'application/octet-stream';
+            $mediaMeta['name'] = null;
+            $mediaMeta['ext'] = 'bin';
+        }
+
+        $mediaMeta = array_merge($mediaMeta, array_filter([
             'silent' => $srcMeta['silent'] ?? null,
             'animation' => $srcMeta['animation'] ?? null,
-        ], fn ($v) => $v !== null && $v !== '');
+            'sticker' => $srcMeta['sticker'] ?? null,
+            'sticker_id' => $srcMeta['sticker_id'] ?? null,
+            'sticker_pack_id' => $srcMeta['sticker_pack_id'] ?? null,
+            'sticker_emoji' => $srcMeta['sticker_emoji'] ?? null,
+            'sticker_kind' => $srcMeta['sticker_kind'] ?? null,
+            'album_id' => $srcMeta['album_id'] ?? null,
+            'album_index' => $srcMeta['album_index'] ?? null,
+            'album_count' => $srcMeta['album_count'] ?? null,
+            // Prefer source message dimensions/duration when the media row is sparse.
+            'width' => $srcMeta['width'] ?? ($mediaMeta['width'] ?? null),
+            'height' => $srcMeta['height'] ?? ($mediaMeta['height'] ?? null),
+            'duration' => $srcMeta['duration'] ?? ($mediaMeta['duration'] ?? null),
+        ], fn ($v) => $v !== null && $v !== ''));
 
         // Clear attribution fields from the client (fwd_chat) + media paths.
         $clientMeta = is_array($options['meta'] ?? null) ? $options['meta'] : [];
@@ -1369,12 +1842,120 @@ class MessengerService
 
         $merged = array_merge($fwdMeta, $mediaMeta);
 
+        if ($media) {
+            return $this->sendExistingMediaMessage($user, $target, $media, $body, $clientId, array_merge($options, [
+                'type' => $sourceType,
+                'meta' => $merged,
+                'is_encrypted' => $dstEncrypted,
+                'encrypted' => $dstEncrypted,
+            ]));
+        }
+
         return $this->sendMessage($user, $target, $body, $clientId, array_merge($options, [
             'type' => $sourceType,
             'meta' => $merged,
             'is_encrypted' => $dstEncrypted,
             'encrypted' => $dstEncrypted,
         ]));
+    }
+
+    /**
+     * Resolve messenger_media for a message, backfilling a row from legacy meta when needed.
+     */
+    public function resolveOrCreateMediaFromMessage(Message $message): ?MessengerMedia
+    {
+        if ($message->media_id) {
+            $media = $message->relationLoaded('media')
+                ? $message->media
+                : MessengerMedia::query()->find($message->media_id);
+            if ($media) {
+                return $media;
+            }
+        }
+
+        $meta = is_array($message->meta) ? $message->meta : [];
+        if (! empty($meta['media_id'])) {
+            $media = MessengerMedia::query()->find((int) $meta['media_id']);
+            if ($media) {
+                if (! $message->media_id) {
+                    $message->forceFill(['media_id' => $media->id])->saveQuietly();
+                }
+
+                return $media;
+            }
+        }
+
+        $path = $meta['path'] ?? null;
+        $url = $meta['url'] ?? null;
+        if ((! is_string($path) || $path === '') && (! is_string($url) || $url === '')) {
+            return null;
+        }
+
+        if (is_string($path) && $path !== '') {
+            $existing = MessengerMedia::query()->where('path', $path)->first();
+            if ($existing) {
+                if ((int) $message->media_id !== (int) $existing->id) {
+                    $meta['media_id'] = $existing->id;
+                    $meta['media_uuid'] = $existing->uuid;
+                    $message->forceFill([
+                        'media_id' => $existing->id,
+                        'meta' => $meta,
+                    ])->saveQuietly();
+                }
+
+                return $existing;
+            }
+        }
+
+        $kind = in_array($message->type, Message::MEDIA_TYPES, true)
+            ? $message->type
+            : (! empty($meta['sticker']) ? 'sticker' : 'file');
+
+        $media = MessengerMedia::createFromStoredMeta($message->user_id, $kind, $meta);
+        $meta['media_id'] = $media->id;
+        $meta['media_uuid'] = $media->uuid;
+        $message->forceFill([
+            'media_id' => $media->id,
+            'meta' => $meta,
+        ])->saveQuietly();
+        $media->bumpRef(1);
+
+        return $media;
+    }
+
+    /**
+     * Caller may reuse a media asset only if they own it, can see a message that
+     * references it, or it belongs to an accessible sticker pack.
+     */
+    protected function assertCanUseMedia(User $user, MessengerMedia $media): void
+    {
+        if ((int) $media->user_id === (int) $user->id) {
+            return;
+        }
+
+        $viaMessage = Message::query()
+            ->visibleTo($user)
+            ->where('media_id', $media->id)
+            ->exists();
+        if ($viaMessage) {
+            return;
+        }
+
+        $viaSticker = \App\Models\MessengerSticker::query()
+            ->where('media_id', $media->id)
+            ->whereHas('pack', function ($q) use ($user) {
+                $q->where('user_id', $user->id)
+                    ->orWhere('is_public', true)
+                    ->orWhereIn('id', \App\Models\MessengerUserStickerPack::query()
+                        ->where('user_id', $user->id)
+                        ->select('pack_id'));
+            })
+            ->exists();
+        if ($viaSticker) {
+            return;
+        }
+
+        throw new \RuntimeException('Forbidden media');
     }
 
     /**
@@ -1508,19 +2089,44 @@ class MessengerService
             throw new \RuntimeException('You can only delete your own messages for everyone');
         }
 
-        // Pins reference this message; clear them for all participants.
-        MessagePin::where('message_id', $messageId)->delete();
+        DB::transaction(function () use ($message, $messageId, $conversation) {
+            // Pins reference this message; clear them for all participants.
+            MessagePin::where('message_id', $messageId)->delete();
 
-        // Capture media meta before soft-delete so CDN objects can be purged
-        // in the background (photos / videos / voice / audio + thumbs / covers).
-        $mediaMeta = is_array($message->meta) ? $message->meta : null;
-        $mediaType = (string) ($message->type ?: 'text');
+            // Capture media identity before soft-delete. Shared assets (forwards /
+            // stickers) must stay on disk until no live references remain.
+            $mediaId = $message->media_id
+                ?: (is_array($message->meta) ? ($message->meta['media_id'] ?? null) : null);
+            $mediaMeta = is_array($message->meta) ? $message->meta : null;
+            $mediaType = (string) ($message->type ?: 'text');
 
-        $message->delete();
+            $message->delete();
 
-        if ($mediaMeta && in_array($mediaType, Message::MEDIA_TYPES, true)) {
-            DeleteMessengerMedia::dispatch($mediaMeta, $mediaType)->afterResponse();
-        }
+            if ($mediaId && in_array($mediaType, Message::MEDIA_TYPES, true)) {
+                $media = MessengerMedia::query()->find((int) $mediaId);
+                if ($media) {
+                    $media->dropRef(1);
+                    $this->releaseMediaIfUnreferenced((int) $mediaId, $mediaType);
+                }
+            } elseif ($mediaMeta && in_array($mediaType, Message::MEDIA_TYPES, true)) {
+                $path = $mediaMeta['path'] ?? null;
+                $stillShared = false;
+                if (is_string($path) && $path !== '') {
+                    $stillShared = Message::query()
+                        ->where('id', '!=', $messageId)
+                        ->where(function ($q) use ($path) {
+                            $q->where('meta->path', $path)
+                                ->orWhereHas('media', fn ($m) => $m->where('path', $path));
+                        })
+                        ->exists();
+                }
+                if (! $stillShared) {
+                    DB::afterCommit(function () use ($mediaMeta, $mediaType) {
+                        DeleteMessengerMedia::dispatch($mediaMeta, $mediaType);
+                    });
+                }
+            }
+        });
 
         $this->notifyAllParticipants($conversation, 'message.deleted', [
             'message_id' => $messageId,
@@ -1960,6 +2566,8 @@ class MessengerService
             ['name' => $name ?? trim("{$contactUser->first_name} {$contactUser->last_name}") ?: $contactUser->username]
         );
 
+        $this->privacy->invalidateUser($user->id);
+
         return $contact->load([
             'contactUser:id,first_name,last_name,username,profile_pic,last_seen',
             'contactUser.messengerSettings',
@@ -1974,6 +2582,8 @@ class MessengerService
 
         $contact->update(array_intersect_key($data, array_flip(['name', 'is_blocked', 'is_favorite'])));
 
+        $this->privacy->invalidateUser($user->id);
+
         return $contact->load([
             'contactUser:id,first_name,last_name,username,profile_pic,last_seen',
             'contactUser.messengerSettings',
@@ -1987,6 +2597,7 @@ class MessengerService
         }
 
         $contact->delete();
+        $this->privacy->invalidateUser($user->id);
     }
 
     public function searchUsers(User $user, string $query, int $limit = 10): Collection
@@ -2411,10 +3022,9 @@ class MessengerService
     {
         $settings = $this->getSettings($user);
 
-        $before = [
-            'show_online' => (bool) $settings->show_online,
-            'show_last_seen' => (bool) $settings->show_last_seen,
-        ];
+        $beforePrivacy = $this->privacy->settingsPayload($user, $settings);
+        $beforeOnline = (bool) $settings->show_online;
+        $beforeLastSeen = (bool) $settings->show_last_seen;
 
         $payload = array_intersect_key($data, array_flip([
             'enter_to_send', 'quote_with_title', 'forward_tap_to_chat',
@@ -2423,6 +3033,17 @@ class MessengerService
             'wallpaper', 'wallpaper_config',
             'theme', 'locale', 'show_online', 'show_last_seen', 'show_phone', 'show_email',
         ]));
+
+        // Map legacy booleans → Telegram-style rules when clients still send them.
+        if (array_key_exists('show_online', $payload) && ! isset($data['privacy']['online'])) {
+            $payload['privacy_online'] = $payload['show_online'] ? 'everybody' : 'nobody';
+        }
+        if (array_key_exists('show_last_seen', $payload) && ! isset($data['privacy']['last_seen'])) {
+            $payload['privacy_last_seen'] = $payload['show_last_seen'] ? 'everybody' : 'nobody';
+        }
+        if (array_key_exists('show_phone', $payload) && ! isset($data['privacy']['phone'])) {
+            $payload['privacy_phone'] = $payload['show_phone'] ? 'everybody' : 'nobody';
+        }
 
         if (isset($data['auto_download']) && is_array($data['auto_download'])) {
             $payload['auto_download'] = \App\Models\MessengerSetting::mergeAutoDownload(
@@ -2445,16 +3066,23 @@ class MessengerService
             );
         }
 
-        $settings->update($payload);
+        if ($payload !== []) {
+            $settings->update($payload);
+        }
 
-        // Privacy preferences that change what *others* see (online state &
-        // last seen) must propagate in realtime to everyone in contact.
-        $privacyChanged = (bool) $settings->show_online !== $before['show_online']
-            || (bool) $settings->show_last_seen !== $before['show_last_seen'];
+        if (isset($data['privacy']) && is_array($data['privacy'])) {
+            $this->privacy->updatePrivacy($user, $settings, $data['privacy']);
+            $settings->refresh();
+        }
+
+        $user->setRelation('messengerSettings', $settings);
+
+        $afterPrivacy = $this->privacy->settingsPayload($user, $settings);
+        $privacyChanged = $beforePrivacy !== $afterPrivacy
+            || (bool) $settings->show_online !== $beforeOnline
+            || (bool) $settings->show_last_seen !== $beforeLastSeen;
 
         if ($privacyChanged) {
-            // Make sure broadcastPresence resolves the freshly-saved settings.
-            $user->setRelation('messengerSettings', $settings);
             $this->broadcastPresence($user, $user->isOnline());
         }
 
@@ -2504,6 +3132,7 @@ class MessengerService
             'user.messengerSettings',
             'forwardedFromUser:id,first_name,last_name,username,profile_pic,last_seen',
             'forwardedFromUser.messengerSettings',
+            'media',
             'replyTo' => fn ($q) => $q
                 ->visibleTo($viewer)
                 ->with([
@@ -2718,6 +3347,7 @@ class MessengerService
             'client_id' => $row['client_id'] ?? null,
             'body' => $row['body'] ?? '',
             'type' => $row['type'] ?? 'text',
+            'media_id' => isset($row['media_id']) ? (int) $row['media_id'] : null,
             'is_encrypted' => (bool) ($row['is_encrypted'] ?? false),
             'sender_device_id' => $row['sender_device_id'] ?? null,
             'e2e' => $row['e2e'] ?? null,
@@ -2931,22 +3561,29 @@ class MessengerService
 
     protected function broadcastPresence(User $user, bool $online): void
     {
-        $settings = $user->resolvedMessengerSettings();
-        $isOnline = $online && $settings->show_online;
-        $lastSeen = null;
-        if ($settings->show_last_seen) {
-            $lastSeen = $user->last_seen
-                ? \Illuminate\Support\Carbon::parse($user->last_seen)->toIso8601String()
-                : now()->toIso8601String();
-        }
+        $audienceIds = $this->presenceAudience($user);
+        $this->privacy->warmForBroadcast($user, $audienceIds);
 
-        $payload = [
-            'user_id' => $user->id,
-            'is_online' => $isOnline,
-            'last_seen' => $lastSeen,
-        ];
+        // Preload audience users for mutual privacy checks (one query).
+        $audienceUsers = User::query()
+            ->whereIn('id', $audienceIds)
+            ->select('id', 'last_seen')
+            ->with('messengerSettings')
+            ->get()
+            ->keyBy('id');
 
-        foreach ($this->presenceAudience($user) as $audienceId) {
+        foreach ($audienceIds as $audienceId) {
+            $viewer = $audienceUsers->get($audienceId);
+            if (! $viewer) {
+                continue;
+            }
+
+            $payload = [
+                'user_id' => $user->id,
+                'is_online' => $this->privacy->visibleOnline($user, $viewer, $online),
+                'last_seen' => $this->privacy->visibleLastSeen($user, $viewer),
+            ];
+
             // Presence is ephemeral; don't persist to the durable event log.
             $this->emitEvent($audienceId, null, 'presence', $payload, false);
         }
@@ -2982,6 +3619,7 @@ class MessengerService
         );
         $contact->update(['is_blocked' => true]);
         $this->outbox->cacheBlock((int) $user->id, $targetUserId, true);
+        $this->privacy->invalidateUser($user->id);
 
         return $contact->load([
             'contactUser:id,first_name,last_name,username,profile_pic,last_seen',
@@ -2995,6 +3633,7 @@ class MessengerService
             ->where('contact_user_id', $targetUserId)
             ->update(['is_blocked' => false]);
         $this->outbox->cacheBlock((int) $user->id, $targetUserId, false);
+        $this->privacy->invalidateUser($user->id);
     }
 
     // -------------------------------------------------------------------------
@@ -3042,8 +3681,9 @@ class MessengerService
     /**
      * Normalize Iranian mobile inputs to canonical +98XXXXXXXXXX (same as auth).
      * Accepts +98 / 98 / 0098 / 0 / bare 9xxxxxxxxx and Persian/Arabic digits.
+     * Ignores spaces, dashes, parentheses and other formatting characters.
      */
-    protected function normalizeMobile(string $value): ?string
+    public function normalizeMobile(string $value): ?string
     {
         $raw = $this->toAsciiDigits(trim($value));
         $digits = preg_replace('/\D+/', '', $raw);
@@ -3067,7 +3707,7 @@ class MessengerService
     }
 
     /** All common DB / input variants for an Iranian mobile (for OR lookups). */
-    protected function mobileLookupVariants(string $value): array
+    public function mobileLookupVariants(string $value): array
     {
         $e164 = $this->normalizeMobile($value);
         if (! $e164) {
@@ -3082,6 +3722,259 @@ class MessengerService
             '0098'.$national, // 00989123456789
             $national,        // 9123456789
         ]));
+    }
+
+    /**
+     * Sync a device address-book batch: normalize phones, match registered users,
+     * upsert synced_contacts, auto-add matched users as contacts.
+     *
+     * @param  array<int, array{name?: string|null, phone: string}>  $entries
+     * @return array{registered: array, inviteable: array, synced_count: int, matched_count: int}
+     */
+    public function syncDeviceContacts(User $user, array $entries): array
+    {
+        $byPhone = [];
+        foreach ($entries as $entry) {
+            if (! is_array($entry)) {
+                continue;
+            }
+            $phoneRaw = (string) ($entry['phone'] ?? '');
+            $e164 = $this->normalizeMobile($phoneRaw);
+            if (! $e164 || $e164 === $this->normalizeMobile((string) $user->mobile)) {
+                continue;
+            }
+            $name = isset($entry['name']) ? trim((string) $entry['name']) : '';
+            if ($name === '') {
+                $name = $e164;
+            }
+            // Prefer a non-empty human name if the same number appears twice.
+            if (! isset($byPhone[$e164]) || ($byPhone[$e164]['name'] === $e164 && $name !== $e164)) {
+                $byPhone[$e164] = ['phone' => $e164, 'name' => $name];
+            }
+        }
+
+        if ($byPhone === []) {
+            return [
+                'registered' => [],
+                'inviteable' => [],
+                'synced_count' => 0,
+                'matched_count' => 0,
+            ];
+        }
+
+        $variantToE164 = [];
+        $allVariants = [];
+        foreach (array_keys($byPhone) as $e164) {
+            foreach ($this->mobileLookupVariants($e164) as $variant) {
+                $variantToE164[$variant] = $e164;
+                $allVariants[] = $variant;
+            }
+        }
+
+        $matchedUsers = User::query()
+            ->where('active', true)
+            ->whereIn('mobile', array_values(array_unique($allVariants)))
+            ->with('messengerSettings')
+            ->get();
+
+        /** @var array<string, User> $e164ToUser */
+        $e164ToUser = [];
+        foreach ($matchedUsers as $matched) {
+            $canonical = $this->normalizeMobile((string) $matched->mobile);
+            if ($canonical) {
+                $e164ToUser[$canonical] = $matched;
+            }
+            foreach ($this->mobileLookupVariants((string) $matched->mobile) as $variant) {
+                if (isset($variantToE164[$variant])) {
+                    $e164ToUser[$variantToE164[$variant]] = $matched;
+                }
+            }
+        }
+
+        $now = now();
+        $registered = [];
+        $inviteable = [];
+        $matchedCount = 0;
+
+        foreach ($byPhone as $e164 => $row) {
+            $matched = $e164ToUser[$e164] ?? null;
+            $matchedId = $matched?->id;
+
+            SyncedContact::updateOrCreate(
+                ['user_id' => $user->id, 'phone_normalized' => $e164],
+                [
+                    'name' => $row['name'],
+                    'matched_user_id' => $matchedId,
+                    'last_synced_at' => $now,
+                ]
+            );
+
+            if ($matched && (int) $matched->id !== (int) $user->id) {
+                $matchedCount++;
+                $contact = $this->addContact($user, (int) $matched->id, $row['name']);
+                $registered[] = [
+                    'name' => $row['name'],
+                    'phone' => $e164,
+                    'user' => new \App\Http\Resources\Messenger\UserBriefResource($matched),
+                    'contact_id' => $contact->id,
+                ];
+            } else {
+                $inviteable[] = [
+                    'name' => $row['name'],
+                    'phone' => $e164,
+                    'channel' => 'sms',
+                ];
+            }
+        }
+
+        // Refresh registration status for previously synced numbers not in this batch.
+        $this->refreshSyncedMatches($user, array_keys($byPhone));
+
+        return [
+            'registered' => $registered,
+            'inviteable' => $inviteable,
+            'synced_count' => count($byPhone),
+            'matched_count' => $matchedCount,
+        ];
+    }
+
+    /**
+     * Re-match stored synced contacts against users (periodic status update).
+     *
+     * @param  array<int, string>|null  $skipPhones  Phones already handled in the current batch
+     * @return array{registered: array, inviteable: array, synced_count: int, matched_count: int}
+     */
+    public function refreshSyncedContacts(User $user, ?array $skipPhones = null): array
+    {
+        return $this->refreshSyncedMatches($user, $skipPhones ?? []);
+    }
+
+    /**
+     * @param  array<int, string>  $skipPhones
+     * @return array{registered: array, inviteable: array, synced_count: int, matched_count: int}
+     */
+    protected function refreshSyncedMatches(User $user, array $skipPhones): array
+    {
+        $skip = array_flip($skipPhones);
+        $rows = SyncedContact::query()
+            ->where('user_id', $user->id)
+            ->when($skip !== [], fn ($q) => $q->whereNotIn('phone_normalized', array_keys($skip)))
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return [
+                'registered' => [],
+                'inviteable' => [],
+                'synced_count' => 0,
+                'matched_count' => 0,
+            ];
+        }
+
+        $variantToE164 = [];
+        $allVariants = [];
+        foreach ($rows as $row) {
+            foreach ($this->mobileLookupVariants($row->phone_normalized) as $variant) {
+                $variantToE164[$variant] = $row->phone_normalized;
+                $allVariants[] = $variant;
+            }
+        }
+
+        $matchedUsers = User::query()
+            ->where('active', true)
+            ->whereIn('mobile', array_values(array_unique($allVariants)))
+            ->with('messengerSettings')
+            ->get();
+
+        $e164ToUser = [];
+        foreach ($matchedUsers as $matched) {
+            foreach ($this->mobileLookupVariants((string) $matched->mobile) as $variant) {
+                if (isset($variantToE164[$variant])) {
+                    $e164ToUser[$variantToE164[$variant]] = $matched;
+                }
+            }
+        }
+
+        $registered = [];
+        $inviteable = [];
+        $matchedCount = 0;
+        $now = now();
+
+        foreach ($rows as $row) {
+            $matched = $e164ToUser[$row->phone_normalized] ?? null;
+            $matchedId = $matched?->id;
+            $row->matched_user_id = $matchedId;
+            $row->last_synced_at = $now;
+            $row->save();
+
+            if ($matched && (int) $matched->id !== (int) $user->id) {
+                $matchedCount++;
+                $contact = $this->addContact($user, (int) $matched->id, $row->name);
+                $registered[] = [
+                    'name' => $row->name,
+                    'phone' => $row->phone_normalized,
+                    'user' => new \App\Http\Resources\Messenger\UserBriefResource($matched),
+                    'contact_id' => $contact->id,
+                ];
+            } else {
+                $inviteable[] = [
+                    'name' => $row->name,
+                    'phone' => $row->phone_normalized,
+                    'channel' => 'sms',
+                ];
+            }
+        }
+
+        return [
+            'registered' => $registered,
+            'inviteable' => $inviteable,
+            'synced_count' => $rows->count(),
+            'matched_count' => $matchedCount,
+        ];
+    }
+
+    /**
+     * List stored synced contacts split into registered / inviteable.
+     *
+     * @return array{registered: array, inviteable: array, last_synced_at: ?string}
+     */
+    public function listSyncedContacts(User $user): array
+    {
+        $rows = SyncedContact::query()
+            ->where('user_id', $user->id)
+            ->with(['matchedUser:id,first_name,last_name,username,profile_pic,last_seen', 'matchedUser.messengerSettings'])
+            ->orderBy('name')
+            ->get();
+
+        $registered = [];
+        $inviteable = [];
+        $lastSynced = null;
+
+        foreach ($rows as $row) {
+            if ($row->last_synced_at && (! $lastSynced || $row->last_synced_at->gt($lastSynced))) {
+                $lastSynced = $row->last_synced_at;
+            }
+            if ($row->matchedUser) {
+                $registered[] = [
+                    'id' => $row->id,
+                    'name' => $row->name,
+                    'phone' => $row->phone_normalized,
+                    'user' => new \App\Http\Resources\Messenger\UserBriefResource($row->matchedUser),
+                ];
+            } else {
+                $inviteable[] = [
+                    'id' => $row->id,
+                    'name' => $row->name,
+                    'phone' => $row->phone_normalized,
+                    'channel' => 'sms',
+                ];
+            }
+        }
+
+        return [
+            'registered' => $registered,
+            'inviteable' => $inviteable,
+            'last_synced_at' => $lastSynced?->toIso8601String(),
+        ];
     }
 
     protected function toAsciiDigits(string $value): string

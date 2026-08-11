@@ -34,7 +34,13 @@ function Test-ShouldExcludeBackendPath {
     $path = ($RelativePath -replace '\\', '/').Trim('/')
     if (-not $path) { return $false }
 
-    $excludeDirs = @('.git', 'node_modules', '.idea', '.vscode', 'tests', 'deploy')
+    $excludeDirs = @(
+        '.git', 'node_modules', '.idea', '.vscode', 'tests', 'deploy',
+        'storage/logs',
+        'storage/framework/cache/data',
+        'storage/framework/sessions',
+        'storage/framework/views'
+    )
     foreach ($dir in $excludeDirs) {
         if ($path -eq $dir -or $path.StartsWith("$dir/")) { return $true }
     }
@@ -50,7 +56,12 @@ function Test-ShouldExcludeBackendPath {
 
     if ($excludeFiles -contains $fileName) { return $true }
     if ($path -like '.env.*') { return $true }
-    if ($path -match '^storage/logs/.*\.log$') { return $true }
+    if ($path -like '*.log') { return $true }
+
+    # Heavy / non-essential — shipped in a second upload after main extract
+    if ($path -like 'database/ip2location/*.BIN') { return $true }
+    if ($path -like 'vendor/ip2location/*/data/*.BIN') { return $true }
+    if ($path -eq 'vendor/laravel/pint' -or $path.StartsWith('vendor/laravel/pint/')) { return $true }
 
     return $false
 }
@@ -156,6 +167,43 @@ function Invoke-RemoteCommand {
     return $LASTEXITCODE
 }
 
+function Invoke-RemoteCommandText {
+    param([string]$Command)
+
+    $c = $script:Config
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        if (Test-UseSshKey) {
+            $raw = & ssh -p $c.SshPort -i $c.SshKeyPath -o StrictHostKeyChecking=accept-new `
+                "$($c.SshUser)@$($c.SshHost)" $Command 2>&1 | Out-String
+        }
+        else {
+            $plink = Get-PlinkPath
+            $raw = & $plink @(Get-PlinkCommonArgs) $Command 2>&1 | Out-String
+        }
+        $code = [int]$LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $prev
+    }
+
+    return [pscustomobject]@{
+        ExitCode = $code
+        Text     = (($raw + '') -replace '\r', '').Trim()
+    }
+}
+
+function Get-RemoteFileSizeBytes {
+    param([string]$RemotePath)
+
+    $r = Invoke-RemoteCommandText "stat -c%s -- '$RemotePath' 2>/dev/null || echo NOFILE"
+    if ($r.Text -match '(?m)^(\d+)$') {
+        return [int64]$Matches[1]
+    }
+    return -1L
+}
+
 function Get-UnixLineEndingFile {
     param([string]$Path)
 
@@ -170,25 +218,271 @@ function Get-UnixLineEndingFile {
     return $tempPath
 }
 
+function Format-DeployBytes([long]$Bytes) {
+    if ($Bytes -ge 1GB) { return ('{0:N2} GB' -f ($Bytes / 1GB)) }
+    if ($Bytes -ge 1MB) { return ('{0:N2} MB' -f ($Bytes / 1MB)) }
+    if ($Bytes -ge 1KB) { return ('{0:N1} KB' -f ($Bytes / 1KB)) }
+    return "$Bytes B"
+}
+
+function Format-DeploySpeed([double]$BytesPerSec) {
+    if ($BytesPerSec -le 0) { return '--/s' }
+    return "$(Format-DeployBytes ([long]$BytesPerSec))/s"
+}
+
+function ConvertTo-ProcessArgumentList {
+    param([string[]]$Arguments)
+
+    $parts = foreach ($arg in $Arguments) {
+        if ($null -eq $arg) { '""'; continue }
+        $text = [string]$arg
+        if ($text -match '[\s"&<>|^]') {
+            '"' + ($text -replace '"', '\"') + '"'
+        }
+        else {
+            $text
+        }
+    }
+    return ($parts -join ' ')
+}
+
+function Invoke-PscpOrScp {
+    param(
+        [string]$LocalPath,
+        [string]$RemotePath,
+        [string]$ProgressLabel = 'upload',
+        [switch]$Quiet
+    )
+
+    # Use real pscp/scp with console inherited — live % / speed / ETA from the tool itself.
+    # Do NOT redirect stdout/stderr (that buffers and breaks live progress + caused fake 0→100 bars).
+    $c = $script:Config
+    $fileSize = [long](Get-Item -LiteralPath $LocalPath).Length
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+
+    if (Test-UseSshKey) {
+        $exe = (Get-Command scp -ErrorAction Stop).Source
+        $argList = @(
+            '-P', "$($c.SshPort)",
+            '-i', $c.SshKeyPath,
+            '-o', 'StrictHostKeyChecking=accept-new',
+            '-o', 'ServerAliveInterval=15',
+            '-o', 'ServerAliveCountMax=8',
+            '-o', 'TCPKeepAlive=yes',
+            $LocalPath,
+            "$($c.SshUser)@$($c.SshHost):$RemotePath"
+        )
+    }
+    else {
+        $exe = Get-PscpPath
+        $argList = @(
+            '-batch',
+            '-hostkey', $c.SshHostKey,
+            '-P', "$($c.SshPort)",
+            '-pw', $c.SshPass,
+            $LocalPath,
+            "$($c.SshUser)@$($c.SshHost):$RemotePath"
+        )
+    }
+
+    if (-not $Quiet) {
+        Write-Host "   $ProgressLabel — live transfer ($(Format-DeployBytes $fileSize)):" -ForegroundColor DarkGray
+    }
+
+    $argString = ConvertTo-ProcessArgumentList -Arguments $argList
+    $proc = Start-Process -FilePath $exe -ArgumentList $argString -Wait -PassThru -NoNewWindow
+    $code = [int]$proc.ExitCode
+    $sw.Stop()
+
+    if (-not $Quiet) {
+        if ($code -eq 0) {
+            $avg = if ($sw.Elapsed.TotalSeconds -gt 0) { $fileSize / $sw.Elapsed.TotalSeconds } else { 0 }
+            Write-Host ("   $ProgressLabel ok in {0:N1}s  avg {1}" -f $sw.Elapsed.TotalSeconds, (Format-DeploySpeed $avg)) -ForegroundColor DarkGray
+        }
+        else {
+            Write-Host "   $ProgressLabel failed (exit $code)" -ForegroundColor Red
+        }
+    }
+
+    return $code
+}
+
+function Send-RemoteFileDirect {
+    param(
+        [string]$LocalPath,
+        [string]$RemotePath,
+        [int]$MaxAttempts = 3,
+        [string]$ProgressLabel = 'upload',
+        [switch]$Quiet,
+        [switch]$VerifySize
+    )
+
+    $localSize = [long](Get-Item -LiteralPath $LocalPath).Length
+    $attempt = 0
+    $lastExit = 1
+
+    while ($attempt -lt $MaxAttempts) {
+        $attempt++
+        if ($attempt -gt 1) {
+            $waitSec = [math]::Min(20, 4 * ($attempt - 1))
+            Write-Host ''
+            Write-DeployWarn "Retry $attempt/$MaxAttempts in ${waitSec}s (exit $lastExit) — $ProgressLabel"
+            Start-Sleep -Seconds $waitSec
+            try { [void](Invoke-RemoteCommand "rm -f -- '$RemotePath'" -AllowFailure) } catch { }
+        }
+
+        $lastExit = [int](Invoke-PscpOrScp `
+            -LocalPath $LocalPath `
+            -RemotePath $RemotePath `
+            -ProgressLabel $ProgressLabel `
+            -Quiet:$Quiet)
+
+        if ($lastExit -ne 0) { continue }
+
+        if ($VerifySize) {
+            $remoteSize = Get-RemoteFileSizeBytes -RemotePath $RemotePath
+            if ($remoteSize -ne $localSize) {
+                Write-DeployWarn "$ProgressLabel size mismatch: remote=$remoteSize local=$localSize"
+                $lastExit = 2
+                continue
+            }
+            if (-not $Quiet) {
+                Write-Host "   verified $(Format-DeployBytes $remoteSize)" -ForegroundColor DarkGray
+            }
+        }
+
+        return
+    }
+
+    throw "Upload failed after $MaxAttempts attempts: $LocalPath -> $RemotePath (last exit $lastExit)"
+}
+
+function Split-DeployFileChunks {
+    param(
+        [string]$SourcePath,
+        [string]$ChunkDir,
+        [int]$ChunkSizeBytes
+    )
+
+    if (Test-Path $ChunkDir) { Remove-Item $ChunkDir -Recurse -Force }
+    New-Item -ItemType Directory -Path $ChunkDir | Out-Null
+
+    $buffer = New-Object byte[] $ChunkSizeBytes
+    $in = [System.IO.File]::OpenRead($SourcePath)
+    $index = 0
+    $chunks = New-Object System.Collections.Generic.List[string]
+
+    try {
+        while ($true) {
+            $read = $in.Read($buffer, 0, $buffer.Length)
+            if ($read -le 0) { break }
+
+            $chunkPath = Join-Path $ChunkDir ("part-{0:D3}" -f $index)
+            $out = [System.IO.File]::Create($chunkPath)
+            try { $out.Write($buffer, 0, $read) }
+            finally { $out.Close() }
+
+            [void]$chunks.Add($chunkPath)
+            $index++
+        }
+    }
+    finally {
+        $in.Close()
+    }
+
+    if ($chunks.Count -eq 0) {
+        throw "Failed to split file into chunks: $SourcePath"
+    }
+    return $chunks
+}
+
+function Send-RemoteFileChunked {
+    param(
+        [string]$LocalPath,
+        [string]$RemotePath,
+        [int]$ChunkSizeMb = 8,
+        [string]$ProgressLabel = 'upload'
+    )
+
+    $localSize = [long](Get-Item -LiteralPath $LocalPath).Length
+    $sizeMb = [math]::Round($localSize / 1MB, 2)
+    $chunkBytes = [int]($ChunkSizeMb * 1MB)
+    $chunkDir = Join-Path $env:TEMP ("zanburak-upload-chunks-" + [Guid]::NewGuid().ToString('N'))
+    $remotePartDir = "/tmp/zanburak-upload-parts-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
+    $totalSw = [System.Diagnostics.Stopwatch]::StartNew()
+
+    Write-Host "   file: $sizeMb MB | split into ${ChunkSizeMb} MB parts" -ForegroundColor DarkGray
+
+    try {
+        $chunks = @(Split-DeployFileChunks -SourcePath $LocalPath -ChunkDir $chunkDir -ChunkSizeBytes $chunkBytes)
+        Write-Host "   total parts: $($chunks.Count)" -ForegroundColor DarkGray
+
+        [void](Invoke-RemoteCommand "rm -rf -- '$remotePartDir' '$RemotePath'; mkdir -p -- '$remotePartDir'")
+
+        $remotePartPaths = New-Object System.Collections.Generic.List[string]
+        $i = 0
+        foreach ($chunk in $chunks) {
+            $i++
+            $name = [IO.Path]::GetFileName($chunk)
+            $remoteChunk = "$remotePartDir/$name"
+            $chunkSize = [long](Get-Item -LiteralPath $chunk).Length
+            $chunkMb = [math]::Round($chunkSize / 1MB, 2)
+            $label = "part $i/$($chunks.Count)"
+
+            Write-Host ""
+            Write-Host "   ---- $ProgressLabel / $label ($chunkMb MB) ----" -ForegroundColor Yellow
+
+            Send-RemoteFileDirect `
+                -LocalPath $chunk `
+                -RemotePath $remoteChunk `
+                -MaxAttempts 4 `
+                -ProgressLabel $label `
+                -VerifySize
+
+            [void]$remotePartPaths.Add($remoteChunk)
+        }
+
+        Write-Host ""
+        Write-Host "   joining $($chunks.Count) parts on server..." -ForegroundColor DarkGray
+        $partsArg = ($remotePartPaths -join ' ')
+        [void](Invoke-RemoteCommand "cat -- $partsArg > '$RemotePath'")
+
+        $actual = Get-RemoteFileSizeBytes -RemotePath $RemotePath
+        if ($actual -ne $localSize) {
+            $listing = (Invoke-RemoteCommandText "ls -la -- '$remotePartDir'").Text
+            throw "Join size mismatch: remote=$actual local=$localSize`n$listing"
+        }
+
+        [void](Invoke-RemoteCommand "rm -rf -- '$remotePartDir'")
+        $totalSw.Stop()
+        $avg = if ($totalSw.Elapsed.TotalSeconds -gt 0) { $localSize / $totalSw.Elapsed.TotalSeconds } else { 0 }
+        Write-Host ("   $ProgressLabel complete: $sizeMb MB in {0:N1}s  avg {1}" -f $totalSw.Elapsed.TotalSeconds, (Format-DeploySpeed $avg)) -ForegroundColor Green
+    }
+    finally {
+        if (Test-Path $chunkDir) { Remove-Item $chunkDir -Recurse -Force -ErrorAction SilentlyContinue }
+        try { [void](Invoke-RemoteCommand "rm -rf -- '$remotePartDir'" -AllowFailure) } catch { }
+    }
+}
+
 function Send-RemoteFile {
     param(
         [string]$LocalPath,
-        [string]$RemotePath
+        [string]$RemotePath,
+        [int]$MaxAttempts = 3,
+        [int]$ChunkThresholdMb = 8,
+        [int]$ChunkSizeMb = 8,
+        [string]$ProgressLabel = 'upload'
     )
 
     if (-not (Test-Path $LocalPath)) { throw "Local file not found: $LocalPath" }
 
-    $c = $script:Config
-    if (Test-UseSshKey) {
-        & scp -P $c.SshPort -i $c.SshKeyPath -o StrictHostKeyChecking=accept-new $LocalPath "$($c.SshUser)@$($c.SshHost):$RemotePath"
-    }
-    else {
-        $pscp = Get-PscpPath
-        & $pscp -batch -hostkey $c.SshHostKey -P $c.SshPort -pw $c.SshPass $LocalPath "$($c.SshUser)@$($c.SshHost):$RemotePath"
+    $sizeMb = (Get-Item -LiteralPath $LocalPath).Length / 1MB
+    if ($sizeMb -gt $ChunkThresholdMb) {
+        Send-RemoteFileChunked -LocalPath $LocalPath -RemotePath $RemotePath -ChunkSizeMb $ChunkSizeMb -ProgressLabel $ProgressLabel
+        return
     }
 
-    if ($LASTEXITCODE -ne 0) { throw "Upload failed: $LocalPath -> $RemotePath" }
-    Write-Host "   uploaded: $RemotePath" -ForegroundColor DarkGray
+    Send-RemoteFileDirect -LocalPath $LocalPath -RemotePath $RemotePath -MaxAttempts $MaxAttempts -ProgressLabel $ProgressLabel -VerifySize
 }
 
 function Test-BackendProject {
@@ -207,16 +501,90 @@ function Get-LocalZipPath {
     return Join-Path $env:TEMP $script:Config.ZipName
 }
 
+function Get-BackendDeployExtraFiles {
+    $extras = New-Object System.Collections.ArrayList
+
+    $ip2Dir = Join-Path $script:BackendDir 'database\ip2location'
+    if (Test-Path $ip2Dir) {
+        foreach ($bin in @(Get-ChildItem -Path $ip2Dir -Filter '*.BIN' -File -ErrorAction SilentlyContinue)) {
+            [void]$extras.Add([pscustomobject]@{
+                Label          = "ip2location/$($bin.Name)"
+                LocalPath      = $bin.FullName
+                RemoteRelative = "database/ip2location/$($bin.Name)"
+            })
+        }
+    }
+
+    # Prevent PowerShell from unrolling / merging PSCustomObject arrays
+    Write-Output -NoEnumerate @($extras.ToArray())
+}
+
+function Invoke-BackendExtrasUpload {
+    $extras = Get-BackendDeployExtraFiles
+    if ($null -eq $extras) { $extras = @() }
+    $extras = @($extras)
+    if ($extras.Count -eq 0) {
+        Write-DeployWarn "No large extra files to upload."
+        return
+    }
+
+    $c = $script:Config
+    $totalBytes = 0L
+    foreach ($extra in $extras) {
+        $totalBytes += [int64](Get-Item -LiteralPath $extra.LocalPath).Length
+    }
+
+    Write-Host "   extras: $($extras.Count) files / $(Format-DeployBytes $totalBytes)" -ForegroundColor DarkGray
+
+    $i = 0
+    foreach ($extra in $extras) {
+        $i++
+        $remotePath = "$($c.RemoteDir)/$($extra.RemoteRelative)"
+        $remoteDir  = ($remotePath -replace '/[^/]+$', '')
+        $fileSize   = [int64](Get-Item -LiteralPath $extra.LocalPath).Length
+        $sizeMb     = [math]::Round($fileSize / 1MB, 2)
+
+        Write-Host ""
+        Write-Host "   ==== extra $i/$($extras.Count): $($extra.Label) ($sizeMb MB) ====" -ForegroundColor Yellow
+
+        [void](Invoke-RemoteCommand "mkdir -p '$remoteDir'")
+        Send-RemoteFile `
+            -LocalPath $extra.LocalPath `
+            -RemotePath $remotePath `
+            -ChunkThresholdMb 8 `
+            -ChunkSizeMb 8 `
+            -ProgressLabel "extra $i/$($extras.Count)"
+    }
+
+    $u = $c.WebUser
+    $g = $c.WebGroup
+    [void](Invoke-RemoteCommand "chown -R ${u}:${g} $($c.RemoteDir)/database/ip2location 2>/dev/null || true")
+    Write-DeploySuccess "Large extras uploaded."
+}
+
 function Invoke-BackendZip {
     Test-BackendProject
-    Write-DeployStep "Creating backend zip"
+    Write-DeployStep "Creating backend zip (core package — large BIN/extras excluded)"
 
     $zipPath   = Get-LocalZipPath
     $fileCount = New-BackendZip -SourceDir $script:BackendDir -ZipPath $zipPath
     $zipSizeMb = [math]::Round((Get-Item $zipPath).Length / 1MB, 2)
+    $extras = Get-BackendDeployExtraFiles
+    if ($null -eq $extras) { $extras = @() }
+    $extrasMb = 0
+    if (@($extras).Count -gt 0) {
+        $sum = 0L
+        foreach ($extra in @($extras)) {
+            $sum += [int64](Get-Item -LiteralPath $extra.LocalPath).Length
+        }
+        $extrasMb = [math]::Round($sum / 1MB, 2)
+    }
 
     Write-Host "   files in zip: $fileCount"
     Write-Host "   zip path: $zipPath ($zipSizeMb MB)"
+    if (@($extras).Count -gt 0) {
+        Write-Host "   extras later: $(@($extras).Count) files ($extrasMb MB) — uploaded after extract" -ForegroundColor DarkGray
+    }
     return $zipPath
 }
 
@@ -227,39 +595,54 @@ function Invoke-BackendUpload {
     if (-not (Test-Path $ZipPath)) { throw "Zip file not found. Run 'Create zip' first." }
 
     $c = $script:Config
-    Write-DeployStep "Uploading to server ($($c.SshHost):$($c.SshPort))"
-    Send-RemoteFile -LocalPath $ZipPath -RemotePath $c.RemoteZip
+    Write-DeployStep "1/3 Uploading core package ($($c.SshHost):$($c.SshPort))"
+    Send-RemoteFileChunked -LocalPath $ZipPath -RemotePath $c.RemoteZip -ChunkSizeMb 8 -ProgressLabel 'core'
 }
 
 function Invoke-BackendExtract {
-    Write-DeployStep "Extracting on server ($($script:Config.RemoteDir))"
+    Write-DeployStep "2/3 Extracting + installing core on server ($($script:Config.RemoteDir))"
 
     $unixExtractScript = Get-UnixLineEndingFile -Path $script:ExtractScript
     try {
-        Send-RemoteFile -LocalPath $unixExtractScript -RemotePath '/tmp/backend-extract.sh'
+        Send-RemoteFile -LocalPath $unixExtractScript -RemotePath '/tmp/backend-extract.sh' -ProgressLabel 'extract-script'
     }
     finally {
         Remove-Item $unixExtractScript -Force -ErrorAction SilentlyContinue
     }
 
-    Invoke-RemoteCommand "chmod +x /tmp/backend-extract.sh && bash /tmp/backend-extract.sh && rm -f /tmp/backend-extract.sh"
+    [void](Invoke-RemoteCommand "chmod +x /tmp/backend-extract.sh && bash /tmp/backend-extract.sh && rm -f /tmp/backend-extract.sh")
+    Write-DeploySuccess "Core package extracted on server."
 }
 
 function Invoke-FullBackendDeploy {
     Test-BackendProject
     $zipPath = Invoke-BackendZip
+    $completed = $false
     try {
+        # Order: core upload → extract/install → large extras into place
         Invoke-BackendUpload -ZipPath $zipPath
         Invoke-BackendExtract
+        Write-DeployStep "3/3 Uploading large extras into place"
+        Invoke-BackendExtrasUpload
+        $completed = $true
+    }
+    catch {
+        if (Test-Path $zipPath) {
+            Write-DeployWarn "Local zip kept for retry: $zipPath"
+            Write-DeployWarn "Use menu [3] upload → [4] extract → [5] extras"
+        }
+        throw
     }
     finally {
-        Write-DeployStep "Cleaning up local zip"
-        Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+        if ($completed) {
+            Write-DeployStep "Cleaning up local zip"
+            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+        }
     }
 
     Write-DeploySuccess "Backend deploy completed successfully."
     Write-DeploySuccess "Remote path: $($script:Config.RemoteDir)"
-    Write-DeployWarn "Next (from deploy menu): [20] install services → [21] start → [5] migrate → [13] rebuild cache"
+    Write-DeployWarn "Next (from deploy menu): [21] install services → [22] start → [6] migrate → [14] rebuild cache"
     Write-DeployWarn "Required running: redis-server, laravel-reverb, laravel-scheduler, laravel-queue"
 }
 

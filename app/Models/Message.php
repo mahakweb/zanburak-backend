@@ -43,6 +43,7 @@ class Message extends Model
         'client_id',
         'body',
         'type',
+        'media_id',
         'is_encrypted',
         'sender_device_id',
         'e2e',
@@ -110,6 +111,11 @@ class Message extends Model
     public function conversation()
     {
         return $this->belongsTo(Conversation::class);
+    }
+
+    public function media()
+    {
+        return $this->belongsTo(MessengerMedia::class, 'media_id');
     }
 
     public function user()

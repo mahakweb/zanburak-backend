@@ -5,18 +5,20 @@ namespace App\Http\Controllers\Api\Messenger;
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
 use App\Models\Message;
+use App\Models\User;
 use App\Services\Messenger\MessengerCryptoService;
+use App\Services\Messenger\MessengerMediaDeliveryService;
 use App\Services\Messenger\MessengerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class MessengerCryptoController extends Controller
 {
     public function __construct(
         protected MessengerCryptoService $crypto,
-        protected MessengerService $messenger
+        protected MessengerService $messenger,
+        protected MessengerMediaDeliveryService $mediaDelivery,
     ) {}
 
     public function registerDevice(Request $request): JsonResponse
@@ -307,120 +309,113 @@ class MessengerCryptoController extends Controller
     }
 
     /**
+     * Upload opaque identity-wrapped conversation keys for multi-device recovery.
+     */
+    public function upsertKeyVault(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'sender_device_id' => 'required|string|max:64',
+            'entries' => 'required|array|min:1|max:200',
+            'entries.*.conversation_id' => 'required|integer|min:1',
+            'entries.*.key_version' => 'required|integer|min:1',
+            'entries.*.ciphertext' => 'required|string|max:16384',
+        ]);
+
+        try {
+            $count = $this->crypto->upsertKeyVault(
+                $request->user(),
+                $data['sender_device_id'],
+                $data['entries']
+            );
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json(['stored' => $count]);
+    }
+
+    /**
+     * Pull identity-wrapped conversation keys so a new device can decrypt history.
+     */
+    public function pullKeyVault(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'conversation_id' => 'sometimes|nullable|integer',
+        ]);
+
+        $rows = $this->crypto->pullKeyVault(
+            $request->user(),
+            isset($data['conversation_id']) ? (int) $data['conversation_id'] : null
+        );
+
+        return response()->json(['entries' => $rows]);
+    }
+
+    /**
      * Authenticated media proxy — never expose raw CDN URLs for chat media.
+     * Supports file|thumb|cover|hls variants, HTTP Range, and cache/ETag headers.
      */
     public function streamMedia(Request $request, Message $message): StreamedResponse|JsonResponse
     {
-        $user = $request->user();
-        $variant = $request->query('v', 'file'); // file|thumb|cover
-
-        try {
-            $visible = Message::query()
-                ->visibleTo($user)
-                ->whereKey($message->id)
-                ->firstOrFail();
-        } catch (\Throwable $e) {
-            return response()->json(['message' => 'Not found'], 404);
+        $variant = (string) $request->query('v', MessengerMediaDeliveryService::VARIANT_FILE);
+        $target = $this->mediaDelivery->resolveTarget($request->user(), $message, $variant);
+        if ($target instanceof JsonResponse) {
+            return $target;
         }
 
-        $meta = is_array($visible->meta) ? $visible->meta : [];
-        $pathKey = match ($variant) {
-            'thumb' => 'thumb_path',
-            'cover' => 'cover_path',
-            default => 'path',
-        };
-        $legacyUrlKey = match ($variant) {
-            'thumb' => 'thumb_url',
-            'cover' => 'cover_url',
-            default => 'url',
-        };
-
-        $diskName = $meta['disk'] ?? config('messenger.media.disk', 'static');
-        $path = $meta[$pathKey] ?? null;
-
-        // Legacy public-URL messages: map URL → disk path when possible.
-        if ((! is_string($path) || $path === '') && ! empty($meta[$legacyUrlKey])) {
-            $path = $this->pathFromPublicUrl((string) $meta[$legacyUrlKey], $diskName);
+        // HLS segment under the playlist folder: ?v=hls&path=360p/segment000.ts
+        if ($variant === MessengerMediaDeliveryService::VARIANT_HLS && $request->filled('path')) {
+            return $this->mediaDelivery->streamHlsAsset($request, $target, (string) $request->query('path'));
         }
 
-        if (! is_string($path) || $path === '') {
-            return response()->json(['message' => 'Media missing'], 404);
-        }
-
-        // Only allow messenger media folders (public chats + private).
-        $allowedPrefixes = [
-            trim((string) config('messenger.media.folder', 'images/messenger/chats'), '/'),
-            trim((string) config('messenger.media.private_folder', 'private/messenger'), '/'),
-        ];
-        $normalized = ltrim(str_replace('\\', '/', $path), '/');
-        $okPrefix = false;
-        foreach ($allowedPrefixes as $prefix) {
-            if ($prefix !== '' && str_starts_with($normalized, $prefix.'/')) {
-                $okPrefix = true;
-                break;
-            }
-        }
-        if (! $okPrefix) {
-            return response()->json(['message' => 'Forbidden path'], 403);
-        }
-
-        $disk = Storage::disk($diskName);
-        try {
-            if (! $disk->exists($normalized)) {
-                return response()->json(['message' => 'File not found'], 404);
-            }
-        } catch (\Throwable $e) {
-            return response()->json(['message' => 'Storage unavailable'], 503);
-        }
-
-        $mime = $meta['mime'] ?? 'application/octet-stream';
-        if (! empty($meta['encrypted']) || ! empty($visible->is_encrypted)) {
-            // Ciphertext blob — client decrypts; do not advertise original mime.
-            $mime = 'application/octet-stream';
-        }
-
-        $size = null;
-        try {
-            $size = $disk->size($normalized);
-        } catch (\Throwable $e) {
-            // optional
-        }
-
-        return response()->stream(function () use ($disk, $normalized) {
-            $stream = $disk->readStream($normalized);
-            if ($stream === false) {
-                return;
-            }
-            fpassthru($stream);
-            if (is_resource($stream)) {
-                fclose($stream);
-            }
-        }, 200, array_filter([
-            'Content-Type' => $mime,
-            'Content-Length' => $size !== null ? (string) $size : null,
-            'Cache-Control' => 'private, max-age=3600',
-            'X-Content-Type-Options' => 'nosniff',
-            'Content-Disposition' => 'inline',
-        ]));
+        return $this->mediaDelivery->stream($request, $target);
     }
 
-    protected function pathFromPublicUrl(string $url, string $diskName): ?string
+    /**
+     * Issue a short-lived signed URL (CDN / edge friendly, no Bearer on byte range).
+     */
+    public function signedMediaUrl(Request $request, Message $message): JsonResponse
     {
-        $baseUrl = rtrim((string) config("filesystems.disks.{$diskName}.url", ''), '/');
-        $normalized = strtok($url, '?') ?: $url;
-        if ($baseUrl !== '' && str_starts_with($normalized, $baseUrl.'/')) {
-            return ltrim(substr($normalized, strlen($baseUrl)), '/');
+        $data = $request->validate([
+            'v' => 'sometimes|string|in:file,thumb,cover,hls',
+            'ttl' => 'sometimes|integer|min:1|max:60',
+        ]);
+
+        $result = $this->mediaDelivery->issueSignedUrl(
+            $request->user(),
+            $message,
+            $data['v'] ?? MessengerMediaDeliveryService::VARIANT_FILE,
+            (int) ($data['ttl'] ?? config('messenger.media.signed_url_ttl', 20))
+        );
+
+        if ($result instanceof JsonResponse) {
+            return $result;
         }
 
-        $folder = trim((string) config('messenger.media.folder', 'images/messenger/chats'), '/');
-        $private = trim((string) config('messenger.media.private_folder', 'private/messenger'), '/');
-        foreach ([$folder, $private] as $prefix) {
-            $pos = strpos($normalized, '/'.$prefix.'/');
-            if ($pos !== false) {
-                return ltrim(substr($normalized, $pos), '/');
-            }
+        return response()->json($result);
+    }
+
+    /**
+     * Temporary signed access — validates visibility for the uid embedded in the signature.
+     */
+    public function streamSignedMedia(Request $request, Message $message): StreamedResponse|JsonResponse
+    {
+        $uid = (int) $request->query('uid');
+        $user = User::query()->find($uid);
+        if (! $user) {
+            return response()->json(['message' => 'Forbidden'], 403);
         }
 
-        return null;
+        $variant = (string) $request->query('v', MessengerMediaDeliveryService::VARIANT_FILE);
+        $target = $this->mediaDelivery->resolveTarget($user, $message, $variant);
+        if ($target instanceof JsonResponse) {
+            return $target;
+        }
+
+        if ($variant === MessengerMediaDeliveryService::VARIANT_HLS && $request->filled('path')) {
+            return $this->mediaDelivery->streamHlsAsset($request, $target, (string) $request->query('path'));
+        }
+
+        return $this->mediaDelivery->stream($request, $target);
     }
 }

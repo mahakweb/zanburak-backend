@@ -4,9 +4,15 @@ use App\Http\Controllers\Api\Messenger\ContactController;
 use App\Http\Controllers\Api\Messenger\GroupChannelController;
 use App\Http\Controllers\Api\Messenger\MessengerController;
 use App\Http\Controllers\Api\Messenger\MessengerCryptoController;
+use App\Http\Controllers\Api\Messenger\StickerPackController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('messenger')->as('api.messenger.')->group(function () {
+
+    // Temporary signed media (CDN-ready) — no Sanctum; signature embeds uid + expiry.
+    Route::get('/media-signed/{message}', [MessengerCryptoController::class, 'streamSignedMedia'])
+        ->middleware('signed')
+        ->name('media.signed');
 
     Route::middleware(['auth:sanctum', 'messenger.access'])->group(function () {
 
@@ -30,7 +36,11 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         Route::get('/crypto/identity/packages', [MessengerCryptoController::class, 'identityPackages'])->name('crypto.identity.packages');
         Route::post('/crypto/identity/packages/ack', [MessengerCryptoController::class, 'ackIdentityPackages'])->name('crypto.identity.ack');
         Route::post('/crypto/identity/request', [MessengerCryptoController::class, 'requestIdentity'])->name('crypto.identity.request');
+        Route::put('/crypto/vault', [MessengerCryptoController::class, 'upsertKeyVault'])->name('crypto.vault.upsert');
+        Route::get('/crypto/vault', [MessengerCryptoController::class, 'pullKeyVault'])->name('crypto.vault.pull');
         Route::get('/media/{message}', [MessengerCryptoController::class, 'streamMedia'])->name('media.stream');
+        Route::post('/media/{message}/signed-url', [MessengerCryptoController::class, 'signedMediaUrl'])->name('media.signed-url');
+
 
         // Conversations
         Route::get('/conversations', [MessengerController::class, 'conversations'])->name('conversations.index');
@@ -114,6 +124,9 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         Route::post('/contacts', [ContactController::class, 'store'])->name('contacts.store');
         Route::post('/contacts/lookup', [ContactController::class, 'lookup'])->middleware('throttle:messenger.search')->name('contacts.lookup');
         Route::post('/contacts/invite', [ContactController::class, 'invite'])->middleware('throttle:messenger.invite')->name('contacts.invite');
+        Route::post('/contacts/sync', [ContactController::class, 'sync'])->middleware('throttle:messenger.search')->name('contacts.sync');
+        Route::post('/contacts/sync/refresh', [ContactController::class, 'refreshSync'])->middleware('throttle:messenger.search')->name('contacts.sync.refresh');
+        Route::get('/contacts/synced', [ContactController::class, 'synced'])->name('contacts.synced');
         Route::put('/contacts/{contact}', [ContactController::class, 'update'])->name('contacts.update');
         Route::delete('/contacts/{contact}', [ContactController::class, 'destroy'])->name('contacts.destroy');
         Route::get('/users/search', [ContactController::class, 'search'])->middleware('throttle:messenger.search')->name('users.search');
@@ -126,6 +139,19 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         Route::get('/wallpapers', [MessengerController::class, 'listWallpapers'])->name('wallpapers.index');
         Route::post('/wallpapers', [MessengerController::class, 'uploadWallpaper'])->middleware('throttle:messenger.send')->name('wallpapers.upload');
         Route::delete('/wallpapers/{wallpaper}', [MessengerController::class, 'deleteWallpaper'])->middleware('throttle:messenger.destructive')->name('wallpapers.delete');
+
+        // Sticker packs (static-hosted assets; install by pack id per user)
+        Route::get('/sticker-packs', [StickerPackController::class, 'index'])->name('sticker-packs.index');
+        Route::post('/sticker-packs', [StickerPackController::class, 'store'])->middleware('throttle:messenger.send')->name('sticker-packs.store');
+        Route::get('/sticker-packs/{uuid}', [StickerPackController::class, 'show'])->name('sticker-packs.show');
+        Route::put('/sticker-packs/{uuid}', [StickerPackController::class, 'updatePack'])->name('sticker-packs.update');
+        Route::delete('/sticker-packs/{uuid}', [StickerPackController::class, 'destroyPack'])->middleware('throttle:messenger.destructive')->name('sticker-packs.destroy');
+        Route::post('/sticker-packs/{uuid}/stickers', [StickerPackController::class, 'addStickers'])->middleware('throttle:messenger.send')->name('sticker-packs.stickers.add');
+        Route::post('/sticker-packs/{uuid}/install', [StickerPackController::class, 'install'])->name('sticker-packs.install');
+        Route::delete('/sticker-packs/{uuid}/install', [StickerPackController::class, 'uninstall'])->name('sticker-packs.uninstall');
+        Route::put('/stickers/{stickerUuid}', [StickerPackController::class, 'updateSticker'])->name('stickers.update');
+        Route::delete('/stickers/{stickerUuid}', [StickerPackController::class, 'destroySticker'])->middleware('throttle:messenger.destructive')->name('stickers.destroy');
+
         Route::get('/conversations/{conversation}/wallpaper', [MessengerController::class, 'getConversationWallpaper'])->name('conversations.wallpaper.show');
         Route::put('/conversations/{conversation}/wallpaper', [MessengerController::class, 'setConversationWallpaper'])->name('conversations.wallpaper.set');
         Route::get('/me', [MessengerController::class, 'myProfile'])->name('me.show');

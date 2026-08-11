@@ -160,6 +160,131 @@ class MessengerCoreTest extends TestCase
         }
     }
 
+    public function test_saved_messages_survive_swipe_delete_and_restore(): void
+    {
+        $user = User::factory()->create();
+        $service = app(MessengerService::class);
+        $saved = $service->getOrCreateSavedConversation($user);
+
+        $note = $this->message($saved, $user, 'keep me');
+
+        $service->deleteConversation($user, $saved);
+
+        $this->assertNotNull(
+            $saved->users()->where('users.id', $user->id)->first()?->pivot?->deleted_at
+        );
+        $this->assertDatabaseHas('conversations', ['id' => $saved->id, 'type' => 'saved']);
+        $this->assertDatabaseHas('messages', ['id' => $note->id, 'body' => 'keep me']);
+
+        $restored = $service->getOrCreateSavedConversation($user);
+        $this->assertSame($saved->id, $restored->id);
+        $this->assertNull(
+            $restored->users()->where('users.id', $user->id)->first()?->pivot?->deleted_at
+        );
+        $this->assertTrue(
+            Message::query()->visibleTo($user)->whereKey($note->id)->exists()
+        );
+    }
+
+    public function test_saved_clear_then_delete_reopen_keeps_history_hidden(): void
+    {
+        $user = User::factory()->create();
+        $service = app(MessengerService::class);
+        $saved = $service->getOrCreateSavedConversation($user);
+
+        $old = $this->message($saved, $user, 'old note');
+
+        $service->clearConversation($user, $saved);
+        $this->assertNotNull(
+            $saved->users()->where('users.id', $user->id)->first()?->pivot?->cleared_at
+        );
+        $this->assertDatabaseMissing('messages', ['id' => $old->id]);
+        $this->assertFalse(
+            Message::withTrashed()->whereKey($old->id)->exists()
+        );
+
+        $service->deleteConversation($user, $saved);
+        $restored = $service->getOrCreateSavedConversation($user);
+
+        $this->assertSame($saved->id, $restored->id);
+        $this->assertNotNull(
+            $restored->users()->where('users.id', $user->id)->first()?->pivot?->cleared_at
+        );
+        $this->assertFalse(
+            Message::withTrashed()->whereKey($old->id)->exists()
+        );
+
+        $fresh = $this->message($saved, $user, 'after clear', now()->addSecond());
+        $this->assertTrue(
+            Message::query()->visibleTo($user)->whereKey($fresh->id)->exists()
+        );
+        $this->assertFalse(
+            Message::withTrashed()->whereKey($old->id)->exists()
+        );
+    }
+
+    public function test_clear_history_purges_messages_for_everyone_delete_is_for_me_only(): void
+    {
+        [$user, $other, $conversation] = $this->conversation();
+        $service = app(MessengerService::class);
+
+        $old = $this->message($conversation, $user, 'shared old');
+        $service->clearConversation($user, $conversation);
+
+        $this->assertDatabaseMissing('messages', ['id' => $old->id]);
+        $this->assertFalse(
+            Message::withTrashed()->whereKey($old->id)->exists()
+        );
+        $this->assertNull($conversation->fresh()->last_message_id);
+        $this->assertNull($conversation->fresh()->last_message_at);
+
+        $service->deleteConversation($user, $conversation);
+        $this->assertNotNull(
+            $conversation->users()->where('users.id', $user->id)->first()?->pivot?->deleted_at
+        );
+        $this->assertNull(
+            $conversation->users()->where('users.id', $other->id)->first()?->pivot?->deleted_at
+        );
+        // Peer still has the conversation membership; history stays cleared for them too.
+        $this->assertNotNull(
+            $conversation->users()->where('users.id', $other->id)->first()?->pivot?->cleared_at
+        );
+        $this->assertDatabaseHas('conversations', ['id' => $conversation->id]);
+    }
+
+    public function test_delete_for_everyone_releases_unreferenced_media(): void
+    {
+        [$user, $other, $conversation] = $this->conversation();
+        $service = app(MessengerService::class);
+
+        $media = \App\Models\MessengerMedia::createFromStoredMeta($user->id, 'photo', [
+            'disk' => config('messenger.media.disk', 'static'),
+            'path' => 'private/messenger/photo/refcount-test.jpg',
+            'mime' => 'image/jpeg',
+            'name' => 'ref.jpg',
+            'ext' => 'jpg',
+            'size' => 10,
+            'private' => true,
+        ]);
+
+        $msg = $service->sendExistingMediaMessage($user, $conversation, $media, 'hi', null, [
+            'type' => 'photo',
+            'is_encrypted' => true,
+            'sender_device_id' => 'test-device',
+            'e2e' => ['v' => 1, 'alg' => 'A256GCM', 'iv' => 'x', 'kid' => 1],
+        ]);
+
+        $this->assertSame(1, $media->fresh()->ref_count);
+
+        $service->deleteMessage($user, $msg, 'everyone');
+
+        $this->assertTrue($msg->fresh()->trashed());
+        $trashedMedia = \App\Models\MessengerMedia::withTrashed()->find($media->id);
+        $this->assertNotNull($trashedMedia);
+        $this->assertTrue($trashedMedia->trashed());
+        $this->assertSame(0, $trashedMedia->liveReferenceCount());
+    }
+
     /**
      * @return array{User, User, Conversation}
      */

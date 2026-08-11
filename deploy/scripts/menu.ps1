@@ -149,40 +149,41 @@ function Show-MainMenu {
         Write-Banner
 
         Write-Section 'DEPLOY'
-        Write-MenuItem '1' 'Full deploy (zip -> upload -> extract -> replace)'
+        Write-MenuItem '1' 'Full deploy (core zip -> extract -> large extras)'
         Write-MenuItem '2' 'Create zip only'
         Write-MenuItem '3' 'Upload zip to server only'
         Write-MenuItem '4' 'Extract on server only'
+        Write-MenuItem '5' 'Upload large extras only (ip2location BIN)'
         Write-Host ''
 
         Write-Section 'LARAVEL ARTISAN (remote)'
-        Write-MenuItem '5' 'php artisan migrate --force'
-        Write-MenuItem '6' 'php artisan migrate:fresh --force'
-        Write-MenuItem '7' 'php artisan migrate:refresh --force'
-        Write-MenuItem '8' 'php artisan db:seed --force (all)'
-        Write-MenuItem '9' 'Run single seeder...'
-        Write-MenuItem '10' 'migrate:fresh --seed --force'
-        Write-MenuItem '11' 'migrate:refresh --seed --force'
-        Write-MenuItem '12' 'storage:link'
-        Write-MenuItem '13' 'Rebuild cache (config/route/view)'
-        Write-MenuItem '14' 'optimize:clear'
+        Write-MenuItem '6' 'php artisan migrate --force'
+        Write-MenuItem '7' 'php artisan migrate:fresh --force'
+        Write-MenuItem '8' 'php artisan migrate:refresh --force'
+        Write-MenuItem '9' 'php artisan db:seed --force (all)'
+        Write-MenuItem '10' 'Run single seeder...'
+        Write-MenuItem '11' 'migrate:fresh --seed --force'
+        Write-MenuItem '12' 'migrate:refresh --seed --force'
+        Write-MenuItem '13' 'storage:link'
+        Write-MenuItem '14' 'Rebuild cache (config/route/view)'
+        Write-MenuItem '15' 'optimize:clear'
         Write-Host ''
 
         Write-Section 'SERVER MAINTENANCE'
-        Write-MenuItem '15' 'Fix file permissions (storage/database)'
-        Write-MenuItem '16' 'queue:restart'
-        Write-MenuItem '17' 'Post-deploy (permissions + rebuild cache)'
-        Write-MenuItem '18' 'Sync meilisearch start script (.env key)'
-        Write-MenuItem '19' 'composer dump-autoload (optimize)'
+        Write-MenuItem '16' 'Fix file permissions (storage/database)'
+        Write-MenuItem '17' 'queue:restart'
+        Write-MenuItem '18' 'Post-deploy (permissions + rebuild cache)'
+        Write-MenuItem '19' 'Sync meilisearch start script (.env key)'
+        Write-MenuItem '20' 'composer dump-autoload (optimize)'
         Write-Host ''
 
         Write-Section 'SYSTEMD SERVICES (Redis / Queue / Reverb / Scheduler / Meilisearch)'
-        Write-MenuItem '20' 'Install/create service unit files (incl. Redis apt package)'
-        Write-MenuItem '21' 'Start services (creates if missing)'
-        Write-MenuItem '22' 'Stop services'
-        Write-MenuItem '23' 'Restart services'
-        Write-MenuItem '24' 'Service status'
-        Write-MenuItem '25' 'Manage single service (start/stop/restart/status/log)'
+        Write-MenuItem '21' 'Install/create service unit files (incl. Redis apt package)'
+        Write-MenuItem '22' 'Start services (creates if missing)'
+        Write-MenuItem '23' 'Stop services'
+        Write-MenuItem '24' 'Restart services'
+        Write-MenuItem '25' 'Service status'
+        Write-MenuItem '26' 'Manage single service (start/stop/restart/status/log)'
         Write-Host ''
 
         Write-MenuItem '0' 'Exit'
@@ -208,93 +209,96 @@ function Show-MainMenu {
             '4' {
                 Invoke-SafeAction -Action { Invoke-BackendExtract }
             }
-
             '5' {
+                Invoke-SafeAction -Action { Invoke-BackendExtrasUpload }
+            }
+
+            '6' {
                 Invoke-SafeAction -Action { Invoke-RemoteArtisan 'migrate --force' }
             }
-            '6' {
+            '7' {
                 Invoke-SafeAction -DangerConfirm 'migrate:fresh will DROP ALL tables!' -Action {
                     Invoke-RemoteArtisan 'migrate:fresh --force'
                 }
             }
-            '7' {
+            '8' {
                 Invoke-SafeAction -DangerConfirm 'migrate:refresh will rollback and re-run all migrations!' -Action {
                     Invoke-RemoteArtisan 'migrate:refresh --force'
                 }
             }
-            '8' {
+            '9' {
                 Invoke-SafeAction -Action { Invoke-RemoteArtisan 'db:seed --force' }
             }
-            '9' {
+            '10' {
                 Show-SeederMenu
             }
-            '10' {
+            '11' {
                 Invoke-SafeAction -DangerConfirm 'migrate:fresh --seed will DROP ALL tables and re-seed!' -Action {
                     Invoke-RemoteArtisan 'migrate:fresh --seed --force'
                 }
             }
-            '11' {
+            '12' {
                 Invoke-SafeAction -DangerConfirm 'migrate:refresh --seed will rollback and re-seed!' -Action {
                     Invoke-RemoteArtisan 'migrate:refresh --seed --force'
                 }
             }
-            '12' {
+            '13' {
                 Invoke-SafeAction -Action { Invoke-RemoteArtisan 'storage:link' }
             }
-            '13' {
+            '14' {
                 Invoke-SafeAction -Action { Invoke-PostDeployOptimize }
             }
-            '14' {
+            '15' {
                 Invoke-SafeAction -Action { Invoke-RemoteArtisan 'optimize:clear' }
             }
-            '15' {
+            '16' {
                 Invoke-SafeAction -Action {
                     Repair-RemotePermissions
                     Write-DeploySuccess 'Server permissions updated.'
                 }
             }
-            '16' {
+            '17' {
                 Invoke-SafeAction -Action { Invoke-RemoteArtisan 'queue:restart' }
             }
-            '17' {
+            '18' {
                 Invoke-SafeAction -Action {
                     Repair-RemotePermissions
                     Invoke-PostDeployOptimize
                     Write-DeploySuccess 'Post-deploy maintenance completed.'
                 }
             }
-            '18' {
+            '19' {
                 Invoke-SafeAction -Action {
                     Sync-MeilisearchStartScript
                     Write-DeploySuccess 'Meilisearch start script synced from .env.'
                 }
             }
-            '19' {
+            '20' {
                 Invoke-SafeAction -Action { Invoke-RemoteComposer 'dump-autoload -o' }
             }
 
-            '20' {
+            '21' {
                 Invoke-SafeAction -Action { Install-AllSystemdServices }
             }
-            '21' {
+            '22' {
                 Invoke-SafeAction -Action { Start-SystemdServices }
             }
-            '22' {
+            '23' {
                 Show-ServiceSubMenu -ActionLabel 'Stop' -Action {
                     param($names)
                     Stop-SystemdServices -ServiceNames $names
                 }
             }
-            '23' {
+            '24' {
                 Show-ServiceSubMenu -ActionLabel 'Restart' -Action {
                     param($names)
                     Restart-SystemdServices -ServiceNames $names
                 }
             }
-            '24' {
+            '25' {
                 Invoke-SafeAction -Action { Get-SystemdStatus }
             }
-            '25' {
+            '26' {
                 Show-ServiceDetailMenu
             }
 

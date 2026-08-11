@@ -347,6 +347,77 @@ class MessengerOutbox
     }
 
     /**
+     * Drop every pending hot row for a conversation (history clear for everyone).
+     * Without this, getMessages / list merges resurrect pre-clear Redis rows.
+     * Also tombsones message ids / conversation watermark so a late outbox flush
+     * cannot re-insert wiped rows into Postgres.
+     */
+    public function clearHotConversation(int $conversationId, ?\DateTimeInterface $clearedAt = null): void
+    {
+        if (! $this->isActive()) {
+            return;
+        }
+
+        try {
+            $conn = $this->redis();
+            $ttl = (int) config('messenger.outbox_ttl', 86400);
+            $key = $this->hotConversationKey($conversationId);
+            $ids = $conn->zrange($key, 0, -1) ?: [];
+            foreach ($ids as $id) {
+                $id = (int) $id;
+                $conn->setex($this->clearedMessageKey($id), $ttl, '1');
+                $conn->del($this->hotMessageKey($id));
+            }
+            $conn->del($key);
+
+            $at = $clearedAt instanceof \DateTimeInterface
+                ? $clearedAt->getTimestamp()
+                : time();
+            $conn->setex($this->clearedConversationKey($conversationId), $ttl, (string) $at);
+        } catch (\Throwable $e) {
+            Log::debug('Messenger hot conversation clear failed: '.$e->getMessage());
+        }
+    }
+
+    public function isClearedMessageId(int $messageId): bool
+    {
+        if (! $this->isActive() || $messageId <= 0) {
+            return false;
+        }
+
+        try {
+            return (bool) $this->redis()->exists($this->clearedMessageKey($messageId));
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
+     * True when a hot/outbox row is at or before the conversation's last clear.
+     */
+    public function isMessageBeforeConversationClear(int $conversationId, $createdAt): bool
+    {
+        if (! $this->isActive() || $conversationId <= 0 || ! $createdAt) {
+            return false;
+        }
+
+        try {
+            $raw = $this->redis()->get($this->clearedConversationKey($conversationId));
+            if ($raw === null || $raw === false || $raw === '') {
+                return false;
+            }
+            $clearedTs = (int) $raw;
+            $msgTs = $createdAt instanceof \DateTimeInterface
+                ? $createdAt->getTimestamp()
+                : (strtotime((string) $createdAt) ?: 0);
+
+            return $msgTs > 0 && $msgTs <= $clearedTs;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
      * Drain up to $limit outbox items into Postgres. Returns number of ops flushed.
      */
     public function flush(int $limit = 100): int
@@ -423,9 +494,24 @@ class MessengerOutbox
             return;
         }
 
+        $messageId = (int) ($row['id'] ?? 0);
+        $conversationId = (int) ($row['conversation_id'] ?? 0);
+        if ($messageId > 0 && $this->isClearedMessageId($messageId)) {
+            $this->forgetHotMessage($conversationId, $messageId);
+
+            return;
+        }
+        if ($conversationId > 0 && $this->isMessageBeforeConversationClear($conversationId, $row['created_at'] ?? null)) {
+            if ($messageId > 0) {
+                $this->forgetHotMessage($conversationId, $messageId);
+            }
+
+            return;
+        }
+
         $payload = [
-            'id' => (int) $row['id'],
-            'conversation_id' => (int) $row['conversation_id'],
+            'id' => $messageId,
+            'conversation_id' => $conversationId,
             'user_id' => (int) $row['user_id'],
             'client_id' => $row['client_id'] ?? null,
             'body' => $row['body'],
@@ -563,6 +649,16 @@ class MessengerOutbox
     protected function hotConversationKey(int $conversationId): string
     {
         return $this->prefix().":hot:conv:{$conversationId}";
+    }
+
+    protected function clearedMessageKey(int $messageId): string
+    {
+        return $this->prefix().":cleared:msg:{$messageId}";
+    }
+
+    protected function clearedConversationKey(int $conversationId): string
+    {
+        return $this->prefix().":cleared:conv:{$conversationId}";
     }
 
     protected function participantsKey(int $conversationId): string

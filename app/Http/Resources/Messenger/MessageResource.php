@@ -9,7 +9,11 @@ class MessageResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $meta = $this->sanitizeMetaForClient(is_array($this->meta) ? $this->meta : null);
+        $rawMeta = is_array($this->meta) ? $this->meta : [];
+        if ($this->relationLoaded('media') && $this->media) {
+            $rawMeta = array_merge($this->media->toMessageMeta(), $rawMeta);
+        }
+        $meta = $this->sanitizeMetaForClient($rawMeta ?: null);
 
         return [
             'id' => $this->id,
@@ -18,6 +22,7 @@ class MessageResource extends JsonResource
             'client_id' => $this->client_id,
             'body' => $this->body,
             'type' => $this->type,
+            'media_id' => $this->media_id,
             'is_encrypted' => (bool) ($this->is_encrypted ?? false),
             'sender_device_id' => $this->sender_device_id,
             'e2e' => $this->e2e,
@@ -64,15 +69,20 @@ class MessageResource extends JsonResource
                     return null;
                 }
 
+                $replyRaw = is_array($this->replyTo->meta) ? $this->replyTo->meta : [];
+                if ($this->replyTo->relationLoaded('media') && $this->replyTo->media) {
+                    $replyRaw = array_merge($this->replyTo->media->toMessageMeta(), $replyRaw);
+                }
                 $replyMeta = $this->replyTo->trashed()
                     ? null
-                    : $this->sanitizeMetaForClient(is_array($this->replyTo->meta) ? $this->replyTo->meta : null, $this->replyTo->id);
+                    : $this->sanitizeMetaForClient($replyRaw ?: null, $this->replyTo->id);
 
                 return [
                     'id' => $this->replyTo->id,
                     'user_id' => $this->replyTo->user_id,
                     'body' => $this->replyTo->trashed() ? null : $this->replyTo->body,
                     'type' => $this->replyTo->trashed() ? null : $this->replyTo->type,
+                    'media_id' => $this->replyTo->trashed() ? null : $this->replyTo->media_id,
                     'is_encrypted' => $this->replyTo->trashed() ? false : (bool) ($this->replyTo->is_encrypted ?? false),
                     'e2e' => $this->replyTo->trashed() ? null : $this->replyTo->e2e,
                     'sender_device_id' => $this->replyTo->trashed() ? null : $this->replyTo->sender_device_id,
@@ -97,16 +107,43 @@ class MessageResource extends JsonResource
         }
 
         $id = $messageId ?? $this->id;
-        $hasMedia = ! empty($meta['path']) || ! empty($meta['url']) || ! empty($meta['thumb_path']) || ! empty($meta['thumb_url']);
+        $hasMedia = ! empty($meta['path']) || ! empty($meta['url']) || ! empty($meta['thumb_path']) || ! empty($meta['thumb_url']) || ! empty($meta['media_id']);
 
         $out = $meta;
 
         // Strip absolute storage locations from the client payload.
-        unset($out['path'], $out['thumb_path'], $out['cover_path'], $out['disk']);
+        unset($out['path'], $out['thumb_path'], $out['cover_path'], $out['hls_path'], $out['disk']);
+
+        // Keep media_id so clients can forward / re-send without re-upload.
+        if (! empty($meta['media_id'])) {
+            $out['media_id'] = (int) $meta['media_id'];
+        }
+        if (! empty($meta['media_uuid'])) {
+            $out['media_uuid'] = (string) $meta['media_uuid'];
+        }
 
         if ($hasMedia && $id) {
+            $publicStickerUrl = null;
+            if (! empty($meta['sticker'])
+                && ! empty($meta['url'])
+                && preg_match('#^https?://#i', (string) $meta['url'])
+                && empty($meta['encrypted'])
+                && (empty($meta['private']) || $meta['private'] === false)
+            ) {
+                $publicStickerUrl = (string) $meta['url'];
+            }
+
             $base = url('/api/messenger/media/'.$id);
             $out['url'] = $base;
+            $out['stream'] = [
+                'progressive' => true,
+                'range' => empty($meta['encrypted']),
+                'hls' => ($meta['hls_status'] ?? null) === 'ready',
+            ];
+            // Public stickers also keep CDN url for clients that can load it directly.
+            if ($publicStickerUrl) {
+                $out['cdn_url'] = $publicStickerUrl;
+            }
             if (! empty($meta['thumb_path']) || ! empty($meta['thumb_url'])) {
                 $out['thumb_url'] = $base.'?v=thumb';
             } else {
@@ -117,7 +154,29 @@ class MessageResource extends JsonResource
             } else {
                 unset($out['cover_url']);
             }
-            $out['private'] = true;
+            if (($meta['hls_status'] ?? null) === 'ready') {
+                $out['hls_url'] = $base.'?v=hls';
+                $out['hls_status'] = 'ready';
+                if (! empty($meta['variants']['hls']) && is_array($meta['variants']['hls'])) {
+                    $out['qualities'] = collect($meta['variants']['hls'])
+                        ->map(fn ($q) => [
+                            'height' => (int) ($q['height'] ?? $q['quality'] ?? 0),
+                            'label' => (($q['quality'] ?? $q['height'] ?? '').'p'),
+                            'bitrate_kbps' => $q['bitrate_kbps'] ?? null,
+                        ])
+                        ->values()
+                        ->all();
+                }
+            } elseif (! empty($meta['hls_status'])) {
+                $out['hls_status'] = (string) $meta['hls_status'];
+            }
+            if (! empty($meta['processing_status'])) {
+                $out['processing_status'] = (string) $meta['processing_status'];
+            }
+            if (! empty($meta['shared'])) {
+                $out['shared'] = true;
+            }
+            $out['private'] = $publicStickerUrl ? false : true;
         }
 
         // Encrypted media: hide cleartext filename hints if present.

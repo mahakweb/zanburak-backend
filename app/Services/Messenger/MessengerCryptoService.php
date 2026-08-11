@@ -5,6 +5,7 @@ namespace App\Services\Messenger;
 use App\Events\Messenger\MessengerBroadcast;
 use App\Models\Conversation;
 use App\Models\MessengerCryptoDevice;
+use App\Models\MessengerE2eKeyVault;
 use App\Models\MessengerE2ePackage;
 use App\Models\MessengerEvent;
 use App\Models\MessengerIdentityPackage;
@@ -37,6 +38,13 @@ class MessengerCryptoService
             return false;
         }
 
+        // Saved Messages is a Telegram-style cloud self-chat: single participant,
+        // server-side forward/media reuse, multi-device sync without E2E wraps.
+        // Legacy encrypted notes (is_encrypted=1) still decrypt on the client.
+        if ($conversation->type === Conversation::TYPE_SAVED) {
+            return false;
+        }
+
         // Public channels are intentionally readable by joiners/server search.
         if ($conversation->isChannel() && $conversation->is_public) {
             return false;
@@ -44,7 +52,6 @@ class MessengerCryptoService
 
         return in_array($conversation->type, [
             Conversation::TYPE_PRIVATE,
-            Conversation::TYPE_SAVED,
             Conversation::TYPE_GROUP,
             Conversation::TYPE_CHANNEL,
         ], true);
@@ -305,6 +312,90 @@ class MessengerCryptoService
                 'requester_user_id' => (int) $user->id,
             ]);
         }
+    }
+
+    /**
+     * Upsert opaque conversation-key vault entries for the authenticated user.
+     * Ciphertexts are identity-wrapped on the client; the server only stores blobs.
+     *
+     * @param  array<int, array{conversation_id:int,key_version:int,ciphertext:string}>  $entries
+     */
+    public function upsertKeyVault(User $user, string $senderDeviceId, array $entries): int
+    {
+        $this->requireOwnDevice($user, $senderDeviceId);
+
+        $written = 0;
+        $notify = false;
+
+        DB::transaction(function () use ($user, $senderDeviceId, $entries, &$written, &$notify) {
+            foreach ($entries as $entry) {
+                $conversationId = (int) ($entry['conversation_id'] ?? 0);
+                $keyVersion = (int) ($entry['key_version'] ?? 0);
+                $ciphertext = (string) ($entry['ciphertext'] ?? '');
+
+                if ($conversationId < 1 || $keyVersion < 1 || $ciphertext === '') {
+                    continue;
+                }
+
+                $conversation = Conversation::query()->find($conversationId);
+                if (! $conversation) {
+                    continue;
+                }
+
+                try {
+                    $this->assertParticipant($user, $conversation);
+                } catch (\RuntimeException) {
+                    continue;
+                }
+
+                MessengerE2eKeyVault::query()->updateOrCreate(
+                    [
+                        'user_id' => $user->id,
+                        'conversation_id' => $conversationId,
+                        'key_version' => $keyVersion,
+                    ],
+                    [
+                        'sender_device_id' => $senderDeviceId,
+                        'ciphertext' => $ciphertext,
+                    ]
+                );
+                $written++;
+                $notify = true;
+            }
+        });
+
+        if ($notify) {
+            $this->emitCryptoEvent((int) $user->id, [
+                'type' => 'e2e.vault',
+            ]);
+        }
+
+        return $written;
+    }
+
+    /**
+     * Pull identity-wrapped conversation keys for this user's new/restored devices.
+     *
+     * @return array<int, array{conversation_id:int,key_version:int,ciphertext:string,sender_device_id:string,updated_at:?string}>
+     */
+    public function pullKeyVault(User $user, ?int $conversationId = null): array
+    {
+        $q = MessengerE2eKeyVault::query()
+            ->where('user_id', $user->id)
+            ->orderBy('id');
+
+        if ($conversationId) {
+            $q->where('conversation_id', $conversationId);
+        }
+
+        return $q->limit(500)->get()->map(fn (MessengerE2eKeyVault $row) => [
+            'id' => $row->id,
+            'conversation_id' => (int) $row->conversation_id,
+            'key_version' => (int) $row->key_version,
+            'ciphertext' => $row->ciphertext,
+            'sender_device_id' => $row->sender_device_id,
+            'updated_at' => $row->updated_at?->toIso8601String(),
+        ])->all();
     }
 
     public function pullPackages(User $user, string $deviceId, ?int $conversationId = null): array
@@ -762,6 +853,7 @@ class MessengerCryptoService
             'e2e.identity_package', 'e2e_identity_package' => 'e2e.identity_package',
             'e2e.identity_request', 'e2e_identity_request' => 'e2e.identity_request',
             'e2e.key_rotate', 'e2e_key_rotate' => 'e2e.key_rotate',
+            'e2e.vault', 'e2e_vault' => 'e2e.vault',
             default => $rawType,
         };
 

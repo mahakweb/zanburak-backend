@@ -11,6 +11,7 @@ use App\Models\Message;
 use App\Models\MessengerWallpaper;
 use App\Services\Messenger\MessengerService;
 use App\Services\Messenger\MessengerSystemConfig;
+use App\Services\Messenger\PrivacyService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,7 +22,8 @@ class MessengerController extends Controller
 {
     public function __construct(
         protected MessengerService $messenger,
-        protected MessengerSystemConfig $systemConfig
+        protected MessengerSystemConfig $systemConfig,
+        protected PrivacyService $privacy
     ) {}
 
     public function systemConfig(Request $request): JsonResponse
@@ -31,7 +33,8 @@ class MessengerController extends Controller
 
     public function conversations(Request $request): JsonResponse
     {
-        $paginator = $this->messenger->listConversations($request->user());
+        $user = $request->user();
+        $paginator = $this->messenger->listConversations($user);
 
         return response()->json([
             'data' => ConversationResource::collection($paginator->items()),
@@ -41,6 +44,8 @@ class MessengerController extends Controller
                 'per_page' => $paginator->perPage(),
                 'total' => $paginator->total(),
                 'has_more' => $paginator->hasMorePages(),
+                // Lets the client skip a separate /unread-count round-trip on boot.
+                'total_unread' => $this->messenger->totalUnreadCount($user),
             ],
         ]);
     }
@@ -286,6 +291,12 @@ class MessengerController extends Controller
         $maxLen = $this->systemConfig->int('max_message_length')
             ?: (int) config('messenger.max_message_length', 5000);
 
+        $isEncrypted = $request->boolean('is_encrypted');
+        // E2E location embeds coords inside the ciphertext — clear meta.lat/lng
+        // must NOT be required or the durable HTTP ack 422s after the peer
+        // already painted the whisper (false "failed" on the sender).
+        $locationCoordsRequired = $request->input('type') === 'location' && ! $isEncrypted;
+
         $request->validate([
             'body' => 'nullable|string|max:'.((int) config('messenger.e2e.max_ciphertext_length', 65536)),
             'client_id' => 'sometimes|string|max:64',
@@ -293,8 +304,8 @@ class MessengerController extends Controller
             'reply_show_title' => 'sometimes|boolean',
             'type' => 'sometimes|string|in:text,location,photo,video,voice,audio,file',
             'meta' => 'sometimes|nullable|array',
-            'meta.lat' => 'required_if:type,location|numeric|between:-90,90',
-            'meta.lng' => 'required_if:type,location|numeric|between:-180,180',
+            'meta.lat' => [$locationCoordsRequired ? 'required' : 'sometimes', 'nullable', 'numeric', 'between:-90,90'],
+            'meta.lng' => [$locationCoordsRequired ? 'required' : 'sometimes', 'nullable', 'numeric', 'between:-180,180'],
             'meta.accuracy' => 'sometimes|nullable|numeric|min:0',
             'meta.fwd_chat' => 'sometimes|nullable|array',
             'meta.fwd_message_id' => 'sometimes|nullable|integer',
@@ -321,7 +332,6 @@ class MessengerController extends Controller
 
         $type = $request->input('type', 'text');
         $meta = $request->input('meta');
-        $isEncrypted = $request->boolean('is_encrypted');
         $forwardFromId = $request->input('forward_from_message_id');
 
         if ($type === 'location' && is_array($meta) && ! $isEncrypted) {
@@ -444,6 +454,7 @@ class MessengerController extends Controller
     {
         $cfg = config('messenger.media', []);
         $type = $request->input('type');
+        $reuseMediaId = $request->filled('media_id') && ! $request->hasFile('file');
 
         $maxMap = [
             'photo' => $this->systemConfig->mediaMaxKb('photo'),
@@ -469,7 +480,7 @@ class MessengerController extends Controller
             return response()->json(['message' => 'Invalid media type'], 422);
         }
 
-        if (! $this->systemConfig->isMediaTypeAllowed((string) $type)) {
+        if (! $reuseMediaId && ! $this->systemConfig->isMediaTypeAllowed((string) $type)) {
             return response()->json([
                 'message' => $this->systemConfig->bool('uploads_enabled')
                     ? 'آپلود این نوع فایل مجاز نیست.'
@@ -482,7 +493,8 @@ class MessengerController extends Controller
 
         $request->validate([
             'type' => 'required|string|in:photo,video,voice,audio,file',
-            'file' => "required|file|max:{$maxKb}",
+            'media_id' => $reuseMediaId ? 'required|integer|min:1' : 'sometimes|nullable|integer|min:1',
+            'file' => $reuseMediaId ? 'prohibited' : "required|file|max:{$maxKb}",
             'caption' => 'sometimes|nullable|string|max:'.((int) config('messenger.e2e.max_ciphertext_length', 65536)),
             'client_id' => 'sometimes|string|max:64',
             'reply_to_id' => 'sometimes|nullable|integer',
@@ -493,6 +505,11 @@ class MessengerController extends Controller
             'cover' => 'sometimes|nullable|image|max:2048|mimes:jpeg,jpg,png,webp',
             'silent' => 'sometimes|boolean',
             'animation' => 'sometimes|boolean',
+            'sticker' => 'sometimes|boolean',
+            'sticker_id' => 'sometimes|nullable|string|max:64',
+            'sticker_pack_id' => 'sometimes|nullable|string|max:64',
+            'sticker_emoji' => 'sometimes|nullable|string|max:32',
+            'sticker_kind' => 'sometimes|nullable|string|max:16',
             'album_id' => 'sometimes|nullable|string|max:64',
             'album_index' => 'sometimes|nullable|integer|min:0|max:'.$maxAlbum,
             'album_count' => 'sometimes|nullable|integer|min:1|max:'.$maxAlbum,
@@ -502,7 +519,7 @@ class MessengerController extends Controller
             'encrypted' => 'sometimes|boolean',
             'forwarded_from_user_id' => 'sometimes|nullable|integer|min:1',
             'drop_author' => 'sometimes|boolean',
-            'meta' => 'sometimes|nullable|array',
+            'meta' => 'sometimes|nullable',
             'meta.fwd_chat' => 'sometimes|nullable|array',
             'meta.fwd_message_id' => 'sometimes|nullable|integer',
         ]);
@@ -522,7 +539,85 @@ class MessengerController extends Controller
             $rawMeta = is_array($decodedMeta) ? $decodedMeta : null;
         }
         if (is_array($rawMeta)) {
-            $fwdMeta = array_intersect_key($rawMeta, array_flip(['fwd_chat', 'fwd_message_id', 'post_author']));
+            $fwdMeta = array_intersect_key($rawMeta, array_flip([
+                'fwd_chat',
+                'fwd_message_id',
+                'post_author',
+                'sticker',
+                'sticker_id',
+                'sticker_pack_id',
+                'sticker_emoji',
+                'sticker_kind',
+            ]));
+            // Normalize sticker flag to boolean.
+            if (array_key_exists('sticker', $fwdMeta)) {
+                $fwdMeta['sticker'] = filter_var($fwdMeta['sticker'], FILTER_VALIDATE_BOOLEAN);
+            }
+        }
+        if ($request->boolean('sticker')) {
+            $fwdMeta['sticker'] = true;
+            if ($request->filled('sticker_id')) {
+                $fwdMeta['sticker_id'] = (string) $request->input('sticker_id');
+            }
+            if ($request->filled('sticker_pack_id')) {
+                $fwdMeta['sticker_pack_id'] = (string) $request->input('sticker_pack_id');
+            }
+            if ($request->filled('sticker_emoji')) {
+                $fwdMeta['sticker_emoji'] = (string) $request->input('sticker_emoji');
+            }
+            if ($request->filled('sticker_kind')) {
+                $fwdMeta['sticker_kind'] = (string) $request->input('sticker_kind');
+            } elseif (! isset($fwdMeta['sticker_kind'])) {
+                $fwdMeta['sticker_kind'] = 'image';
+            }
+        }
+
+        $sendOptions = [
+            'reply_to_id' => $request->input('reply_to_id'),
+            'reply_show_title' => $request->boolean('reply_show_title', true),
+            'duration' => $request->input('duration'),
+            'width' => $request->input('width'),
+            'height' => $request->input('height'),
+            'cover' => null,
+            'silent' => $request->boolean('silent') || $request->boolean('animation'),
+            'animation' => $request->boolean('silent') || $request->boolean('animation'),
+            'album_id' => $request->input('album_id'),
+            'album_index' => $request->input('album_index'),
+            'album_count' => $request->input('album_count'),
+            'is_encrypted' => $isEncrypted,
+            'encrypted' => $isEncrypted,
+            'sender_device_id' => $request->input('sender_device_id'),
+            'e2e' => $e2e,
+            'forwarded_from_user_id' => $request->boolean('drop_author')
+                ? null
+                : $request->input('forwarded_from_user_id'),
+            'meta' => $fwdMeta ?: null,
+        ];
+
+        // Reuse an existing messenger_media row (forward / sticker) — no upload.
+        if ($reuseMediaId) {
+            try {
+                $message = $this->messenger->sendExistingMediaMessage(
+                    $request->user(),
+                    $conversation,
+                    (int) $request->input('media_id'),
+                    (string) $request->input('caption', ''),
+                    $request->input('client_id'),
+                    array_merge($sendOptions, ['type' => $type])
+                );
+            } catch (\InvalidArgumentException $e) {
+                return response()->json(['message' => $e->getMessage()], 422);
+            } catch (ModelNotFoundException $e) {
+                return response()->json(['message' => 'Media not found'], 404);
+            } catch (\RuntimeException $e) {
+                return response()->json(['message' => $e->getMessage()], 403);
+            } catch (\Throwable $e) {
+                report($e);
+
+                return response()->json(['message' => 'Failed to send media'], 500);
+            }
+
+            return response()->json(new MessageResource($message), 201);
         }
 
         try {
@@ -553,6 +648,9 @@ class MessengerController extends Controller
         }
 
         $asAnimation = $request->boolean('silent') || $request->boolean('animation');
+        $sendOptions['cover'] = $isEncrypted ? null : $request->file('cover');
+        $sendOptions['silent'] = $asAnimation;
+        $sendOptions['animation'] = $asAnimation;
 
         try {
             $message = $this->messenger->sendMediaMessage(
@@ -562,27 +660,7 @@ class MessengerController extends Controller
                 $type,
                 (string) $request->input('caption', ''),
                 $request->input('client_id'),
-                [
-                    'reply_to_id' => $request->input('reply_to_id'),
-                    'reply_show_title' => $request->boolean('reply_show_title', true),
-                    'duration' => $request->input('duration'),
-                    'width' => $request->input('width'),
-                    'height' => $request->input('height'),
-                    'cover' => $isEncrypted ? null : $request->file('cover'),
-                    'silent' => $asAnimation,
-                    'animation' => $asAnimation,
-                    'album_id' => $request->input('album_id'),
-                    'album_index' => $request->input('album_index'),
-                    'album_count' => $request->input('album_count'),
-                    'is_encrypted' => $isEncrypted,
-                    'encrypted' => $isEncrypted,
-                    'sender_device_id' => $request->input('sender_device_id'),
-                    'e2e' => $e2e,
-                    'forwarded_from_user_id' => $request->boolean('drop_author')
-                        ? null
-                        : $request->input('forwarded_from_user_id'),
-                    'meta' => $fwdMeta ?: null,
-                ]
+                $sendOptions
             );
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
@@ -628,7 +706,23 @@ class MessengerController extends Controller
             );
         } catch (ModelNotFoundException $e) {
             return response()->json(['message' => 'Message not found'], 404);
+        } catch (\InvalidArgumentException $e) {
+            \Illuminate\Support\Facades\Log::warning('messenger.forward.rejected', [
+                'user_id' => $request->user()?->id,
+                'target_id' => $conversation->id,
+                'target_type' => $conversation->type,
+                'error' => $e->getMessage(),
+            ]);
+
+            return response()->json(['message' => $e->getMessage()], 422);
         } catch (\RuntimeException $e) {
+            \Illuminate\Support\Facades\Log::warning('messenger.forward.forbidden', [
+                'user_id' => $request->user()?->id,
+                'target_id' => $conversation->id,
+                'target_type' => $conversation->type,
+                'error' => $e->getMessage(),
+            ]);
+
             return response()->json(['message' => $e->getMessage()], 403);
         }
 
@@ -865,7 +959,7 @@ class MessengerController extends Controller
     {
         $settings = $this->messenger->getSettings($request->user());
 
-        return response()->json($this->settingsPayload($settings));
+        return response()->json($this->settingsPayload($request->user(), $settings));
     }
 
     public function updateSettings(Request $request): JsonResponse
@@ -917,11 +1011,42 @@ class MessengerController extends Controller
             'show_last_seen' => 'sometimes|boolean',
             'show_phone' => 'sometimes|boolean',
             'show_email' => 'sometimes|boolean',
+            'privacy' => 'sometimes|array',
+            'privacy.last_seen' => 'sometimes|array',
+            'privacy.last_seen.rule' => 'sometimes|string|in:everybody,contacts,nobody',
+            'privacy.last_seen.always_allow' => 'sometimes|array|max:200',
+            'privacy.last_seen.always_allow.*' => 'integer|exists:users,id',
+            'privacy.last_seen.never_allow' => 'sometimes|array|max:200',
+            'privacy.last_seen.never_allow.*' => 'integer|exists:users,id',
+            'privacy.online' => 'sometimes|array',
+            'privacy.online.rule' => 'sometimes|string|in:everybody,contacts,nobody',
+            'privacy.online.always_allow' => 'sometimes|array|max:200',
+            'privacy.online.always_allow.*' => 'integer|exists:users,id',
+            'privacy.online.never_allow' => 'sometimes|array|max:200',
+            'privacy.online.never_allow.*' => 'integer|exists:users,id',
+            'privacy.profile_photo' => 'sometimes|array',
+            'privacy.profile_photo.rule' => 'sometimes|string|in:everybody,contacts,nobody',
+            'privacy.profile_photo.always_allow' => 'sometimes|array|max:200',
+            'privacy.profile_photo.always_allow.*' => 'integer|exists:users,id',
+            'privacy.profile_photo.never_allow' => 'sometimes|array|max:200',
+            'privacy.profile_photo.never_allow.*' => 'integer|exists:users,id',
+            'privacy.bio' => 'sometimes|array',
+            'privacy.bio.rule' => 'sometimes|string|in:everybody,contacts,nobody',
+            'privacy.bio.always_allow' => 'sometimes|array|max:200',
+            'privacy.bio.always_allow.*' => 'integer|exists:users,id',
+            'privacy.bio.never_allow' => 'sometimes|array|max:200',
+            'privacy.bio.never_allow.*' => 'integer|exists:users,id',
+            'privacy.phone' => 'sometimes|array',
+            'privacy.phone.rule' => 'sometimes|string|in:everybody,contacts,nobody',
+            'privacy.phone.always_allow' => 'sometimes|array|max:200',
+            'privacy.phone.always_allow.*' => 'integer|exists:users,id',
+            'privacy.phone.never_allow' => 'sometimes|array|max:200',
+            'privacy.phone.never_allow.*' => 'integer|exists:users,id',
         ]);
 
         $settings = $this->messenger->updateSettings($request->user(), $data);
 
-        return response()->json($this->settingsPayload($settings));
+        return response()->json($this->settingsPayload($request->user(), $settings));
     }
 
     public function listWallpapers(Request $request): JsonResponse
@@ -1001,11 +1126,12 @@ class MessengerController extends Controller
         return response()->json($result);
     }
 
-    private function settingsPayload(\App\Models\MessengerSetting $settings): array
+    private function settingsPayload(\App\Models\User $user, \App\Models\MessengerSetting $settings): array
     {
         $autoDownload = $settings->resolvedAutoDownload();
         $autoPlay = $settings->resolvedAutoPlay();
         $private = $autoDownload['private'] ?? [];
+        $privacy = $this->privacy->settingsPayload($user, $settings);
 
         return [
             'enter_to_send' => $settings->enter_to_send,
@@ -1023,10 +1149,12 @@ class MessengerController extends Controller
             'wallpaper_config' => $settings->wallpaper_config,
             'theme' => $settings->theme,
             'locale' => $settings->locale,
-            'show_online' => $settings->show_online,
-            'show_last_seen' => $settings->show_last_seen,
-            'show_phone' => $settings->show_phone,
+            // Legacy booleans (derived from Telegram-style rules).
+            'show_online' => ($privacy['online']['rule'] ?? 'everybody') !== 'nobody',
+            'show_last_seen' => ($privacy['last_seen']['rule'] ?? 'everybody') !== 'nobody',
+            'show_phone' => ($privacy['phone']['rule'] ?? 'nobody') !== 'nobody',
             'show_email' => $settings->show_email,
+            'privacy' => $privacy,
         ];
     }
 
@@ -1116,19 +1244,20 @@ class MessengerController extends Controller
         }
 
         $settings = $user->resolvedMessengerSettings();
-        $isSelf = $request->user() && (int) $request->user()->id === (int) $user->id;
+        $viewer = $request->user();
+        $isSelf = $viewer && (int) $viewer->id === (int) $user->id;
 
         return response()->json([
             'id' => $user->id,
             'first_name' => $user->first_name,
             'last_name' => $user->last_name,
             'username' => $user->username,
-            'profile_pic' => $user->profile_pic,
-            'cover_pic' => $user->cover_pic,
-            'bio' => $user->bio,
-            'last_seen' => $user->lastSeenVisible(),
-            'is_online' => $user->isOnlineVisible(),
-            'mobile' => ($isSelf || $settings->show_phone) ? $user->mobile : null,
+            'profile_pic' => $user->profilePhotoVisible($viewer),
+            'cover_pic' => $isSelf ? $user->cover_pic : $user->cover_pic,
+            'bio' => $user->bioVisible($viewer),
+            'last_seen' => $user->lastSeenVisible($viewer),
+            'is_online' => $user->isOnlineVisible($viewer),
+            'mobile' => $isSelf ? $user->mobile : $user->phoneVisible($viewer),
             'email' => ($isSelf || $settings->show_email) ? $user->email : null,
         ]);
     }

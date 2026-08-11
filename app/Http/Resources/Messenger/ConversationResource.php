@@ -62,8 +62,12 @@ class ConversationResource extends JsonResource
                 fn () => (int) $this->unread_count
             ),
             'partner' => $this->when(
-                $me && $this->relationLoaded('users') && ! $isCommunity,
-                fn () => new UserBriefResource($this->otherUser($me))
+                $me && $this->relationLoaded('users') && ! $isCommunity && $this->type !== 'saved',
+                function () use ($me) {
+                    $other = $this->otherUser($me);
+
+                    return $other ? new UserBriefResource($other) : null;
+                }
             ),
             'pivot' => $this->when(
                 $me && $this->relationLoaded('users'),

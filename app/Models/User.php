@@ -865,28 +865,49 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
-     * Online status honoring the user's privacy preference.
+     * Online status honoring Telegram-style privacy vs an optional viewer.
      */
-    public function isOnlineVisible(): bool
+    public function isOnlineVisible(?User $viewer = null): bool
     {
-        if (! $this->resolvedMessengerSettings()->show_online) {
-            return false;
-        }
+        $viewer = $viewer ?? (auth()->user() instanceof User ? auth()->user() : null);
 
-        return $this->isOnline();
+        return app(\App\Services\Messenger\PrivacyService::class)
+            ->visibleOnline($this, $viewer);
     }
 
     /**
-     * last_seen honoring the user's privacy preference.
+     * last_seen honoring Telegram-style privacy vs an optional viewer.
      */
-    public function lastSeenVisible(): ?string
+    public function lastSeenVisible(?User $viewer = null): ?string
     {
-        $settings = $this->resolvedMessengerSettings();
-        if (! $settings->show_last_seen) {
-            return null;
-        }
+        $viewer = $viewer ?? (auth()->user() instanceof User ? auth()->user() : null);
 
-        return $this->last_seen ? Carbon::parse($this->last_seen)->toIso8601String() : null;
+        return app(\App\Services\Messenger\PrivacyService::class)
+            ->visibleLastSeen($this, $viewer);
+    }
+
+    public function profilePhotoVisible(?User $viewer = null): ?string
+    {
+        $viewer = $viewer ?? (auth()->user() instanceof User ? auth()->user() : null);
+
+        return app(\App\Services\Messenger\PrivacyService::class)
+            ->visibleProfilePhoto($this, $viewer);
+    }
+
+    public function bioVisible(?User $viewer = null): ?string
+    {
+        $viewer = $viewer ?? (auth()->user() instanceof User ? auth()->user() : null);
+
+        return app(\App\Services\Messenger\PrivacyService::class)
+            ->visibleBio($this, $viewer);
+    }
+
+    public function phoneVisible(?User $viewer = null): ?string
+    {
+        $viewer = $viewer ?? (auth()->user() instanceof User ? auth()->user() : null);
+
+        return app(\App\Services\Messenger\PrivacyService::class)
+            ->visiblePhone($this, $viewer);
     }
 
 

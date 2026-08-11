@@ -31,6 +31,11 @@ class MessengerSetting extends Model
         'show_last_seen',
         'show_phone',
         'show_email',
+        'privacy_last_seen',
+        'privacy_online',
+        'privacy_profile_photo',
+        'privacy_bio',
+        'privacy_phone',
     ];
 
     protected $casts = [
@@ -54,6 +59,10 @@ class MessengerSetting extends Model
     public const MEDIA_KEYS = ['photos', 'videos', 'files', 'voice', 'audio'];
 
     public const CONTEXTS = ['private', 'groups', 'channels'];
+
+    public const PRIVACY_RULES = ['everybody', 'contacts', 'nobody'];
+
+    public const PRIVACY_KEYS = ['last_seen', 'online', 'profile_photo', 'bio', 'phone'];
 
     /**
      * Nullable override: null inherits global default.
@@ -133,6 +142,11 @@ class MessengerSetting extends Model
             'show_last_seen' => true,
             'show_phone' => false,
             'show_email' => false,
+            'privacy_last_seen' => 'everybody',
+            'privacy_online' => 'everybody',
+            'privacy_profile_photo' => 'everybody',
+            'privacy_bio' => 'everybody',
+            'privacy_phone' => 'nobody',
         ];
     }
 
