@@ -32,14 +32,6 @@ class ImapSyncService
             ];
         }
 
-        if (! extension_loaded('imap')) {
-            return [
-                'synced' => 0,
-                'skipped' => true,
-                'message' => 'PHP IMAP extension is not installed.',
-            ];
-        }
-
         $credentials = $account->credentials();
         $imap = config('mail-inbox.imap');
 
@@ -52,7 +44,7 @@ class ImapSyncService
                 'validate_cert' => $imap['validate_cert'],
                 'username' => $credentials['username'],
                 'password' => $credentials['password'],
-                'protocol' => 'imap',
+                'protocol' => $imap['protocol'] ?? 'imap',
             ]);
 
             $client->connect();

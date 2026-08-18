@@ -14,10 +14,19 @@ class VideoController extends Controller
 {
 
     public function episodeVideo(Episode $episode){
-        // $episode = Episode::findOrFail(request()->episode);
-        $path = parse_url($episode->videos->where('type', 'stream')->pluck('path')[0], PHP_URL_PATH);
-        $disk = $episode->videos->where('type', 'stream')->pluck('disk')[0];
-        return redirect(URL::temporarySignedRoute('api.video-playlist', now()->addMinutes(20), ['path' => $path, 'disk' => $disk]));
+        $stream = $episode->videos()->where('type', 'stream')->first();
+        if (!$stream || empty($stream->path)) {
+            return response()->json(['message' => 'Stream not ready'], 404);
+        }
+
+        $path = parse_url($stream->path, PHP_URL_PATH) ?: $stream->path;
+        $disk = $stream->disk ?: 'static';
+
+        return redirect(URL::temporarySignedRoute(
+            'api.video-playlist',
+            now()->addMinutes(60),
+            ['path' => ltrim($path, '/'), 'disk' => $disk]
+        ));
     }
 
     public function courseVideo(Course $course){
@@ -37,43 +46,87 @@ class VideoController extends Controller
     }
 
     public function videoKey(){
-        $content = Storage::disk(request()->disk)->get(request()->path);
+        $disk = request()->disk ?: 'static';
+        $path = (string) request()->path;
+        $storage = Storage::disk($disk);
+
+        try {
+            $content = $storage->get($path);
+        } catch (\Throwable $e) {
+            $content = null;
+        }
+
+        // Encoder may store keys next to the playlist OR under keys/.
+        if ($content === null) {
+            if (str_contains($path, '/keys/')) {
+                $alt = str_replace('/keys/', '/', $path);
+            } else {
+                $alt = preg_replace('#/([^/]+)$#', '/keys/$1', $path) ?: $path;
+            }
+            try {
+                $content = $storage->get($alt);
+                $path = $alt;
+            } catch (\Throwable $e) {
+                abort(404);
+            }
+        }
 
         return response($content, 200, [
             'Content-Type' => 'application/octet-stream',
-            'Cache-Control' => 'private, no-store',
+            'Cache-Control' => 'private, max-age=300',
             'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 
     public function videoM3u8(){
-        $content = Storage::disk(request()->disk)->get(request()->path);
+        $disk = request()->disk ?: 'static';
+        $path = (string) request()->path;
+        $content = Storage::disk($disk)->get($path);
+        $isSegment = str_ends_with(strtolower($path), '.ts');
 
         return response($content, 200, [
-            'Content-Type' => 'application/octet-stream',
-            'Cache-Control' => 'private, no-store',
+            'Content-Type' => $isSegment ? 'video/mp2t' : 'application/vnd.apple.mpegurl',
+            // Segments are immutable; playlists can be cached briefly.
+            'Cache-Control' => $isSegment ? 'private, max-age=86400, immutable' : 'private, max-age=30',
             'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 
 
     public function videoPlaylist(){
-        // var_dump(request()->path);
-        // var_dump(request()->disk);
-        $disk = 'static';
-        if(request()->disk)
-            $disk = request()->disk;
+        $disk = request()->disk ?: 'static';
+        $playlistPath = ltrim((string) request()->path, '/');
+        $baseDir = rtrim(str_replace('\\', '/', dirname($playlistPath)), '/');
+        if ($baseDir === '.' || $baseDir === '') {
+            $baseDir = '';
+        } else {
+            $baseDir .= '/';
+        }
+
+        // Avoid FTP exists() probes in resolvers — they add seconds of latency per key/segment.
         return FFMpeg::dynamicHLSPlaylist()
         ->fromDisk($disk)
-        ->open(request()->path)
-        ->setKeyUrlResolver(function ($key) {
-            return (URL::temporarySignedRoute('api.video-key', now()->addMinutes(20), ['path' => str_replace(substr(request()->path, strrpos(request()->path, "/")+1),"", request()->path)."keys/".$key, 'disk' => request()->disk]));
+        ->open($playlistPath)
+        ->setKeyUrlResolver(function ($key) use ($disk, $baseDir) {
+            $key = basename(ltrim(str_replace('\\', '/', (string) $key), '/'));
+            $path = $baseDir . 'keys/' . $key;
+
+            return URL::temporarySignedRoute('api.video-key', now()->addMinutes(60), [
+                'path' => $path,
+                'disk' => $disk,
+            ]);
         })
-        ->setMediaUrlResolver(function ($mediaFilename) {
-            return (URL::temporarySignedRoute('api.video-m3u8', now()->addMinutes(20), ['path' => str_replace(substr(request()->path, strrpos(request()->path, "/")+1),"", request()->path).$mediaFilename, 'disk' => request()->disk]));
+        ->setMediaUrlResolver(function ($mediaFilename) use ($disk, $baseDir) {
+            return URL::temporarySignedRoute('api.video-m3u8', now()->addMinutes(60), [
+                'path' => $baseDir . ltrim((string) $mediaFilename, '/'),
+                'disk' => $disk,
+            ]);
         })
-        ->setPlaylistUrlResolver(function ($playlistFilename) {
-            return (URL::temporarySignedRoute('api.video-playlist', now()->addMinutes(20),['path' => str_replace(substr(request()->path, strrpos(request()->path, "/")+1),"", request()->path).$playlistFilename, 'disk' => request()->disk]));
+        ->setPlaylistUrlResolver(function ($playlistFilename) use ($disk, $baseDir) {
+            return URL::temporarySignedRoute('api.video-playlist', now()->addMinutes(60), [
+                'path' => $baseDir . ltrim((string) $playlistFilename, '/'),
+                'disk' => $disk,
+            ]);
         });
     }
 }

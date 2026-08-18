@@ -14,6 +14,7 @@ use App\Models\Status;
 use App\Models\VideoView;
 use App\Models\View;
 use App\Services\Course\CourseAvailabilityService;
+use App\Services\PriceCalculator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -27,7 +28,8 @@ class CourseController extends Controller
         $numberOfCashCourse = Course::where('type', 'cash')->where('publish', 1)->count();
         $numberOfCashvipCourse = Course::where('type', 'cash-vip')->where('publish', 1)->count();
         $numberOfInstallmentCourse = Course::where('allows_installment', true)->where('publish', 1)->count();
-        return response()->json(['message' => 'Success', 'categories' => $categories, 'statuses' => $statuses, 'numberOfFreeCourse' => $numberOfFreeCourse, 'numberOfCashCourse' => $numberOfCashCourse, 'numberOfCashvipCourse' => $numberOfCashvipCourse, 'numberOfInstallmentCourse' => $numberOfInstallmentCourse], 200);
+        $numberOfDiscountedCourse = app(PriceCalculator::class)->discountedPublishedCourseCount();
+        return response()->json(['message' => 'Success', 'categories' => $categories, 'statuses' => $statuses, 'numberOfFreeCourse' => $numberOfFreeCourse, 'numberOfCashCourse' => $numberOfCashCourse, 'numberOfCashvipCourse' => $numberOfCashvipCourse, 'numberOfInstallmentCourse' => $numberOfInstallmentCourse, 'numberOfDiscountedCourse' => $numberOfDiscountedCourse], 200);
     }
 
     public function courses(Request $request)
@@ -49,17 +51,18 @@ class CourseController extends Controller
             ->order($order);
 
         $availability = app(CourseAvailabilityService::class);
+        $calculator = app(PriceCalculator::class);
 
-        $allCourses = $query->get();
+        $allCourses = $query->with('category')->get();
 
-        $courses = $allCourses->map(function ($course) use ($user, $availability) {
+        $courses = $allCourses->map(function ($course) use ($user, $availability, $calculator) {
             $teacher = $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic');
             $totalTime = $course->totalTime();
             $likesCount = $course->likes()->count();
             $userHasLiked = $user ? $user->hasLiked($course) : false;
             $listMeta = $availability->listItemMeta($course);
 
-            return [
+            return $calculator->decorateCourseArray([
                 'id' => $course->id,
                 'title' => $course->title,
                 'english_title' => $course->english_title,
@@ -81,8 +84,12 @@ class CourseController extends Controller
                 'start_date' => $listMeta['start_date'],
                 'status' => $listMeta['status'],
                 'last_content_update' => $listMeta['last_content_update'],
-            ];
+            ], $course);
         });
+
+        if ($request->boolean('discounted') || $request->input('discounted') === 'yes') {
+            $courses = $courses->filter(fn ($course) => !empty($course['has_discount']))->values();
+        }
 
         $coursesPerPage = $request->input('perPage', 12);
         $currentPage = $request->input('page', 1);
@@ -133,7 +140,8 @@ class CourseController extends Controller
             'teacher:id,first_name,last_name,username,profile_pic',
             'teacher.info',
             'section.episode' => fn($q) => $q->where('publish', 1)->orderBy('order')->with('attachs'),
-            'status'
+            'status',
+            'attachs',
         ])
             ->withCount('users')
             ->findOrFail($course->id)
@@ -279,8 +287,37 @@ class CourseController extends Controller
             ? ($course->hasStoredCompletionForUser($user->id) || $course->isCompletedByUser($user->id))
             : false;
 
+        if ($course->relationLoaded('attachs')) {
+            if (!$userCanSeeCourse) {
+                $course->setRelation('attachs', collect());
+            } else {
+                $mappedAttachs = $course->attachs->map(function ($att) {
+                    $url = (string) ($att->url ?? '');
+                    $size = null;
+                    if ($url !== '') {
+                        try {
+                            $head = \Illuminate\Support\Facades\Http::withHeaders(['Accept' => '*/*'])->head($url);
+                            $len = $head->header('Content-Length');
+                            if (is_numeric($len)) {
+                                $size = (int) $len;
+                            }
+                        } catch (\Throwable $e) { /* ignore */ }
+                    }
+                    return [
+                        'id' => $att->id,
+                        'title' => $att->displayTitle(),
+                        'size' => $size,
+                        'ext' => $att->fileExtension(),
+                        'url' => $url ?: null,
+                    ];
+                })->values();
+                $course->setRelation('attachs', $mappedAttachs);
+            }
+        }
+
         app(CourseAvailabilityService::class)->enrichCourseTree($course);
         $courseAvailability = $course->availability;
+        app(PriceCalculator::class)->attachToCourseModel($course);
 
         return response()->json([
             'message' => 'Success',

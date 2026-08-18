@@ -11,6 +11,7 @@ use App\Models\Plan;
 use App\Models\Tag;
 use App\Models\View;
 use App\Services\Course\CourseAvailabilityService;
+use App\Services\PriceCalculator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -85,15 +86,16 @@ class IndexController extends Controller
         $user = auth('api')->user();
         $limit = $request->input('limit', 10);
         $availability = app(CourseAvailabilityService::class);
+        $calculator = app(PriceCalculator::class);
         $rawCourses = Course::where('publish', '1')
             ->notArchived()
-            ->with('status:id,title,english_title,slug');
+            ->with(['status:id,title,english_title,slug', 'category']);
         if ($limit) {
             $rawCourses = $rawCourses->limit($limit);
         }
         $rawCourses = $rawCourses->orderBy('id', 'desc')->get();
 
-        $courses = $rawCourses->map(function ($course) use ($user, $availability) {
+        $courses = $rawCourses->map(function ($course) use ($user, $availability, $calculator) {
             $teacher = $course->teacher
                 ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
                 : null;
@@ -102,7 +104,7 @@ class IndexController extends Controller
             $userHasLiked = $user ? $user->hasLiked($course) : false;
             $listMeta = $availability->listItemMeta($course);
 
-            return [
+            return $calculator->decorateCourseArray([
                 'id' => $course->id,
                 'title' => $course->title,
                 'english_title' => $course->english_title,
@@ -117,7 +119,7 @@ class IndexController extends Controller
                 'user_has_liked' => $userHasLiked,
                 'teacher' => $teacher,
                 'status' => $listMeta['status'],
-            ];
+            ], $course);
         });
         return response()->json(['message' => 'success', 'courses' => $courses], 200);
     }
@@ -127,16 +129,17 @@ class IndexController extends Controller
         $user = auth('api')->user();
         $limit = $request->input('limit', 10);
         $availability = app(CourseAvailabilityService::class);
+        $calculator = app(PriceCalculator::class);
         $rawCourses = Course::where('publish', '1')
             ->where('type', 'free')
             ->notArchived()
-            ->with('status:id,title,english_title,slug');
+            ->with(['status:id,title,english_title,slug', 'category']);
         if ($limit) {
             $rawCourses = $rawCourses->limit($limit);
         }
         $rawCourses = $rawCourses->orderBy('id', 'desc')->get();
 
-        $courses = $rawCourses->map(function ($course) use ($user, $availability) {
+        $courses = $rawCourses->map(function ($course) use ($user, $availability, $calculator) {
             $teacher = $course->teacher
                 ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
                 : null;
@@ -145,7 +148,7 @@ class IndexController extends Controller
             $userHasLiked = $user ? $user->hasLiked($course) : false;
             $listMeta = $availability->listItemMeta($course);
 
-            return [
+            return $calculator->decorateCourseArray([
                 'id' => $course->id,
                 'title' => $course->title,
                 'english_title' => $course->english_title,
@@ -160,7 +163,7 @@ class IndexController extends Controller
                 'user_has_liked' => $userHasLiked,
                 'teacher' => $teacher,
                 'status' => $listMeta['status'],
-            ];
+            ], $course);
         });
         return response()->json(['message' => 'success', 'courses' => $courses], 200);
     }
@@ -201,11 +204,16 @@ class IndexController extends Controller
 
         $user = auth('api')->user();
         $pathModel->load([
-            'courses',
-            'prerequisites.courses',
-            'nextSteps.courses',
-            'videos' // ensure relation exists on Path model
+            'courses.category',
+            'courses.status',
+            'prerequisites.courses.category',
+            'prerequisites.courses.status',
+            'nextSteps.courses.category',
+            'nextSteps.courses.status',
+            'videos'
         ]);
+
+        $calculator = app(PriceCalculator::class);
 
         $courseIdsInCart = $user ? $user->carts->where('cartable_type', 'App\Models\Course')->pluck('cartable_id')->toArray() : [];
 
@@ -261,26 +269,11 @@ class IndexController extends Controller
             'discount_percent' => $this->discountPercentForPath,
             'final_price' => $finalPrice,
             'allows_installment' => (bool) $pathModel->allows_installment,
-            'courses' => $pathModel->courses->where('publish', true)->map(function ($course) use ($user) {
-                return [
-                    'id' => $course->id,
-                    'title' => $course->title,
-                    'english_title' => $course->english_title,
-                    'slug' => $course->slug,
-                    'poster' => $course->poster,
-                    'likes_count' => $course->likes()->count(),
-                    'total_time' => $course->totalTime(),
-                    'price' => $course->price,
-                    'type' => $course->type,
-                    'status' => $course->status->title,
-                    'teacher' => $course->teacher
-                        ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
-                        : null,
-                    'user_has_liked' => $user ? $user->hasLiked($course) : false
-                ];
+            'courses' => $pathModel->courses->where('publish', true)->map(function ($course) use ($user, $calculator) {
+                return $this->pathCoursePayload($course, $user, $calculator);
             })->values(),
 
-            'prerequisites' => $pathModel->prerequisites->map(function ($prerequisite) use ($user) {
+            'prerequisites' => $pathModel->prerequisites->map(function ($prerequisite) use ($user, $calculator) {
                 return [
                     'id' => $prerequisite->id,
                     'title' => $prerequisite->title,
@@ -291,28 +284,13 @@ class IndexController extends Controller
                     'trailer' => $prerequisite->trailer,
                     'description' => $prerequisite->description,
                     'short_description' => $prerequisite->short_description,
-                    'courses' => $prerequisite->courses->where('publish', true)->map(function ($course) use ($user) {
-                        return [
-                            'id' => $course->id,
-                            'title' => $course->title,
-                            'english_title' => $course->english_title,
-                            'slug' => $course->slug,
-                            'poster' => $course->poster,
-                            'likes_count' => $course->likes()->count(),
-                            'total_time' => $course->totalTime(),
-                            'price' => $course->price,
-                            'type' => $course->type,
-                            'status' => $course->status->title,
-                            'teacher' => $course->teacher
-                        ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
-                        : null,
-                            'user_has_liked' => $user ? $user->hasLiked($course) : false
-                        ];
+                    'courses' => $prerequisite->courses->where('publish', true)->map(function ($course) use ($user, $calculator) {
+                        return $this->pathCoursePayload($course, $user, $calculator);
                     })->values(),
                 ];
             }),
 
-            'nextSteps' => $pathModel->nextSteps->map(function ($nextStep) use ($user) {
+            'nextSteps' => $pathModel->nextSteps->map(function ($nextStep) use ($user, $calculator) {
                 return [
                     'id' => $nextStep->id,
                     'title' => $nextStep->title,
@@ -323,23 +301,8 @@ class IndexController extends Controller
                     'trailer' => $nextStep->trailer,
                     'description' => $nextStep->description,
                     'short_description' => $nextStep->short_description,
-                    'courses' => $nextStep->courses->where('publish', true)->map(function ($course) use ($user) {
-                        return [
-                            'id' => $course->id,
-                            'title' => $course->title,
-                            'english_title' => $course->english_title,
-                            'slug' => $course->slug,
-                            'poster' => $course->poster,
-                            'likes_count' => $course->likes()->count(),
-                            'total_time' => $course->totalTime(),
-                            'price' => $course->price,
-                            'type' => $course->type,
-                            'status' => $course->status->title,
-                            'teacher' => $course->teacher
-                        ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
-                        : null,
-                            'user_has_liked' => $user ? $user->hasLiked($course) : false
-                        ];
+                    'courses' => $nextStep->courses->where('publish', true)->map(function ($course) use ($user, $calculator) {
+                        return $this->pathCoursePayload($course, $user, $calculator);
                     })->values(),
                 ];
             }),
@@ -668,5 +631,25 @@ class IndexController extends Controller
             'success' => false,
             'message' => 'No file was uploaded.',
         ], 400);
+    }
+
+    protected function pathCoursePayload($course, $user, PriceCalculator $calculator): array
+    {
+        return $calculator->decorateCourseArray([
+            'id' => $course->id,
+            'title' => $course->title,
+            'english_title' => $course->english_title,
+            'slug' => $course->slug,
+            'poster' => $course->poster,
+            'likes_count' => $course->likes()->count(),
+            'total_time' => $course->totalTime(),
+            'price' => $course->price,
+            'type' => $course->type,
+            'status' => $course->status->title ?? null,
+            'teacher' => $course->teacher
+                ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                : null,
+            'user_has_liked' => $user ? $user->hasLiked($course) : false,
+        ], $course);
     }
 }

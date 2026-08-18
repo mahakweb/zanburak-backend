@@ -16,6 +16,7 @@ class ImapMailboxService
 {
     public function __construct(
         protected MailHtmlSanitizer $htmlSanitizer,
+        protected MailMimeDecoder $mimeDecoder,
     ) {}
 
     public function resolveAccount(string $key): MailAccount
@@ -36,6 +37,7 @@ class ImapMailboxService
                 'key' => $account->key,
                 'address' => $account->address,
                 'label' => $account->label,
+                'from_name' => $account->displayFromName(),
                 'is_configured' => $account->isConfigured(),
             ])
             ->values()
@@ -65,7 +67,7 @@ class ImapMailboxService
                 ];
             }
 
-            foreach (['inbox', 'sent', 'drafts', 'outbox', 'spam', 'trash'] as $type) {
+            foreach (['inbox', 'sent', 'drafts', 'outbox', 'archive', 'spam', 'trash'] as $type) {
                 if (isset($typesFound[$type])) {
                     continue;
                 }
@@ -113,7 +115,7 @@ class ImapMailboxService
                 throw new \RuntimeException('Attachment not found.');
             }
 
-            $filename = $attachment->getName() ?: 'attachment';
+            $filename = $this->mimeDecoder->header($attachment->getName() ?: '') ?: 'attachment';
             $mime = $attachment->getContentType() ?: 'application/octet-stream';
 
             return [
@@ -185,16 +187,31 @@ class ImapMailboxService
                 ->setFetchFlags(true)
                 ->getMessageByUid($uid);
 
-            if ($markRead && ! $message->getFlags()->contains('seen')) {
+            if ($markRead && ! $message->hasFlag('seen')) {
                 $message->setFlag('Seen');
             }
 
+            $detail = $this->serializeDetailMessage($message, $folderPath, $account);
+            if ($markRead) {
+                $detail['is_read'] = true;
+            }
+            $threadMessages = [$detail];
+
             $sentFolder = $this->resolveSentFolder($client);
-            $thread = $message->thread($sentFolder);
-            $threadMessages = $this->serializeThread($thread, $account);
+            if ($sentFolder) {
+                try {
+                    $thread = $message->thread($sentFolder);
+                    $serialized = $this->serializeThread($thread, $account);
+                    if ($serialized !== []) {
+                        $threadMessages = $serialized;
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('IMAP thread fetch failed', ['error' => $e->getMessage()]);
+                }
+            }
 
             return [
-                'message' => $this->serializeDetailMessage($message, $folderPath, $account),
+                'message' => $detail,
                 'thread' => $threadMessages,
             ];
         });
@@ -244,6 +261,18 @@ class ImapMailboxService
         });
     }
 
+    public function appendToSentFolder(MailAccount $account, string $rawMessage): void
+    {
+        $this->withClient($account, function (Client $client) use ($rawMessage) {
+            $folder = $this->resolveSentFolder($client);
+            if (! $folder) {
+                return;
+            }
+
+            $folder->appendMessage($rawMessage, ['\\Seen']);
+        });
+    }
+
     public function folderStats(MailAccount $account): array
     {
         return $this->withClient($account, function (Client $client) {
@@ -252,7 +281,7 @@ class ImapMailboxService
 
             foreach ($client->getFolders(false) as $folder) {
                 $type = $this->classifyFolder($folder->path);
-                if (! in_array($type, ['inbox', 'sent', 'drafts', 'trash', 'spam', 'outbox'], true)) {
+                if (! in_array($type, ['inbox', 'sent', 'drafts', 'trash', 'spam', 'outbox', 'archive'], true)) {
                     continue;
                 }
 
@@ -280,10 +309,6 @@ class ImapMailboxService
             throw new \RuntimeException('Mailbox credentials or IMAP host are not configured.');
         }
 
-        if (! extension_loaded('imap')) {
-            throw new \RuntimeException('PHP IMAP extension is not installed on the server.');
-        }
-
         $credentials = $account->credentials();
         $imap = config('mail-inbox.imap');
 
@@ -297,7 +322,7 @@ class ImapMailboxService
             'validate_cert' => $imap['validate_cert'],
             'username' => $credentials['username'],
             'password' => $credentials['password'],
-            'protocol' => 'imap',
+            'protocol' => $imap['protocol'] ?? 'imap',
             'options' => [
                 'common_folders' => [
                     'sent' => $this->firstAlias('sent'),
@@ -310,6 +335,8 @@ class ImapMailboxService
             $client->connect();
 
             return $callback($client);
+        } catch (\Webklex\PHPIMAP\Exceptions\AuthFailedException $e) {
+            throw new \RuntimeException('ورود به صندوق ایمیل ناموفق بود. یوزرنیم باید کل آدرس ایمیل باشد و رمز با وب‌میل یکی باشد.');
         } catch (\Webklex\PHPIMAP\Exceptions\ConnectionFailedException $e) {
             throw new \RuntimeException($this->connectionHelpMessage($imap['host'], $imap['port'], $e->getMessage()));
         } finally {
@@ -329,12 +356,12 @@ class ImapMailboxService
             'uid' => (int) $message->getUid(),
             'folder' => $folderPath,
             'message_id' => $this->attributeValue($message, 'message_id'),
-            'from_name' => $from?->personal,
+            'from_name' => $this->mimeDecoder->header($from?->personal),
             'from_email' => $from?->mail ?? 'unknown@unknown',
-            'subject' => $this->attributeValue($message, 'subject') ?: '(بدون موضوع)',
+            'subject' => $this->mimeDecoder->header($this->attributeValue($message, 'subject')) ?: '(بدون موضوع)',
             'preview' => $this->preview($message),
-            'is_read' => $message->getFlags()->contains('seen'),
-            'is_flagged' => $message->getFlags()->contains('flagged'),
+            'is_read' => $this->classifyFolder($folderPath) === 'sent' || $message->hasFlag('seen'),
+            'is_flagged' => $message->hasFlag('flagged'),
             'has_attachments' => $message->getAttachments()->count() > 0,
             'is_outgoing' => $this->isOutgoing($message, $account),
             'received_at' => $this->messageTimestamp($message)?->toIso8601String(),
@@ -345,15 +372,26 @@ class ImapMailboxService
     {
         $list = $this->serializeListMessage($message, $folderPath, $account);
 
+        $bodyText = $this->mimeDecoder->body($message->getTextBody() ?: null);
+        $bodyHtml = $this->mimeDecoder->body($message->getHTMLBody() ?: null);
+
+        $security = $this->securityMeta($message);
+
         return array_merge($list, [
             'to_addresses' => $this->serializeAddresses($message->getTo()),
             'cc_addresses' => $this->serializeAddresses($message->getCc()),
-            'body_text' => $message->getTextBody() ?: null,
-            'body_html' => $this->htmlSanitizer->sanitize($message->getHTMLBody() ?: null),
-            'body_html_raw' => $message->getHTMLBody() ?: null,
+            'bcc_addresses' => $this->serializeAddresses($message->getBcc()),
+            'body_text' => $bodyText,
+            'body_html' => $this->htmlSanitizer->sanitize($bodyHtml),
+            'body_html_raw' => $bodyHtml,
             'attachments' => $this->serializeAttachments($message),
             'in_reply_to' => $this->attributeValue($message, 'in_reply_to'),
             'references' => $this->attributeValue($message, 'references'),
+            'encryption' => $security['protocol'],
+            'encrypted' => $security['encrypted'],
+            'spf' => $security['spf'],
+            'dkim' => $security['dkim'],
+            'dmarc' => $security['dmarc'],
         ]);
     }
 
@@ -373,7 +411,7 @@ class ImapMailboxService
     protected function serializeAttachments(Message $message): array
     {
         return $message->getAttachments()->map(function (Attachment $attachment) {
-            $name = $attachment->getName() ?: 'attachment';
+            $name = $this->mimeDecoder->header($attachment->getName() ?: '') ?: 'attachment';
             $part = (string) ($attachment->getPartNumber() ?? $attachment->id ?? $attachment->hash);
 
             return [
@@ -422,23 +460,8 @@ class ImapMailboxService
 
     protected function resolveFolderPathByType(Client $client, string $type): ?string
     {
-        foreach (config("mail-inbox.folder_aliases.{$type}", []) as $alias) {
-            try {
-                $client->getFolderByPath($alias);
-
-                return $alias;
-            } catch (\Throwable) {
-                continue;
-            }
-        }
-
-        foreach ($client->getFolders(false) as $folder) {
-            if ($this->classifyFolder($folder->path) === $type) {
-                return $folder->path;
-            }
-        }
-
-        return $type === 'inbox' ? 'INBOX' : null;
+        return $this->findFolderByAliases($client, $type)?->path
+            ?? ($type === 'inbox' ? 'INBOX' : null);
     }
 
     protected function resolveSpamFolderPath(Client $client): ?string
@@ -448,12 +471,30 @@ class ImapMailboxService
 
     protected function serializeAddresses($collection): array
     {
-        return $collection->map(function ($address) {
+        return collect($collection ?? [])->map(function ($address) {
+            if (is_string($address)) {
+                return [
+                    'name' => null,
+                    'email' => $address,
+                ];
+            }
+
+            if (is_array($address)) {
+                return [
+                    'name' => $this->mimeDecoder->header($address['name'] ?? $address['personal'] ?? null) ?: null,
+                    'email' => $address['email'] ?? $address['mail'] ?? null,
+                ];
+            }
+
+            if (! is_object($address)) {
+                return ['name' => null, 'email' => null];
+            }
+
             return [
-                'name' => $address->personal ?? null,
+                'name' => $this->mimeDecoder->header($address->personal ?? null) ?: null,
                 'email' => $address->mail ?? null,
             ];
-        })->values()->all();
+        })->filter(fn ($row) => filled($row['email'] ?? null))->values()->all();
     }
 
     protected function isOutgoing(Message $message, MailAccount $account): bool
@@ -467,12 +508,10 @@ class ImapMailboxService
 
     protected function preview(Message $message): string
     {
-        $text = trim(strip_tags($message->getTextBody() ?: $message->getHTMLBody() ?: ''));
-        if (mb_strlen($text) <= 120) {
-            return $text;
-        }
-
-        return mb_substr($text, 0, 120).'…';
+        return $this->mimeDecoder->preview(
+            $message->getTextBody() ?: null,
+            $message->getHTMLBody() ?: null,
+        );
     }
 
     protected function messageTimestamp(Message $message): ?Carbon
@@ -497,13 +536,53 @@ class ImapMailboxService
             return null;
         }
 
+        if (is_object($attribute) && method_exists($attribute, '__toString')) {
+            $joined = trim((string) $attribute);
+            if ($joined !== '' && $joined !== ',') {
+                return $joined;
+            }
+        }
+
         if (is_object($attribute) && method_exists($attribute, 'first')) {
             $value = $attribute->first();
 
-            return is_string($value) ? trim($value) : null;
+            if (is_object($value) && method_exists($value, '__toString')) {
+                $value = (string) $value;
+            }
+
+            return is_string($value) ? trim($value) : (is_scalar($value) ? trim((string) $value) : null);
         }
 
         return is_string($attribute) ? trim($attribute) : null;
+    }
+
+    protected function securityMeta(Message $message): array
+    {
+        $encryption = strtolower((string) config('mail-inbox.imap.encryption', 'ssl'));
+        $received = strtolower((string) ($this->attributeValue($message, 'received') ?? ''));
+        $auth = strtolower((string) ($this->attributeValue($message, 'authentication_results') ?? ''));
+        $encrypted = in_array($encryption, ['ssl', 'tls'], true)
+            || str_contains($received, 'tls')
+            || str_contains($received, 'using ssl');
+
+        $status = static function (string $haystack, string $key): ?string {
+            if (str_contains($haystack, $key.'=pass')) {
+                return 'pass';
+            }
+            if (str_contains($haystack, $key.'=fail') || str_contains($haystack, $key.'=neutral')) {
+                return 'fail';
+            }
+
+            return null;
+        };
+
+        return [
+            'protocol' => $encrypted ? 'TLS' : 'بدون رمزنگاری',
+            'encrypted' => $encrypted,
+            'spf' => $status($auth, 'spf'),
+            'dkim' => $status($auth, 'dkim'),
+            'dmarc' => $status($auth, 'dmarc'),
+        ];
     }
 
     protected function classifyFolder(string $path): string
@@ -540,8 +619,9 @@ class ImapMailboxService
             'sent' => 2,
             'drafts' => 3,
             'outbox' => 4,
-            'spam' => 5,
-            'trash' => 6,
+            'archive' => 5,
+            'spam' => 6,
+            'trash' => 7,
             default => 99,
         };
     }
@@ -557,38 +637,30 @@ class ImapMailboxService
 
     protected function resolveSentFolder(Client $client): ?Folder
     {
-        foreach (config('mail-inbox.folder_aliases.sent', []) as $alias) {
-            try {
-                return $client->getFolderByPath($alias);
-            } catch (\Throwable) {
-                continue;
-            }
-        }
-
-        foreach ($client->getFolders(false) as $folder) {
-            if ($this->classifyFolder($folder->path) === 'sent') {
-                return $folder;
-            }
-        }
-
-        return null;
+        return $this->findFolderByAliases($client, 'sent');
     }
 
     protected function resolveTrashFolderPath(Client $client): ?string
     {
-        foreach (config('mail-inbox.folder_aliases.trash', []) as $alias) {
-            try {
-                $client->getFolderByPath($alias);
+        return $this->findFolderByAliases($client, 'trash')?->path;
+    }
 
-                return $alias;
+    protected function findFolderByAliases(Client $client, string $type): ?Folder
+    {
+        foreach (config("mail-inbox.folder_aliases.{$type}", []) as $alias) {
+            try {
+                $folder = $client->getFolderByPath($alias);
+                if ($folder) {
+                    return $folder;
+                }
             } catch (\Throwable) {
                 continue;
             }
         }
 
         foreach ($client->getFolders(false) as $folder) {
-            if ($this->classifyFolder($folder->path) === 'trash') {
-                return $folder->path;
+            if ($this->classifyFolder($folder->path) === $type) {
+                return $folder;
             }
         }
 

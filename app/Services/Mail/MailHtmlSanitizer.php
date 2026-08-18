@@ -18,6 +18,24 @@ class MailHtmlSanitizer
         return $html;
     }
 
+    public function wrapOutgoing(?string $html): ?string
+    {
+        $html = $this->sanitize($html);
+        if (! $html) {
+            return null;
+        }
+
+        if (preg_match('/<(?:html|body)\b/i', $html)) {
+            return $html;
+        }
+
+        if (! preg_match('/\bdir\s*=/i', $html) && ! preg_match('/text-align\s*:/i', $html)) {
+            return '<div dir="rtl" style="text-align:right">'.$html.'</div>';
+        }
+
+        return $html;
+    }
+
     public function toPlainText(?string $html): string
     {
         if (! $html) {

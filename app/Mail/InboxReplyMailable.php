@@ -31,6 +31,9 @@ class InboxReplyMailable extends Mailable
     {
         return new Envelope(
             from: new Address($this->fromAddress ?? config('mail.from.address'), $this->fromName ?? config('mail.from.name')),
+            replyTo: [
+                new Address($this->fromAddress ?? config('mail.from.address'), $this->fromName ?? config('mail.from.name')),
+            ],
             subject: $this->subjectLine,
         );
     }

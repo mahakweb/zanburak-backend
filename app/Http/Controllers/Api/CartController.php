@@ -4,23 +4,27 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\CartService;
+use App\Services\Course\CourseAvailabilityService;
+use App\Services\PriceCalculator;
 use Illuminate\Http\Request;
 use App\Models\Cart;
 use App\Models\Course;
-use App\Models\Discount;
 use App\Models\Path;
 use App\Models\Plan;
-use App\Services\DiscountService;
 
 class CartController extends Controller
 {
-    public $discountPercentForPath = 40;
-    protected $cartService;
     protected $typeMap = [
         'course' => Course::class,
         'path' => Path::class,
         'vip' => Plan::class,
     ];
+
+    public function __construct(
+        protected CartService $cartService,
+        protected PriceCalculator $priceCalculator
+    ) {
+    }
 
     protected function resolveCartableType(string $type): string
     {
@@ -31,52 +35,12 @@ class CartController extends Controller
         return $this->typeMap[$type];
     }
 
-
-    public function __construct(CartService $cartService)
-    {
-        $this->cartService = $cartService;
-    }
-
-
-
-
     public function index(Request $request)
     {
         $user = auth('api')->user();
-        
-        // پاک کردن کدهای تخفیف موجود و بازگردانی قیمت اصلی
-        $carts = $user->carts()->with('cartable')->get();
-        
-        // Remove invalid cart items (where cartable no longer exists)
-        $invalidCarts = $carts->filter(function ($cart) {
-            return is_null($cart->cartable);
-        });
-
-        if ($invalidCarts->isNotEmpty()) {
-            $invalidCarts->each(function ($cart) {
-                $cart->delete();
-            });
-            
-            // Refresh carts after removing invalid ones
-            $carts = $user->carts()->with('cartable')->get();
-        }
-        
-        foreach ($carts as $cart) {
-            $originalPrice = $this->cartService->calculateOriginalPrice($cart);
-            $cart->update([
-                'discount_id' => null,
-                'discount_amount' => 0,
-                'price' => $originalPrice
-            ]);
-        }
-        
         $cartResponse = $this->cartService->getCartItemsResponse($user);
-        return response()->json([
-            'message' => 'Success',
-            'cartItems' => $cartResponse['items'],
-            'total_price' => $cartResponse['total_price'],
-            'total_discount' => $cartResponse['total_discount'],
-        ], 200);
+
+        return response()->json($this->formatCartResponse($cartResponse, 'Success'), 200);
     }
 
     public function add(Request $request)
@@ -136,41 +100,32 @@ class CartController extends Controller
                     return response()->json(['error' => 'دوره وجود ندارد یا غیرفعال است.'], 422);
                 }
 
-                if (!app(\App\Services\Course\CourseAvailabilityService::class)->isPurchasable($item)) {
+                if (!app(CourseAvailabilityService::class)->isPurchasable($item)) {
                     return response()->json(['error' => 'این دوره آرشیو شده است و امکان خرید وجود ندارد.'], 422);
                 }
 
+                $pricing = $this->priceCalculator->forCourse($item);
                 $user->carts()->create([
                     'cartable_type' => get_class($item),
                     'cartable_id' => $item->id,
-                    'price' => $item->price,
+                    'price' => $pricing['final_price'],
+                    'discount_amount' => $pricing['total_discount'],
                 ]);
                 break;
 
             case 'path':
-                $total = $item->courses()
-                    ->where('courses.publish', true)
-                    ->notArchived()
-                    ->where('courses.price', '>', 0)
-                    ->where('courses.type', '!=', 'free')
-                    ->whereNotIn('courses.id', $user->courses->pluck('id')->toArray())
-                    ->whereNotIn('courses.id', $user->carts->where('cartable_type', $this->resolveCartableType('course'))->pluck('cartable_id')->toArray())
-                    ->sum('courses.price');
+                $total = $this->priceCalculator->pathOriginalPrice($item, $user);
 
                 if ($total <= 0) {
                     return response()->json(['error' => 'این مسیر شامل دوره‌های غیرقابل خرید است، یا قبلا به سبد اضافه شده‌اند.'], 422);
                 }
 
-
-
-
-                $finalPrice = $total - ($total * $this->discountPercentForPath / 100);
-
+                $internal = $this->priceCalculator->pathInternalDiscount($total);
                 $user->carts()->create([
                     'cartable_type' => get_class($item),
                     'cartable_id' => $item->id,
-                    'price' => $finalPrice,
-                    'discount_amount' => $total - $finalPrice,
+                    'price' => max(0, $total - $internal),
+                    'discount_amount' => $internal,
                 ]);
                 break;
 
@@ -179,14 +134,8 @@ class CartController extends Controller
         }
 
         $cartResponse = $this->cartService->getCartItemsResponse($user);
-        return response()->json([
-            'message' => 'با موفقیت به سبد اضافه شد.',
-            'cartItems' => $cartResponse['items'],
-            'total_price' => $cartResponse['total_price'],
-            'total_discount' => $cartResponse['total_discount'],
-        ], 200);
+        return response()->json($this->formatCartResponse($cartResponse, 'با موفقیت به سبد اضافه شد.'), 200);
     }
-
 
     public function remove(Request $request, $id)
     {
@@ -197,16 +146,8 @@ class CartController extends Controller
             $cart->delete();
         }
 
-        // Clean up any invalid cart items before returning response
-        $this->cleanInvalidCartItems($user);
-
         $cartResponse = $this->cartService->getCartItemsResponse($user);
-        return response()->json([
-            'message' => 'آیتم با موفقیت از سبد حذف شد.',
-            'cartItems' => $cartResponse['items'],
-            'total_price' => $cartResponse['total_price'],
-            'total_discount' => $cartResponse['total_discount'],
-        ], 200);
+        return response()->json($this->formatCartResponse($cartResponse, 'آیتم با موفقیت از سبد حذف شد.'), 200);
     }
 
     public function clear(Request $request)
@@ -219,24 +160,29 @@ class CartController extends Controller
             'cartItems' => [],
             'total_price' => 0,
             'total_discount' => 0,
+            'final_price' => 0,
+            'discount_code' => null,
         ], 200);
     }
 
-    /**
-     * Clean up invalid cart items (where cartable no longer exists)
-     */
-    private function cleanInvalidCartItems($user)
+    public function callback()
     {
-        $carts = $user->carts()->with('cartable')->get();
-        
-        $invalidCarts = $carts->filter(function ($cart) {
-            return is_null($cart->cartable);
-        });
+        return redirect(frontendUrl('cart'));
+    }
 
-        if ($invalidCarts->isNotEmpty()) {
-            $invalidCarts->each(function ($cart) {
-                $cart->delete();
-            });
-        }
+    protected function formatCartResponse(array $cartResponse, string $message): array
+    {
+        return [
+            'message' => $message,
+            'cartItems' => $cartResponse['items'],
+            'total_price' => $cartResponse['total_price'],
+            'total_original' => $cartResponse['total_original'] ?? $cartResponse['total_price'],
+            'total_course_discount' => $cartResponse['total_course_discount'] ?? 0,
+            'total_coupon_discount' => $cartResponse['total_coupon_discount'] ?? 0,
+            'total_discount' => $cartResponse['total_discount'],
+            'final_price' => $cartResponse['final_price'] ?? max(0, $cartResponse['total_price'] - $cartResponse['total_discount']),
+            'discount_code' => $cartResponse['discount_code'] ?? null,
+            'applied_coupon' => $cartResponse['applied_coupon'] ?? null,
+        ];
     }
 }

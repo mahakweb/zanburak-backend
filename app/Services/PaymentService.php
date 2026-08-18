@@ -27,12 +27,33 @@ class PaymentService
         'vip'    => Plan::class,
     ];
 
+    public function __construct(
+        protected PriceCalculator $priceCalculator,
+        protected DiscountService $discountService
+    ) {
+        $this->discountPercentForPath = $this->priceCalculator->discountPercentForPath;
+    }
+
     public function createFromCart($user, array $options = []): Payment
     {
-        return DB::transaction(function () use ($user, $options) {
-            $carts = $user->carts()->with('cartable')->get();
+        $coupon = $this->discountService->currentCartCoupon($user);
+        if ($coupon) {
+            try {
+                $this->discountService->validateForCart($coupon, $user);
+            } catch (\App\Exceptions\DiscountException $e) {
+                $this->discountService->persistWithoutCoupon($user);
+                throw $e;
+            }
+        }
+
+        return DB::transaction(function () use ($user, $options, $coupon) {
+            $carts = $user->carts()->with('cartable')->lockForUpdate()->get();
             if ($carts->isEmpty()) {
                 throw new \RuntimeException('سبد خرید خالی است.');
+            }
+
+            if ($coupon) {
+                $this->discountService->assertUsageLimits($coupon, $user, true);
             }
 
             $payment = Payment::create(array_merge([
@@ -49,47 +70,22 @@ class PaymentService
             $total = 0;
             $totalBase = 0;
             $totalFee = 0;
-            $totalCouponDiscount = 0;
-            $appliedCode = $options['discount_code'] ?? null;
+            $totalDiscount = 0;
             $commissionPercent = GatewayCommission::resolvePercent($options);
 
             foreach ($carts as $cart) {
                 $item = $cart->cartable;
-                $baseOriginalPrice = 0;
-                $internalDiscountAmount = 0; // e.g., path bundle discount
-                $couponDiscountAmount = $cart->discount_id ? (int) ($cart->discount_amount ?? 0) : 0;
-                $itemDiscountCode = $cart->discount_id ? ($cart->discount->code ?? null) : null;
-                if (!$appliedCode && $itemDiscountCode) {
-                    $appliedCode = $itemDiscountCode;
+                if (!$item) {
+                    continue;
                 }
 
-                if ($cart->cartable_type === Path::class) {
-                    $path = $cart->cartable;
-                    $courseIdsInCart = $user->carts->where('cartable_type', Course::class)->pluck('cartable_id')->toArray();
-                    $userCourseIds = $user->courses->pluck('id')->toArray();
-
-                    $availableCourses = $path->courses->where('publish', true)->filter(function ($course) use ($userCourseIds, $courseIdsInCart) {
-                        return $course->type !== 'free' && !in_array($course->id, $userCourseIds) && !in_array($course->id, $courseIdsInCart);
-                    });
-
-                    $sum = (int) $availableCourses->sum('price');
-                    $baseOriginalPrice = $sum; // original sum of courses
-                    $finalPriceAfterInternal = (int) round($sum - ($sum * $this->discountPercentForPath / 100));
-                    $internalDiscountAmount = $sum - $finalPriceAfterInternal;
-
-                    // apply coupon on top of internal discount
-                    $couponDiscountAmount = min($couponDiscountAmount, $finalPriceAfterInternal);
-                    $finalPrice = max(0, $finalPriceAfterInternal - $couponDiscountAmount);
-                } else {
-                    // course or vip
-                    $baseOriginalPrice = (int) $item->price;
-                    $couponDiscountAmount = min($couponDiscountAmount, $baseOriginalPrice);
-                    $finalPrice = max(0, $baseOriginalPrice - $couponDiscountAmount);
-                }
-
+                $eligibleCoupon = ($coupon && $this->discountService->isCartItemEligible($coupon, $cart, $user))
+                    ? $coupon
+                    : null;
+                $pricing = $this->priceCalculator->forCartItem($cart, $eligibleCoupon, $user);
 
                 $feeBreakdown = GatewayCommission::applyToAmount(
-                    $finalPrice,
+                    $pricing['final_price'],
                     GatewayCommission::percentForPayable($commissionPercent, $item, $options)
                 );
 
@@ -97,28 +93,28 @@ class PaymentService
                     'payment_id'          => $payment->id,
                     'payable_type'        => $cart->cartable_type,
                     'payable_id'          => $cart->cartable_id,
-                    'price'               => $baseOriginalPrice,
-                    'discount_amount'     => $internalDiscountAmount + $couponDiscountAmount,
-                    'discount_code'       => $itemDiscountCode,
-                    'final_price'         => $finalPrice,
+                    'price'               => $pricing['original_price'],
+                    'discount_amount'     => $pricing['total_discount'],
+                    'discount_code'       => $eligibleCoupon?->code,
+                    'final_price'         => $pricing['final_price'],
                     'gateway_fee_amount'  => $feeBreakdown['fee_amount'],
                     'charged_price'       => $feeBreakdown['charged_amount'],
                 ]);
 
                 $total += $feeBreakdown['charged_amount'];
-                $totalBase += $finalPrice;
+                $totalBase += $pricing['final_price'];
                 $totalFee += $feeBreakdown['fee_amount'];
-                $totalCouponDiscount += $couponDiscountAmount;
+                $totalDiscount += $pricing['total_discount'];
             }
 
-        $payment->update([
-            'amount'              => $total,
-            'base_amount'         => $totalBase,
-            'gateway_fee_amount'  => $totalFee,
-            'gateway_fee_percent' => $commissionPercent,
-            'discount_amount'     => $totalCouponDiscount,
-            'discount_code'       => $appliedCode,
-        ] + PaymentGatewayMetadata::applyToPaymentArray($options));
+            $payment->update([
+                'amount'              => $total,
+                'base_amount'         => $totalBase,
+                'gateway_fee_amount'  => $totalFee,
+                'gateway_fee_percent' => $commissionPercent,
+                'discount_amount'     => $totalDiscount,
+                'discount_code'       => $coupon?->code,
+            ] + PaymentGatewayMetadata::applyToPaymentArray($options));
 
             return $payment;
         });
@@ -468,11 +464,15 @@ class PaymentService
         foreach ($codes as $code) {
             $discount = Discount::where('code', $code)->first();
             if ($discount) {
-                $discount->usages()->create([
-                    'user_id' => $payment->user_id,
-                    'payment_id' => $payment->id,
-                    'used_at' => now(),
-                ]);
+                try {
+                    $this->discountService->recordUsage($discount, $user, $payment);
+                } catch (\App\Exceptions\DiscountException $e) {
+                    Log::warning('Discount usage could not be recorded', [
+                        'payment_id' => $payment->id,
+                        'code' => $code,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             }
         }
     }

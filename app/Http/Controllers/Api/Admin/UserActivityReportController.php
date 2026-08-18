@@ -265,7 +265,7 @@ class UserActivityReportController extends Controller
             $videoViews = $totalWatchTime->get();
             $watchTimeSeconds = 0;
             foreach ($videoViews as $view) {
-                $watchedTimes = json_decode($view->watched_times, true) ?? [];
+                $watchedTimes = \App\Models\VideoView::normalizeWatchedTimes($view->watched_times);
                 $watchTimeSeconds += count($watchedTimes);
             }
 
@@ -671,7 +671,7 @@ class UserActivityReportController extends Controller
                 $videoViews = VideoView::where('user_id', $view->user_id)->get();
                 $watchTimeSeconds = 0;
                 foreach ($videoViews as $v) {
-                    $watchedTimes = json_decode($v->watched_times, true) ?? [];
+                    $watchedTimes = \App\Models\VideoView::normalizeWatchedTimes($v->watched_times);
                     $watchTimeSeconds += count($watchedTimes);
                 }
                 return [
@@ -1030,7 +1030,7 @@ class UserActivityReportController extends Controller
         $seconds = 0;
         $views = VideoView::whereDate('updated_at', '>=', $dateFrom)->whereDate('updated_at', '<=', $dateTo)->get(['watched_times']);
         foreach ($views as $view) {
-            $seconds += count(json_decode($view->watched_times, true) ?? []);
+            $seconds += count(\App\Models\VideoView::normalizeWatchedTimes($view->watched_times));
         }
 
         return $seconds;

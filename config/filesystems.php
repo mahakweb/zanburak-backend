@@ -48,20 +48,33 @@ return [
 
         'static' => [
             'driver' => 'ftp',
-            'host' => env('STATIC_FTP_HOST', '78.157.38.113'),
-            'username' => env('STATIC_FTP_USERNAME', 'staticza'),
-            'password' => env('STATIC_FTP_PASSWORD', 'Milad@4970'),
+            'host' => env('STATIC_FTP_HOST'),
+            'username' => env('STATIC_FTP_USERNAME'),
+            'password' => env('STATIC_FTP_PASSWORD'),
             'url' => env('STATIC_URL', 'https://static.zanburak.ir'),
             'root' => env('STATIC_FTP_ROOT', '/public_html'),
             'passive' => true,
         ],
 
+        /*
+         * Course videos (raw + HLS + downloads). Shared local folder so worker
+         * and backend both read/write without the 100MB static FTP quota.
+         */
+        'media' => [
+            'driver' => 'local',
+            'root' => env('MEDIA_ROOT', 'D:/zanburak-media'),
+            'throw' => true,
+        ],
+
         'dl' => [
             'driver' => 'ftp',
-            'host' => env('DL_FTP_HOST', '185.252.28.150'),
-            'username' => env('DL_FTP_USERNAME', 'dlmahakw'),
-            'password' => env('DL_FTP_PASSWORD', 'o6N8M(]Q7hTzm8'),
+            'host' => env('DL_FTP_HOST'),
+            'username' => env('DL_FTP_USERNAME'),
+            'password' => env('DL_FTP_PASSWORD'),
+            'url' => env('DL_URL', 'https://dl.zanburak.ir'),
             'root' => env('DL_FTP_ROOT', '/public_html'),
+            'passive' => true,
+            'timeout' => (int) env('DL_FTP_TIMEOUT', 600),
         ],
 
         'secrets' => [

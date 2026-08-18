@@ -8,6 +8,7 @@ use App\Models\Course;
 use App\Models\Question;
 use App\Models\Tag;
 use App\Models\User;
+use App\Services\PriceCalculator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -199,7 +200,7 @@ class TagController extends Controller
     ) {
         $query = $tag->courses()
             ->select('courses.*')
-            ->with(['teacher:id,first_name,last_name,username,profile_pic', 'status:id,title,english_title,slug'])
+            ->with(['teacher:id,first_name,last_name,username,profile_pic', 'status:id,title,english_title,slug', 'category'])
             ->withCount(['views as views_count', 'subscribers as subscribers_count', 'likes as likes_count']);
 
         if ($search !== '') {
@@ -217,12 +218,13 @@ class TagController extends Controller
         $lastPage = max(1, (int) ceil($total / $perPage));
         $courses = $query->skip(($page - 1) * $perPage)->take($perPage)->get();
 
-        $items = $courses->map(function (Course $course) use ($user) {
+        $calculator = app(PriceCalculator::class);
+        $items = $courses->map(function (Course $course) use ($user, $calculator) {
             $teacher = $course->teacher
                 ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
                 : null;
 
-            return [
+            return $calculator->decorateCourseArray([
                 'id' => $course->id,
                 'title' => $course->title,
                 'english_title' => $course->english_title,
@@ -236,7 +238,7 @@ class TagController extends Controller
                 'likes_count' => $course->likes_count ?? 0,
                 'user_has_liked' => $user ? $user->hasLiked($course) : false,
                 'teacher' => $teacher,
-            ];
+            ], $course);
         });
 
         return response()->json([

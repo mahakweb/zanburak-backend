@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin\Course;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\AuthorizesAdminCourses;
+use App\Models\Attach;
 use App\Models\Course;
 use App\Models\Section;
 use App\Models\Episode;
@@ -100,13 +101,8 @@ class EpisodeController extends Controller
 
         // Get episode attachment data
         $rowAttach = $episode->attachs->first();
-        $attach = null;
-        if ($rowAttach) {
-            $attach = [
-                'url' => $rowAttach->url,
-                'size' => $this->urlDetails($rowAttach->url)['size']
-            ];
-        }
+        $attach = $rowAttach ? $this->mapAttachRecord($rowAttach) : null;
+        $attachs = $episode->attachs->map(fn ($row) => $this->mapAttachRecord($row))->values();
 
         return response()->json([
             'message' => 'Success',
@@ -125,7 +121,9 @@ class EpisodeController extends Controller
                 'video' => $videoUrl,
                 'video_status' => $videoStatus,
                 'video_id' => $videoId,
+                'video_progress' => $rawVideo?->progress,
                 'attach' => $attach,
+                'attachs' => $attachs,
             ],
             'course' => [
                 'id' => $course->id,
@@ -329,6 +327,7 @@ class EpisodeController extends Controller
             'filename' => ['required', 'string'],
             'mime' => ['required', 'string'],
             'size' => ['required', 'integer', 'min:1'],
+            'title' => ['nullable', 'string', 'max:255'],
         ]);
         if (!$validator->passes()) {
             return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
@@ -357,9 +356,12 @@ class EpisodeController extends Controller
                 'path' => $filePath,
                 'mime' => $validData['mime'],
                 'size' => (int) $validData['size'],
+                'filename' => $validData['filename'],
+                'title' => $this->attachmentTitle($validData),
                 'courseId' => $course->id,
                 'episodeId' => $episode->id,
                 'userId' => optional($user)->id,
+                'replace' => false,
             ];
 
             $tokenData = UploadTokenService::generate($claims);
@@ -375,16 +377,25 @@ class EpisodeController extends Controller
         }
     }
 
-    public function removeAttachedFile($episode)
+    public function removeAttachedFile($episode, $attachId = null)
     {
-        $attach = $episode->attachs->first();
-        if ($attach) {
+        $query = $episode->attachs();
+        if ($attachId) {
+            $query->where('id', $attachId);
+        }
+        $attaches = $query->get();
+
+        foreach ($attaches as $attach) {
             $details = $this->urlDetails($attach->url);
             if ($details && Storage::disk($details['disk'])->exists($details['path'])) {
                 Storage::disk($details['disk'])->delete($details['path']);
-                $episode->attachs()->delete();
+            } else {
+                $attach->deleteMediaFiles();
             }
+            $attach->delete();
         }
+
+        return $attaches->count();
     }
 
     public function removeVideo($episode)
@@ -414,15 +425,24 @@ class EpisodeController extends Controller
         }
     }
 
-    public function removeFile(Request $request)
+    public function removeFile(Request $request, Course $course)
     {
+        $this->authorizeCourse($course, 'view');
+
         $episodeId = $request->input('episode_id');
         $fileType = $request->input('file_type');
+        $attachId = $request->input('attach_id');
 
         $episode = Episode::find($episodeId);
         if (!$episode) {
             return response()->json(['message' => "Error! episode not found."], 404);
         }
+        if ($episode->section->course_id != $course->id) {
+            return response()->json(['message' => 'error! this episode not belong to selected course'], 422);
+        }
+
+        $this->contentScope()->authorizeAction('episodes', 'edit', $episode);
+
         $response = null;
         switch ($fileType) {
             case 'video':
@@ -430,7 +450,10 @@ class EpisodeController extends Controller
                 $response = ['message' => "Success, video of the episode has been deleted successfully."];
                 break;
             case 'attached_file':
-                $this->removeAttachedFile($episode);
+                $deleted = $this->removeAttachedFile($episode, $attachId);
+                if ($attachId && $deleted === 0) {
+                    return response()->json(['message' => 'Attached file not found.'], 404);
+                }
                 $response = ['message' => "Success, attached file of the episode has been deleted successfully."];
                 break;
             default:
@@ -812,26 +835,37 @@ class EpisodeController extends Controller
                 $videos = $videosQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
 
                 $response['videos'] = $videos->map(function ($video) {
-                    $diskUrl = config("filesystems.disks.{$video->disk}.url");
-                    $videoUrl = null;
-                    if ($diskUrl) {
-                        $videoUrl = rtrim($diskUrl, '/') . '/' . ltrim($video->path, '/');
-                    } else {
-                        $videoUrl = $video->path;
+                    $fileSize = null;
+                    try {
+                        if ($video->path && Storage::disk($video->disk)->exists($video->path)) {
+                            $fileSize = Storage::disk($video->disk)->size($video->path);
+                        }
+                    } catch (\Throwable $e) {
+                        $fileSize = null;
                     }
 
-                    $fileSize = null;
-                    if (Storage::disk($video->disk)->exists($video->path)) {
-                        $fileSize = Storage::disk($video->disk)->size($video->path);
+                    $viewUrl = null;
+                    try {
+                        if ($video->path && $video->disk) {
+                            $viewUrl = \Illuminate\Support\Facades\URL::temporarySignedRoute(
+                                'api.admin.video.view',
+                                now()->addHours(6),
+                                ['video' => $video->id]
+                            );
+                        }
+                    } catch (\Throwable $e) {
+                        $viewUrl = null;
                     }
 
                     return [
                         'id' => $video->id,
                         'type' => $video->type,
                         'status' => $video->status,
+                        'progress' => $video->progress,
+                        'error_message' => $video->error_message,
                         'path' => $video->path,
                         'disk' => $video->disk,
-                        'url' => $videoUrl,
+                        'url' => $viewUrl,
                         'duration' => $video->duration,
                         'quality' => $video->quality,
                         'size' => $fileSize,
@@ -954,7 +988,7 @@ class EpisodeController extends Controller
                     return [
                         'id' => $attach->id,
                         'url' => $attach->url,
-                        'title' => $attach->title ?? null,
+                        'title' => $attach->displayTitle(),
                         'size' => $details ? ($details['size'] ?? null) : null,
                         'ext' => $details ? ($details['ext'] ?? null) : null,
                         'created_at' => $attach->created_at,
@@ -1023,6 +1057,53 @@ class EpisodeController extends Controller
                 'lock' => $episode->lock,
             ]
         ], 200);
+    }
+
+    public function updateAttachedFile(Request $request, Course $course)
+    {
+        $this->authorizeCourse($course, 'view');
+        $validator = Validator::make($request->all(), [
+            'episode_id' => ['required', 'exists:episodes,id'],
+            'attach_id' => ['required', 'exists:attaches,id'],
+            'title' => ['required', 'string', 'max:255'],
+        ]);
+        if (!$validator->passes()) {
+            return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
+        }
+        $episode = Episode::findOrFail($request->input('episode_id'));
+        if ($episode->section->course_id != $course->id) {
+            return response()->json(['message' => 'error! this episode not belong to selected course'], 422);
+        }
+        $this->contentScope()->authorizeAction('episodes', 'edit', $episode);
+        $attach = $episode->attachs()->where('id', $request->input('attach_id'))->first();
+        if (!$attach) {
+            return response()->json(['message' => 'Attached file not found.'], 404);
+        }
+        $attach->title = $this->attachmentTitle(['title' => $request->input('title'), 'filename' => $attach->title]);
+        $attach->save();
+        return response()->json(['message' => 'Success', 'attach' => $this->mapAttachRecord($attach)], 200);
+    }
+
+    protected function attachmentTitle(array $data): string
+    {
+        $title = trim((string) ($data['title'] ?? ''));
+        if ($title !== '' && !Attach::isUuidLikeName($title)) {
+            return Attach::prettyTitle($title, $title);
+        }
+
+        return Attach::prettyTitle($data['filename'] ?? '');
+    }
+
+    protected function mapAttachRecord($attach): array
+    {
+        $details = $this->urlDetails($attach->url) ?: [];
+        return [
+            'id' => $attach->id,
+            'url' => $attach->url,
+            'title' => $attach->displayTitle(),
+            'size' => $details['size'] ?? null,
+            'ext' => $details['ext'] ?? null,
+        ];
     }
 
     private function urlDetails($url)

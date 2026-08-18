@@ -39,4 +39,7 @@ Route::get('/seo/question/{questionSlug}/schema.json', [\App\Http\Controllers\Ap
 Route::get('/seo/meta-tags', [\App\Http\Controllers\Api\Seo\SeoController::class, 'metaTags'])->name('api.seo.meta-tags');
 Route::get('/seo/health-check', [\App\Http\Controllers\Api\Seo\SeoController::class, 'seoHealthCheck'])->name('api.seo.health-check');
 
+Route::get('/promotions/active', [\App\Http\Controllers\Api\PromotionController::class, 'active'])->name('api.promotions.active');
+Route::get('/promotions/{code}', [\App\Http\Controllers\Api\PromotionController::class, 'show'])->name('api.promotions.show');
+
 

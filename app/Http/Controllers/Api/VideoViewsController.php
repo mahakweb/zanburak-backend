@@ -41,7 +41,10 @@ class VideoViewsController extends Controller
     {
         $user = auth('api')->user();
         $incomingTimes = json_decode($request->tempWatchedTimes, true) ?? [];
-        $lastPosition = (float) $request->lastPosition;
+        if (!is_array($incomingTimes)) {
+            $incomingTimes = [];
+        }
+        $lastPosition = (int) floor((float) $request->lastPosition);
         $fullWatched = filter_var($request->fullWatched, FILTER_VALIDATE_BOOLEAN);
 
         if ($video->videoable_type === Episode::class || $video->videoable_type === 'App\Models\Episode') {
@@ -70,8 +73,8 @@ class VideoViewsController extends Controller
         $videoView = VideoView::findActiveSession($user->id, $video->id);
 
         if ($videoView) {
-            $sessionTimes = self::uniqueSecondIndices(array_merge(
-                self::normalizeWatchedTimes($videoView->watched_times),
+            $sessionTimes = VideoView::uniqueSecondIndices(array_merge(
+                VideoView::normalizeWatchedTimes($videoView->watched_times),
                 $incomingTimes
             ));
 
@@ -84,7 +87,7 @@ class VideoViewsController extends Controller
             VideoView::create([
                 'user_id' => $user->id,
                 'video_id' => $video->id,
-                'watched_times' => self::uniqueSecondIndices($incomingTimes),
+                'watched_times' => VideoView::uniqueSecondIndices($incomingTimes),
                 'last_position' => $lastPosition,
                 'watched' => $fullWatched,
             ]);

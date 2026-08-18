@@ -29,7 +29,7 @@ class PaymentController extends Controller
 			'payment_method' => ['nullable', 'in:wallet,bank,wallet_bank'],
             'wallet_split_confirmed' => ['nullable', 'boolean'],
             'discount_code'  => ['nullable', 'string'],
-            'discount_amount' => ['nullable', 'integer'],
+            'discount_amount' => ['nullable', 'integer'], // ignored; backend recalculates
             'digipay_preferred_gateway' => ['nullable', 'integer'],
             'digipay_mode' => ['nullable', 'string', 'in:credit,facilities'],
             'digipay_unified' => ['nullable', 'boolean'],
@@ -41,6 +41,7 @@ class PaymentController extends Controller
                 $this->service->assertCartSupportsInstallment($user);
             }
 
+            unset($data['discount_amount'], $data['discount_code']);
             $payment = $this->service->createFromCart($user, $data);
 
 			// Handle wallet method if requested and amount > 0

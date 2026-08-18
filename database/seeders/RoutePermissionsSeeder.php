@@ -425,6 +425,7 @@ class RoutePermissionsSeeder extends Seeder
         ], array_merge($episodesEdit, $episodesManage));
         $assign('api.admin.video.upload', $videosUpload);
         $assign('api.admin.video.process', $videosProcess);
+        $assign('api.admin.video.status', array_merge($videosUpload, $videosProcess));
 
         // Discounts
         $assign('api.admin.discounts.index', ['discounts.view']);

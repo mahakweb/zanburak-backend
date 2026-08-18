@@ -48,7 +48,7 @@ class EpisodeController extends Controller
                 'created_at',
                 'updated_at',
             ]);
-            $episodePayload['attachs'] = $episode->attachs;
+            $episodePayload['attachs'] = [];
 
             return response()->json([
                 'error' => $playBlock['error'],
@@ -121,65 +121,62 @@ class EpisodeController extends Controller
         $episode->video_status = $videoStatus;
         $episode->video_id = $videoId;
         $episode->is_video_processed = $isVideoProcessed;
+        $episode->video_progress = $rawVideo?->progress;
+        // Safe user-facing failure hint only (no internal paths/stack traces)
+        $episode->video_error = ($videoStatus === 'failed')
+            ? 'پردازش ویدیو ناموفق بود. لطفاً بعداً دوباره تلاش کنید یا با پشتیبانی تماس بگیرید.'
+            : null;
         // Expose only the stream video id for frontend tracking without leaking full videos relation
         $episode->stream_video_id = $streamVideo?->id;
 
-        // Map attachments to minimal payload: title, size (bytes), url
-        if ($episode->relationLoaded('attachs') && $episode->attachs) {
-            $mappedAttachs = $episode->attachs->map(function ($att) {
-                try {
-                    $url = (string) ($att->url ?? '');
-                    $title = $att->title ?? (basename(parse_url($url, PHP_URL_PATH) ?? '') ?: null);
-                    $size = null;
-                    if (!empty($url)) {
-                        try {
-                            $head = Http::withHeaders(['Accept' => '*/*'])->head($url);
-                            $len = $head->header('Content-Length');
-                            if (is_numeric($len)) {
-                                $size = (int) $len;
-                            }
-                        } catch (\Throwable $e) { /* ignore */ }
-                    }
-                    return [
-                        'title' => $title,
-                        'size' => $size,
-                        'url' => $url ?: null,
-                    ];
-                } catch (\Throwable $e) {
-                    return [
-                        'title' => $att->title ?? null,
-                        'size' => null,
-                        'url' => (string) ($att->url ?? ''),
-                    ];
-                }
-            })->values();
+        $canSeeEpisodeContent = (bool) $user && ((int) $episode->lock === 0 || $userCanSeeCourse);
 
-            $episode->setRelation('attachs', $mappedAttachs);
+        // Map attachments only for users who can watch this episode
+        if ($episode->relationLoaded('attachs') && $episode->attachs) {
+            if (!$canSeeEpisodeContent) {
+                $episode->setRelation('attachs', collect());
+            } else {
+                $mappedAttachs = $episode->attachs->map(function ($att) {
+                    try {
+                        $url = (string) ($att->url ?? '');
+                        $size = null;
+                        if (!empty($url)) {
+                            try {
+                                $head = Http::withHeaders(['Accept' => '*/*'])->head($url);
+                                $len = $head->header('Content-Length');
+                                if (is_numeric($len)) {
+                                    $size = (int) $len;
+                                }
+                            } catch (\Throwable $e) { /* ignore */ }
+                        }
+                        return [
+                            'id' => $att->id,
+                            'title' => $att->displayTitle(),
+                            'size' => $size,
+                            'ext' => $att->fileExtension(),
+                            'url' => $url ?: null,
+                        ];
+                    } catch (\Throwable $e) {
+                        return [
+                            'id' => $att->id ?? null,
+                            'title' => $att->displayTitle(),
+                            'size' => null,
+                            'ext' => $att->fileExtension(),
+                            'url' => null,
+                        ];
+                    }
+                })->values();
+
+                $episode->setRelation('attachs', $mappedAttachs);
+            }
         }
 
-        // Compute can_download according to business rules
+        // Compute can_download according to business rules (videos)
         $canDownload = false;
         if ($user) {
             $canDownload = $user->canDownloadCourse($course);
         } else {
-            // Login required for any download
             $canDownload = false;
-        }
-
-        // If user is not allowed to download, hide attachment URLs
-        if (!$canDownload && $episode->relationLoaded('attachs') && $episode->attachs) {
-            $episode->setRelation('attachs', $episode->attachs->map(function ($att) {
-                if (is_array($att)) {
-                    $att['url'] = null;
-                    return $att;
-                }
-                // Fallback if unexpected type
-                return [
-                    'title' => $att['title'] ?? null,
-                    'size' => $att['size'] ?? null,
-                    'url' => null,
-                ];
-            })->values());
         }
 
         if ($user) {
@@ -205,8 +202,8 @@ class EpisodeController extends Controller
                     $fullWatched = 0;
 
                     foreach ($videoViews as $view) {
-                        $watchedTimes = json_decode($view->watched_times, true);
-                        if ($watchedTimes) {
+                        $watchedTimes = VideoView::normalizeWatchedTimes($view->watched_times);
+                        if ($watchedTimes !== []) {
                             $allWatchedTimes = array_merge($allWatchedTimes, $watchedTimes);
                         }
                         $lastPosition = $view->last_position;

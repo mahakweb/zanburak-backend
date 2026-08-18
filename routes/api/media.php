@@ -9,6 +9,11 @@ Route::get('/hls/key', [\App\Http\Controllers\Api\VideoController::class, 'video
 Route::get('/hls/segment', [\App\Http\Controllers\Api\VideoController::class, 'videoM3u8'])->name('api.video-m3u8')->middleware(['signed', 'video.player']);
 Route::get('/hls/manifest', [\App\Http\Controllers\Api\VideoController::class, 'videoPlaylist'])->name('api.video-playlist')->middleware(['signed', 'video.player']);
 
+// Admin video open-in-new-tab (signed; Bearer header is not sent by <a target=_blank>)
+Route::get('admin/video/{video}/view', \App\Http\Controllers\Api\Admin\Course\VideoViewController::class)
+    ->middleware('signed')
+    ->name('api.admin.video.view');
+
 // Video views & downloads
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/video-views/{video}/getWatched', [\App\Http\Controllers\Api\VideoViewsController::class, 'getWatched'])->name('api.video-views.get-watched');

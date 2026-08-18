@@ -39,4 +39,27 @@ class MailAccount extends Model
     {
         return $this->credentials() !== null && ! empty(config('mail-inbox.imap.host'));
     }
+
+    public function displayFromName(): string
+    {
+        $configured = config("mail-inbox.accounts.{$this->key}.from_name");
+        if (is_string($configured) && trim($configured) !== '') {
+            return trim($configured);
+        }
+
+        $label = trim((string) $this->label);
+        $brand = 'زنبورک';
+
+        if ($label === '') {
+            $local = strtok((string) $this->address, '@');
+
+            return $local ?: $brand;
+        }
+
+        if (str_contains($label, $brand)) {
+            return $label;
+        }
+
+        return $label.' '.$brand;
+    }
 }

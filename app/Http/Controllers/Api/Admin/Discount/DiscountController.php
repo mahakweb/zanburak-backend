@@ -11,6 +11,7 @@ use App\Models\Course;
 use App\Models\Category;
 use App\Models\Path;
 use App\Models\Plan;
+use App\Services\PriceCalculator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -28,6 +29,7 @@ class DiscountController extends Controller
         $status = $request->get('status');
         $type = $request->get('type');
         $validity = $request->get('validity');
+        $scope = $request->get('scope');
         $sort = $request->get('sort', 'newest');
 
         $query = Discount::query()->with(['eligibilities', 'conditions'])->withCount('usages');
@@ -70,6 +72,23 @@ class DiscountController extends Controller
             }
         }
 
+        if ($scope && $scope !== 'all') {
+            if ($scope === 'public') {
+                $query->where('is_public', true);
+            } elseif ($scope === 'automatic') {
+                $query->where('apply_automatically', true);
+            } elseif ($scope === 'course-specific') {
+                $query->whereHas('eligibilities', function ($q) {
+                    $q->where('type', 'inclusion')
+                        ->where(function ($inner) {
+                            $inner->where('target_type', Course::class)
+                                ->orWhere('target_type', 'course')
+                                ->orWhere('target_type', 'App\\Models\\Course');
+                        });
+                });
+            }
+        }
+
         switch ($sort) {
             case 'oldest':
                 $query->orderBy('created_at', 'asc');
@@ -89,6 +108,13 @@ class DiscountController extends Controller
         }
 
         $discounts = $query->paginate($perPage);
+        $discounts->getCollection()->transform(function (Discount $discount) {
+            $discount->remaining_usage = $discount->remainingUsage();
+            $discount->is_expired = $discount->ends_at && $discount->ends_at->isPast();
+            $discount->is_upcoming = $discount->starts_at && $discount->starts_at->isFuture();
+
+            return $discount;
+        });
 
         return response()->json([
             'message' => 'Success',
@@ -110,10 +136,16 @@ class DiscountController extends Controller
     public function show($id)
     {
         $discount = Discount::with(['eligibilities', 'conditions'])->findOrFail($id);
+        $startsAt = $this->formatFormDatetime($discount->starts_at);
+        $endsAt = $this->formatFormDatetime($discount->ends_at);
+        $this->attachTargetLabels($discount);
+        $payload = $discount->toArray();
+        $payload['starts_at'] = $startsAt;
+        $payload['ends_at'] = $endsAt;
 
         return response()->json([
             'message' => 'Success',
-            'discount' => $discount
+            'discount' => $payload
         ], 200);
     }
 
@@ -122,7 +154,7 @@ class DiscountController extends Controller
      */
     public function store(Request $request)
     {
-        $validator = Validator::make($request->all(), [
+        $validator = Validator::make($request->all(), array_merge([
             'code' => 'required|string|max:50|unique:discounts,code',
             'title' => 'nullable|string|max:255',
             'type' => 'required|in:percent,fixed,free',
@@ -132,18 +164,19 @@ class DiscountController extends Controller
             'starts_at' => 'nullable|date',
             'ends_at' => 'nullable|date|after:starts_at',
             'is_active' => 'boolean',
+        ], $this->promotionValidationRules(), [
             'eligibilities' => 'array',
             'eligibilities.*.type' => 'required_with:eligibilities|in:inclusion,exclusion',
             'eligibilities.*.target_type' => 'required_with:eligibilities|in:user,course,path,vip,category',
-            'eligibilities.*.target_id' => 'nullable',
+            'eligibilities.*.target_id' => 'nullable|integer',
             'conditions' => 'array',
             'conditions.*.condition_type' => 'required_with:conditions|in:min_cart_total,max_cart_total,min_item_price,max_item_price,min_item_count,max_item_count,first_purchase,no_purchase_since,min_orders_count,max_orders_count,day_of_week,time_range,date_range,required_item,forbidden_item,required_category,forbidden_category,min_total_spent,max_total_spent,purchased_product_before,not_purchased_product_before,new_user',
             'conditions.*.operator' => 'nullable|in:=,!=,>,<,>=,<=',
             'conditions.*.value' => 'nullable|numeric',
             'conditions.*.item_type' => 'nullable|in:course,path,vip',
-            'conditions.*.target_id' => 'nullable',
+            'conditions.*.target_id' => 'nullable|integer',
             'conditions.*.extra' => 'array',
-        ]);
+        ]));
 
         // Custom validation for percentage type
         if ($request->type === 'percent') {
@@ -162,17 +195,7 @@ class DiscountController extends Controller
         DB::beginTransaction();
         try {
             // Create the discount
-            $discount = Discount::create([
-                'code' => strtoupper($request->code),
-                'title' => $request->title,
-                'type' => $request->type,
-                'value' => $request->value,
-                'usage_limit' => $request->usage_limit,
-                'per_user_limit' => $request->per_user_limit,
-                'starts_at' => $request->starts_at,
-                'ends_at' => $request->ends_at,
-                'is_active' => $request->get('is_active', true),
-            ]);
+            $discount = Discount::create($this->discountAttributes($request));
 
             // Create eligibilities
             if ($request->has('eligibilities')) {
@@ -182,7 +205,7 @@ class DiscountController extends Controller
                             'discount_id' => $discount->id,
                             'type' => $eligibility['type'], // inclusion | exclusion
                             'target_type' => $this->getTargetType($eligibility['target_type']),
-                            'target_id' => $eligibility['target_id'] ?? null,
+                            'target_id' => $this->nullableBigInt($eligibility['target_id'] ?? null),
                         ]);
                     }
                 }
@@ -198,7 +221,7 @@ class DiscountController extends Controller
                             'condition_type' => $condition['condition_type'],
                             'operator' => $condition['operator'] ?? null,
                             'value' => $condition['value'] ?? null,
-                            'target_id' => $condition['target_id'] ?? null,
+                            'target_id' => $this->nullableBigInt($condition['target_id'] ?? null),
                             'extra' => $condition['extra'] ?? [],
                         ]);
                     }
@@ -206,6 +229,7 @@ class DiscountController extends Controller
             }
 
             DB::commit();
+            app(PriceCalculator::class)->forgetPromotionCache();
 
             return response()->json([
                 'message' => 'Discount code created successfully',
@@ -227,7 +251,7 @@ class DiscountController extends Controller
     {
         $discount = Discount::findOrFail($id);
 
-        $validator = Validator::make($request->all(), [
+        $validator = Validator::make($request->all(), array_merge([
             'code' => ['required', 'string', 'max:50', Rule::unique('discounts')->ignore($discount->id)],
             'title' => 'nullable|string|max:255',
             'type' => 'required|in:percent,fixed,free',
@@ -237,18 +261,19 @@ class DiscountController extends Controller
             'starts_at' => 'nullable|date',
             'ends_at' => 'nullable|date|after:starts_at',
             'is_active' => 'boolean',
+        ], $this->promotionValidationRules(), [
             'eligibilities' => 'array',
             'eligibilities.*.type' => 'required_with:eligibilities|in:inclusion,exclusion',
             'eligibilities.*.target_type' => 'required_with:eligibilities|in:user,course,path,vip,category',
-            'eligibilities.*.target_id' => 'nullable',
+            'eligibilities.*.target_id' => 'nullable|integer',
             'conditions' => 'array',
             'conditions.*.condition_type' => 'required_with:conditions|in:min_cart_total,max_cart_total,min_item_price,max_item_price,min_item_count,max_item_count,first_purchase,no_purchase_since,min_orders_count,max_orders_count,day_of_week,time_range,date_range,required_item,forbidden_item,required_category,forbidden_category,min_total_spent,max_total_spent,purchased_product_before,not_purchased_product_before,new_user',
             'conditions.*.operator' => 'nullable|in:=,!=,>,<,>=,<=',
             'conditions.*.value' => 'nullable|numeric',
             'conditions.*.item_type' => 'nullable|in:course,path,vip',
-            'conditions.*.target_id' => 'nullable',
+            'conditions.*.target_id' => 'nullable|integer',
             'conditions.*.extra' => 'array',
-        ]);
+        ]));
 
         // Custom validation for percentage type
         if ($request->type === 'percent') {
@@ -267,17 +292,7 @@ class DiscountController extends Controller
         DB::beginTransaction();
         try {
             // Update the discount
-            $discount->update([
-                'code' => strtoupper($request->code),
-                'title' => $request->title,
-                'type' => $request->type,
-                'value' => $request->value,
-                'usage_limit' => $request->usage_limit,
-                'per_user_limit' => $request->per_user_limit,
-                'starts_at' => $request->starts_at,
-                'ends_at' => $request->ends_at,
-                'is_active' => $request->get('is_active', true),
-            ]);
+            $discount->update($this->discountAttributes($request));
 
             // Delete existing eligibilities and conditions
             $discount->eligibilities()->delete();
@@ -291,7 +306,7 @@ class DiscountController extends Controller
                             'discount_id' => $discount->id,
                             'type' => $eligibility['type'],
                             'target_type' => $this->getTargetType($eligibility['target_type']),
-                            'target_id' => $eligibility['target_id'] ?? null,
+                            'target_id' => $this->nullableBigInt($eligibility['target_id'] ?? null),
                         ]);
                     }
                 }
@@ -307,7 +322,7 @@ class DiscountController extends Controller
                             'condition_type' => $condition['condition_type'],
                             'operator' => $condition['operator'] ?? null,
                             'value' => $condition['value'] ?? null,
-                            'target_id' => $condition['target_id'] ?? null,
+                            'target_id' => $this->nullableBigInt($condition['target_id'] ?? null),
                             'extra' => $condition['extra'] ?? [],
                         ]);
                     }
@@ -315,6 +330,7 @@ class DiscountController extends Controller
             }
 
             DB::commit();
+            app(PriceCalculator::class)->forgetPromotionCache();
 
             return response()->json([
                 'message' => 'Discount code updated successfully',
@@ -336,6 +352,7 @@ class DiscountController extends Controller
     {
         $discount = Discount::findOrFail($id);
         $discount->update(['is_active' => !$discount->is_active]);
+        app(PriceCalculator::class)->forgetPromotionCache();
 
         return response()->json([
             'message' => 'Discount status updated successfully',
@@ -367,6 +384,7 @@ class DiscountController extends Controller
             $discount->delete();
 
             DB::commit();
+            app(PriceCalculator::class)->forgetPromotionCache();
 
             return response()->json([
                 'message' => 'Discount code deleted successfully'
@@ -437,21 +455,24 @@ class DiscountController extends Controller
     private function searchUsers($search, $limit)
     {
         $users = User::query()
-            ->where('id', '=', $search)
-            ->orWhere('first_name', 'LIKE', "%{$search}%")
-            ->orWhere('last_name', 'LIKE', "%{$search}%")
-            ->orWhere('username', 'LIKE', "%{$search}%")
-            ->orWhere('email', 'LIKE', "%{$search}%")
+            ->where(function ($query) use ($search) {
+                $this->applyIdOrTextSearch($query, $search, ['first_name', 'last_name', 'username', 'email']);
+            })
             ->limit($limit)
             ->get(['id', 'first_name', 'last_name', 'username', 'email']);
 
         $data = $users->map(function ($user) {
+            $name = trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? ''));
+            $label = $name !== '' ? $name : ($user->username ?: $user->email);
+
             return [
                 'id' => $user->id,
                 'first_name' => $user->first_name,
                 'last_name' => $user->last_name,
                 'username' => $user->username,
                 'email' => $user->email,
+                'name' => $label,
+                'label' => $label,
             ];
         });
 
@@ -461,11 +482,9 @@ class DiscountController extends Controller
     private function searchCourses($search, $limit)
     {
         $courses = Course::query()
-            ->where('id', '=', $search)
-            ->orWhere('title', 'LIKE', "%{$search}%")
-            ->orWhere('english_title', 'LIKE', "%{$search}%")
-            ->orWhere('short_description', 'LIKE', "%{$search}%")
-            ->orWhere('description', 'LIKE', "%{$search}%")
+            ->where(function ($query) use ($search) {
+                $this->applyIdOrTextSearch($query, $search, ['title', 'english_title', 'short_description', 'description']);
+            })
             ->limit($limit)
             ->get(['id', 'title', 'english_title', 'slug', 'short_description', 'description']);
 
@@ -486,11 +505,9 @@ class DiscountController extends Controller
     private function searchPaths($search, $limit)
     {
         $paths = Path::query()
-            ->where('id', '=', $search)
-            ->orWhere('title', 'LIKE', "%{$search}%")
-            ->orWhere('english_title', 'LIKE', "%{$search}%")
-            ->orWhere('short_description', 'LIKE', "%{$search}%")
-            ->orWhere('description', 'LIKE', "%{$search}%")
+            ->where(function ($query) use ($search) {
+                $this->applyIdOrTextSearch($query, $search, ['title', 'english_title', 'short_description', 'description']);
+            })
             ->limit($limit)
             ->get(['id', 'title', 'english_title', 'slug', 'short_description', 'description']);
 
@@ -511,10 +528,10 @@ class DiscountController extends Controller
     private function searchVips($search, $limit)
     {
         $vips = Plan::query()
-            ->where('id', '=', $search)
-            ->orWhere('title', 'LIKE', "%{$search}%")
-            ->orWhere('english_title', 'LIKE', "%{$search}%")
-            ->orWhere('description', 'LIKE', "%{$search}%")->limit($limit)
+            ->where(function ($query) use ($search) {
+                $this->applyIdOrTextSearch($query, $search, ['title', 'english_title', 'description']);
+            })
+            ->limit($limit)
             ->get(['id', 'title', 'english_title', 'description']);
 
         $data = $vips->map(function ($vip) {
@@ -532,9 +549,9 @@ class DiscountController extends Controller
     private function searchCategories($search, $limit)
     {
         $categories = Category::query()
-            ->where('id', '=', $search)
-            ->orWhere('title', 'LIKE', "%{$search}%")
-            ->orWhere('english_title', 'LIKE', "%{$search}%")
+            ->where(function ($query) use ($search) {
+                $this->applyIdOrTextSearch($query, $search, ['title', 'english_title']);
+            })
             ->limit($limit)
             ->get(['id', 'title', 'english_title', 'slug']);
 
@@ -548,6 +565,69 @@ class DiscountController extends Controller
         });
 
         return response()->json(['data' => $data], 200);
+    }
+
+    private function promotionValidationRules(): array
+    {
+        return [
+            'description' => 'nullable|string|max:5000',
+            'max_discount_amount' => 'nullable|integer|min:0',
+            'stackable' => 'boolean',
+            'apply_automatically' => 'boolean',
+            'is_public' => 'boolean',
+            'banner_title' => 'nullable|required_with:banner_description|string|max:255',
+            'banner_description' => 'nullable|string|max:2000',
+            'banner_icon' => 'nullable|string|max:16',
+            'cta_text' => 'nullable|string|max:80',
+            'destination_type' => 'nullable|in:promotion,courses,category,custom',
+            'destination_url' => 'nullable|string|max:500',
+            'priority' => 'nullable|integer|min:0|max:9999',
+        ];
+    }
+
+    private function discountAttributes(Request $request): array
+    {
+        return [
+            'code' => strtoupper((string) $request->code),
+            'title' => $request->title,
+            'description' => $request->description,
+            'type' => $request->type,
+            'value' => $request->value,
+            'max_discount_amount' => $request->max_discount_amount,
+            'usage_limit' => $request->usage_limit,
+            'per_user_limit' => $request->per_user_limit,
+            'starts_at' => $request->filled('starts_at') ? $request->starts_at : null,
+            'ends_at' => $request->filled('ends_at') ? $request->ends_at : null,
+            'is_active' => $request->boolean('is_active', true),
+            'stackable' => $request->boolean('stackable'),
+            'apply_automatically' => $request->boolean('apply_automatically'),
+            'is_public' => $request->boolean('is_public'),
+            'banner_title' => $request->banner_title,
+            'banner_description' => $request->banner_description,
+            'banner_icon' => $request->banner_icon,
+            'cta_text' => $request->cta_text,
+            'destination_type' => $request->destination_type,
+            'destination_url' => $request->destination_url,
+            'priority' => (int) $request->get('priority', 0),
+        ];
+    }
+
+    /**
+     * Search by numeric id only when the term is an integer; otherwise text columns only.
+     * PostgreSQL rejects non-numeric values in bigint comparisons.
+     */
+    private function applyIdOrTextSearch($query, $search, array $textColumns): void
+    {
+        $term = trim((string) $search);
+        $like = '%' . addcslashes($term, '%_\\') . '%';
+
+        if (ctype_digit($term)) {
+            $query->orWhere('id', (int) $term);
+        }
+
+        foreach ($textColumns as $column) {
+            $query->orWhere($column, 'LIKE', $like);
+        }
     }
 
     /**
@@ -565,5 +645,77 @@ class DiscountController extends Controller
             default:
                 return null;
         }
+    }
+
+    private function nullableBigInt($value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if (is_int($value) || (is_string($value) && ctype_digit($value))) {
+            return (int) $value;
+        }
+
+        return null;
+    }
+
+    private function attachTargetLabels(Discount $discount): Discount
+    {
+        foreach ($discount->eligibilities as $eligibility) {
+            $eligibility->setAttribute(
+                'target_label',
+                $this->resolveTargetLabel($eligibility->target_type, $eligibility->target_id)
+            );
+        }
+
+        foreach ($discount->conditions as $condition) {
+            $condition->setAttribute(
+                'target_label',
+                $this->resolveTargetLabel($condition->item_type, $condition->target_id)
+            );
+        }
+
+        return $discount;
+    }
+
+    private function resolveTargetLabel(?string $type, $id): ?string
+    {
+        if (!$type || !$id || !is_numeric($id)) {
+            return null;
+        }
+
+        $class = class_exists($type)
+            ? $type
+            : ($this->getTargetType($type) ?: $this->getItemType($type));
+
+        if (!$class || !class_exists($class)) {
+            return null;
+        }
+
+        $model = $class::find((int) $id);
+        if (!$model) {
+            return null;
+        }
+
+        if ($model instanceof User) {
+            $name = trim(($model->first_name ?? '') . ' ' . ($model->last_name ?? ''));
+            return $name !== '' ? $name : ($model->username ?: $model->email);
+        }
+
+        return $model->title ?? $model->name ?? null;
+    }
+
+    private function formatFormDatetime($value): ?string
+    {
+        if (!$value) {
+            return null;
+        }
+
+        $date = $value instanceof \Carbon\Carbon
+            ? $value
+            : \Carbon\Carbon::parse($value);
+
+        return $date->timezone(config('app.timezone'))->format('Y-m-d\TH:i');
     }
 }

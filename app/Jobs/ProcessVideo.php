@@ -13,6 +13,11 @@ use ProtoneMedia\LaravelFFMpeg\Filters\WatermarkFactory;
 use ProtoneMedia\LaravelFFMpeg\Support\FFMpeg;
 use FFMpeg\Format\Video\X264;
 
+/**
+ * @deprecated Course/episode video encoding runs on zanburak-worker
+ *             (App\Jobs\ProcessVideo there). This backend copy is not dispatched
+ *             and must not be used for production encodes.
+ */
 class ProcessVideo implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;

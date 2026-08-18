@@ -3,39 +3,57 @@
 namespace App\Services;
 
 use App\Models\Course;
+use App\Models\Discount;
 use App\Models\Path;
 use App\Models\Plan;
+use App\Models\User;
 
 class CartService
 {
-    protected $discountPercentForPath = 40;
+    public function __construct(
+        protected PriceCalculator $priceCalculator,
+        protected DiscountService $discountService
+    ) {
+    }
 
     public function getCartItemsResponse($user)
     {
-        $carts = $user->carts()->with('cartable')->get();
+        $this->cleanInvalidCartItems($user);
+        $this->recalculate($user);
 
-        // Remove cart items where the cartable item no longer exists
-        $invalidCarts = $carts->filter(function ($cart) {
-            return is_null($cart->cartable);
-        });
+        $carts = $user->carts()->with(['cartable', 'discount'])->get();
+        $coupon = $this->discountService->currentCartCoupon($user);
 
-        if ($invalidCarts->isNotEmpty()) {
-            $invalidCarts->each(function ($cart) {
-                $cart->delete();
-            });
-            
-            // Refresh carts after removing invalid ones
-            $carts = $user->carts()->with('cartable')->get();
-        }
-
-        $cartItems = $carts->map(function ($cart) use ($user) {
+        $cartItems = $carts->map(function ($cart) use ($user, $coupon) {
             $item = $cart->cartable;
+            if (!$item) {
+                return null;
+            }
+
+            $eligibleCoupon = ($coupon && $this->discountService->isCartItemEligible($coupon, $cart, $user))
+                ? $coupon
+                : null;
+            $pricing = $this->priceCalculator->forCartItem($cart, $eligibleCoupon, $user);
+
+            $base = [
+                'id' => $cart->id,
+                'allows_installment' => (bool) ($item->allows_installment ?? false),
+                'cart_price' => $pricing['final_price'],
+                'price' => $pricing['original_price'],
+                'original_price' => $pricing['original_price'],
+                'current_price' => $pricing['final_price'],
+                'course_discount_amount' => $pricing['course_discount_amount'],
+                'coupon_discount_amount' => $pricing['coupon_discount_amount'],
+                'discount_amount' => $pricing['total_discount'],
+                'discount_percentage' => $pricing['discount_percentage'],
+                'has_discount' => $pricing['has_discount'],
+                'direct_discount' => $pricing['direct_discount'],
+                'coupon' => $pricing['coupon'],
+            ];
 
             if ($cart->cartable_type === Course::class) {
-                return [
-                    'id' => $cart->id,
+                return array_merge($base, [
                     'type' => 'course',
-                    'allows_installment' => (bool) ($item->allows_installment ?? false),
                     'course' => [
                         'id' => $item->id,
                         'title' => $item->title,
@@ -44,6 +62,9 @@ class CartService
                         'slug' => $item->slug,
                         'poster' => $item->poster,
                         'price' => $item->price,
+                        'original_price' => $pricing['original_price'],
+                        'current_price' => $pricing['final_price'],
+                        'has_discount' => $pricing['has_direct_discount'],
                         'categories' => $item->category->pluck('id')->toArray(),
                         'teacher' => [
                             'id' => $item->teacher->id,
@@ -51,29 +72,16 @@ class CartService
                             'last_name' => $item->teacher->last_name,
                             'username' => $item->teacher->username,
                             'profile_pic' => $item->teacher->profile_pic ?? null,
-                        ]
+                        ],
                     ],
-                    'cart_price' => $cart->price,
-                    'price' => $item->price,
-                    'discount_amount' => $cart->discount_amount
-                ];
+                ]);
             }
 
             if ($cart->cartable_type === Path::class) {
-                $courseIdsInCart = $user->carts->where('cartable_type', Course::class)->pluck('cartable_id')->toArray();
-                $userCourseIds = $user->courses->pluck('id')->toArray();
+                $availableCourses = $this->priceCalculator->availablePathCourses($item, $user);
 
-                $availableCourses = $item->courses->where('publish', true)->filter(function ($course) use ($userCourseIds, $courseIdsInCart) {
-                    return $course->type !== 'free' && !in_array($course->id, $userCourseIds) && !in_array($course->id, $courseIdsInCart);
-                });
-
-                $totalPrice = $availableCourses->sum('price');
-                $finalPrice = $totalPrice - ($totalPrice * $this->discountPercentForPath / 100);
-
-                return [
-                    'id' => $cart->id,
+                return array_merge($base, [
                     'type' => 'path',
-                    'allows_installment' => (bool) ($item->allows_installment ?? false),
                     'path' => [
                         'id' => $item->id,
                         'title' => $item->title,
@@ -83,7 +91,7 @@ class CartService
                         'poster' => $item->poster,
                         'short_description' => $item->short_description,
                         'courses' => $availableCourses->map(function ($course) {
-                            return [
+                            return $this->priceCalculator->decorateCourseArray([
                                 'id' => $course->id,
                                 'title' => $course->title,
                                 'english_title' => $course->english_title,
@@ -92,20 +100,16 @@ class CartService
                                 'poster' => $course->poster,
                                 'type' => $course->type,
                                 'price' => $course->price,
-                            ];
+                            ], $course);
                         })->values(),
                     ],
-                    'price' => $finalPrice,
-                    'cart_price' => $cart->price,
-                    'discount_amount' => $cart->discount_amount
-                ];
+                    'path_discount_percent' => $this->priceCalculator->discountPercentForPath,
+                ]);
             }
 
             if ($cart->cartable_type === Plan::class) {
-                return [
-                    'id' => $cart->id,
+                return array_merge($base, [
                     'type' => 'vip',
-                    'allows_installment' => (bool) ($item->allows_installment ?? false),
                     'vip' => [
                         'id' => $item->id,
                         'title' => $item->title,
@@ -115,55 +119,90 @@ class CartService
                         'period_time' => $item->period_time,
                         'icon' => $item->icon,
                     ],
-                    'cart_price' => $cart->price,
-                    'price' => $item->price,
-                    'discount_amount' => $cart->discount_amount
-                ];
+                ]);
             }
-        });
 
-        $totalPriceOfCart = $cartItems->sum('price');
-        $totalDiscountCart = $cartItems->sum('discount_amount');
+            return null;
+        })->filter()->values();
 
-        return [
+        $totals = $this->summarize($cartItems, $coupon);
+
+        return array_merge($totals, [
             'items' => $cartItems,
-            'total_price' => $totalPriceOfCart,
-            'total_discount' => $totalDiscountCart,
-            'final_price' => $totalPriceOfCart - $totalDiscountCart,
             'has_installment_eligible_items' => $cartItems->contains(fn ($item) => (bool) ($item['allows_installment'] ?? false)),
-        ];
+        ]);
     }
 
-    /**
-     * محاسبه قیمت اصلی آیتم بر اساس نوع آن
-     */
+    public function recalculate(User $user, ?Discount $coupon = null): void
+    {
+        $coupon = $coupon ?? $this->discountService->currentCartCoupon($user);
+
+        if ($coupon) {
+            try {
+                $this->discountService->validateForCart($coupon, $user);
+                $this->discountService->persistCouponOnCart($user, $coupon);
+                return;
+            } catch (\Throwable $e) {
+                $this->discountService->persistWithoutCoupon($user);
+                return;
+            }
+        }
+
+        $this->discountService->persistWithoutCoupon($user);
+    }
+
     public function calculateOriginalPrice($cart)
     {
         $item = $cart->cartable;
+        $user = $cart->user;
 
-        if ($cart->cartable_type === \App\Models\Course::class) {
-            return $item->price;
+        if ($cart->cartable_type === Course::class) {
+            return (int) $item->price;
         }
 
-        if ($cart->cartable_type === \App\Models\Plan::class) {
-            return $item->price;
+        if ($cart->cartable_type === Plan::class) {
+            return (int) $item->price;
         }
 
-        if ($cart->cartable_type === \App\Models\Path::class) {
-            // برای path باید مجموع قیمت دوره‌های موجود را محاسبه کنیم
-            $user = $cart->user;
-            $courseIdsInCart = $user->carts->where('cartable_type', \App\Models\Course::class)->pluck('cartable_id')->toArray();
-            $userCourseIds = $user->courses->pluck('id')->toArray();
-
-            $availableCourses = $item->courses->where('publish', true)->filter(function ($course) use ($userCourseIds, $courseIdsInCart) {
-                return $course->type !== 'free' && !in_array($course->id, $userCourseIds) && !in_array($course->id, $courseIdsInCart);
-            });
-
-            $totalPrice = $availableCourses->sum('price');
-            // اعمال تخفیف 40 درصدی برای path
-            return $totalPrice - ($totalPrice * $this->discountPercentForPath / 100);
+        if ($cart->cartable_type === Path::class) {
+            return $this->priceCalculator->pathOriginalPrice($item, $user);
         }
 
-        return $item->price;
+        return (int) ($item->price ?? 0);
+    }
+
+    protected function summarize($cartItems, ?Discount $coupon): array
+    {
+        $original = (int) $cartItems->sum('original_price');
+        $courseDiscount = (int) $cartItems->sum('course_discount_amount');
+        $couponDiscount = (int) $cartItems->sum('coupon_discount_amount');
+        $totalDiscount = (int) $cartItems->sum('discount_amount');
+        $final = (int) $cartItems->sum('current_price');
+
+        return [
+            'total_price' => $original,
+            'total_original' => $original,
+            'total_course_discount' => $courseDiscount,
+            'total_coupon_discount' => $couponDiscount,
+            'total_discount' => $totalDiscount,
+            'final_price' => $final,
+            'discount_code' => $coupon?->code,
+            'applied_coupon' => $coupon ? [
+                'code' => $coupon->code,
+                'title' => $coupon->title,
+                'type' => $coupon->type,
+                'value' => $coupon->value,
+                'stackable' => (bool) $coupon->stackable,
+            ] : null,
+        ];
+    }
+
+    protected function cleanInvalidCartItems(User $user): void
+    {
+        $carts = $user->carts()->with('cartable')->get();
+        $invalid = $carts->filter(fn ($cart) => is_null($cart->cartable));
+        if ($invalid->isNotEmpty()) {
+            $invalid->each->delete();
+        }
     }
 }

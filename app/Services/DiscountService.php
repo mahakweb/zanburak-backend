@@ -2,18 +2,22 @@
 
 namespace App\Services;
 
+use App\Exceptions\DiscountException;
+use App\Models\Cart;
 use App\Models\Course;
 use App\Models\Discount;
+use App\Models\Path;
+use App\Models\Payment;
 use App\Models\Plan;
 use App\Models\User;
-use App\Models\Cart;
-use App\Models\Path;
+use Illuminate\Support\Collection;
 
 class DiscountService
 {
-    /**
-     * Helper to compare scalar values using a simple operator.
-     */
+    public function __construct(protected PriceCalculator $priceCalculator)
+    {
+    }
+
     protected function compare($left, $operator, $right): bool
     {
         switch ($operator) {
@@ -34,247 +38,311 @@ class DiscountService
         }
     }
 
-    /**
-     * Get Persian text for operator symbols.
-     */
     protected function getOperatorText($operator): string
     {
-        switch ($operator) {
-            case '=':
-                return 'مساوی';
-            case '!=':
-                return 'نامساوی';
-            case '>':
-                return 'بزرگتر';
-            case '<':
-                return 'کوچکتر';
-            case '>=':
-                return 'بزرگتر یا مساوی';
-            case '<=':
-                return 'کوچکتر یا مساوی';
-            default:
-                return $operator;
-        }
+        return match ($operator) {
+            '=' => 'مساوی',
+            '!=' => 'نامساوی',
+            '>' => 'بزرگتر',
+            '<' => 'کوچکتر',
+            '>=' => 'بزرگتر یا مساوی',
+            '<=' => 'کوچکتر یا مساوی',
+            default => (string) $operator,
+        };
     }
 
-    /**
-     * Normalize target type to handle both short names and full model names.
-     */
-    protected function normalizeTargetType($targetType): string
+    public function normalizeTargetType($targetType): string
     {
-        // If it's already a short name, return as is
-        if (in_array($targetType, ['user', 'course', 'path', 'vip', 'category'])) {
+        if (in_array($targetType, ['user', 'course', 'path', 'vip', 'category'], true)) {
             return $targetType;
         }
 
-        // Convert full model names to short names
-        switch ($targetType) {
-            case 'App\\Models\\User':
-                return 'user';
-            case 'App\\Models\\Course':
-                return 'course';
-            case 'App\\Models\\Path':
-                return 'path';
-            case 'App\\Models\\Plan':
-                return 'vip';
-            case 'App\\Models\\Category':
-                return 'category';
-            default:
-                return $targetType;
+        return match ($targetType) {
+            User::class, 'App\\Models\\User' => 'user',
+            Course::class, 'App\\Models\\Course' => 'course',
+            Path::class, 'App\\Models\\Path' => 'path',
+            Plan::class, 'App\\Models\\Plan' => 'vip',
+            'App\\Models\\Category' => 'category',
+            default => (string) $targetType,
+        };
+    }
+
+    protected function normalizeItemType($itemType): ?string
+    {
+        if (!$itemType) {
+            return null;
         }
+
+        if (in_array($itemType, ['course', 'path', 'vip'], true)) {
+            return $itemType;
+        }
+
+        return match ($itemType) {
+            Course::class, 'App\\Models\\Course' => 'course',
+            Path::class, 'App\\Models\\Path' => 'path',
+            Plan::class, 'App\\Models\\Plan' => 'vip',
+            default => $itemType,
+        };
     }
 
     /**
-     * Build cart summary once to avoid multiple service resolutions.
+     * Lightweight cart snapshot using original prices (no coupon).
      */
-    protected function getCartSummary(User $user): array
+    public function getCartContext(User $user): array
     {
-        return app(\App\Services\CartService::class)->getCartItemsResponse($user);
-    }
+        $carts = $user->carts()->with(['cartable'])->get();
+        $items = [];
 
-    /**
-     * New: Validate eligibilities and throw precise messages per failure.
-     */
-    public function checkEligibilities(Discount $discount, User $user): void
-    {
-        if ($discount->per_user_limit !== null) {
-            $usedCount = $discount->usages()->where('user_id', $user->id)->count();
-            if ($usedCount >= $discount->per_user_limit) {
-                throw new \Exception('حد مجاز استفاده برای این کاربر به پایان رسیده است.');
+        foreach ($carts as $cart) {
+            $item = $cart->cartable;
+            if (!$item) {
+                continue;
             }
+
+            $type = $this->cartItemType($cart);
+            if (!$type) {
+                continue;
+            }
+
+            $pricing = $this->priceCalculator->forCartItem($cart, null, $user);
+            $categories = [];
+            if ($type === 'course' && method_exists($item, 'category')) {
+                $categories = $item->category()->pluck('categories.id')->all();
+            } elseif ($type === 'path' && method_exists($item, 'category')) {
+                $categories = $item->category()->pluck('categories.id')->all();
+            }
+
+            $items[] = [
+                'cart' => $cart,
+                'type' => $type,
+                'id' => $item->id,
+                'price' => $pricing['original_price'],
+                'current_price' => $pricing['final_price'],
+                'course_discount_amount' => $pricing['course_discount_amount'],
+                'categories' => $categories,
+                'course' => $type === 'course' ? ['id' => $item->id, 'categories' => $categories] : null,
+                'path' => $type === 'path' ? ['id' => $item->id, 'categories' => $categories] : null,
+                'vip' => $type === 'vip' ? ['id' => $item->id] : null,
+            ];
         }
 
-        $cartSummary = $this->getCartSummary($user);
+        return [
+            'items' => $items,
+            'total_price' => collect($items)->sum('price'),
+            'total_current' => collect($items)->sum('current_price'),
+        ];
+    }
 
-        // Check if there are any user eligibilities
-        $userEligibilities = $discount->eligibilities->filter(function ($eligibility) {
-            return $this->normalizeTargetType($eligibility->target_type) === 'user';
-        });
+    public function findActiveByCode(string $code): Discount
+    {
+        $discount = Discount::query()
+            ->whereRaw('UPPER(code) = ?', [mb_strtoupper(trim($code))])
+            ->with(['eligibilities', 'conditions'])
+            ->first();
 
-        // If there are user eligibilities, check if user is included
-        if ($userEligibilities->isNotEmpty()) {
-            $isUserIncluded = $userEligibilities->contains(function ($eligibility) use ($user) {
-                return $eligibility->type === 'inclusion' && $eligibility->target_id == $user->id;
+        if (!$discount) {
+            throw new DiscountException('not_found', 'کد تخفیف پیدا نشد.');
+        }
+
+        if (!$discount->is_active) {
+            throw new DiscountException('inactive', 'این کد تخفیف غیرفعال است.');
+        }
+
+        return $discount;
+    }
+
+    public function assertSchedule(Discount $discount): void
+    {
+        if ($discount->starts_at && $discount->starts_at->isFuture()) {
+            throw new DiscountException('not_started', 'زمان استفاده از این کد هنوز شروع نشده است.');
+        }
+
+        if ($discount->ends_at && $discount->ends_at->isPast()) {
+            throw new DiscountException('expired', 'این کد تخفیف منقضی شده است.');
+        }
+    }
+
+    public function assertUsageLimits(Discount $discount, User $user, bool $lock = false): void
+    {
+        $query = $lock
+            ? Discount::query()->whereKey($discount->id)->lockForUpdate()
+            : Discount::query()->whereKey($discount->id);
+
+        $locked = $query->first() ?: $discount;
+
+        $pendingQuery = Payment::query()
+            ->where('discount_code', $locked->code)
+            ->where(function ($q) {
+                $q->where('status', 0)->orWhere('status', false);
+            })
+            ->where(function ($q) {
+                $q->whereNull('expired_at')->orWhere('expired_at', '>', now());
             });
 
-            if (!$isUserIncluded) {
-                throw new \Exception('این کد فقط برای کاربران مجاز تعریف شده است.');
+        if ($locked->usage_limit !== null) {
+            $used = $locked->usages()->count() + (clone $pendingQuery)->count();
+            if ($used >= $locked->usage_limit) {
+                throw new DiscountException('usage_limit', 'سقف استفاده از این کد تکمیل شده است.');
             }
         }
 
-        foreach ($discount->eligibilities as $eligibility) {
-            $targetType = $this->normalizeTargetType($eligibility->target_type);
-            
-            switch ($targetType) {
-
-                case 'user':
-                    // Check if user is excluded
-                    if ($eligibility->type === 'exclusion' && $eligibility->target_id == $user->id) {
-                        throw new \Exception('این کد برای این کاربر غیرفعال است.');
-                    }
-                    break;
-
-                case 'course':
-                    $exists = collect($cartSummary['items'])->contains(
-                        fn($item) => $item['type'] === 'course' && $item['course']['id'] == $eligibility->target_id
-                    );
-
-                    if ($eligibility->type === 'inclusion' && !$exists) {
-                        throw new \Exception('این کد فقط برای دوره مشخصی معتبر است.');
-                    }
-                    if ($eligibility->type === 'exclusion' && $exists) {
-                        throw new \Exception('این کد برای یکی از دوره‌های سبد خرید شما معتبر نیست.');
-                    }
-                    break;
-
-                case 'path':
-                    $exists = collect($cartSummary['items'])->contains(
-                        fn($item) => $item['type'] === 'path' && $item['path']['id'] == $eligibility->target_id
-                    );
-
-                    if ($eligibility->type === 'inclusion' && !$exists) {
-                        throw new \Exception('این کد فقط برای مسیر مشخصی معتبر است.');
-                    }
-                    if ($eligibility->type === 'exclusion' && $exists) {
-                        throw new \Exception('این کد برای مسیر انتخابی شما معتبر نیست.');
-                    }
-                    break;
-
-                case 'vip':
-                    $exists = collect($cartSummary['items'])->contains(
-                        fn($item) => $item['type'] === 'vip' && $item['vip']['id'] == $eligibility->target_id
-                    );
-
-                    if ($eligibility->type === 'inclusion' && !$exists) {
-                        throw new \Exception('این کد فقط برای اشتراک مشخصی معتبر است.');
-                    }
-                    if ($eligibility->type === 'exclusion' && $exists) {
-                        throw new \Exception('این کد برای اشتراک انتخابی شما معتبر نیست.');
-                    }
-                    break;
-
-                case 'category':
-                    $exists = collect($cartSummary['items'])->contains(function ($item) use ($eligibility) {
-                        $categories = match ($item['type']) {
-                            'course' => $item['course']['categories'] ?? [],
-                            'path'   => $item['path']['categories'] ?? [],
-                            default  => []
-                        };
-                        return in_array($eligibility->target_id, $categories);
-                    });
-
-                    if ($eligibility->type === 'inclusion' && !$exists) {
-                        throw new \Exception('این کد فقط برای دسته‌بندی‌های مشخصی معتبر است.');
-                    }
-                    if ($eligibility->type === 'exclusion' && $exists) {
-                        throw new \Exception('این کد برای یکی از دسته‌بندی‌های سبد شما معتبر نیست.');
-                    }
-                    break;
+        if ($locked->per_user_limit !== null) {
+            $usedByUser = $locked->usages()->where('user_id', $user->id)->count()
+                + (clone $pendingQuery)->where('user_id', $user->id)->count();
+            if ($usedByUser >= $locked->per_user_limit) {
+                throw new DiscountException('per_user_limit', 'شما قبلاً از این کد استفاده کرده‌اید.');
             }
         }
     }
 
-    /**
-     * Check if a specific cart item is eligible based on discount eligibilities.
-     * Item-level filtering so we don't apply discount to unrelated items.
-     */
-    public function isCartItemEligible(Discount $discount, Cart $cart, User $user): bool
+    public function checkEligibilities(Discount $discount, User $user): void
     {
-        $cartItemType = null;
-        $cartItemId = null;
+        $this->assertUsageLimits($discount, $user);
 
-        if ($cart->cartable instanceof Course) {
-            $cartItemType = 'course';
-            $cartItemId = $cart->cartable->id;
-        } elseif ($cart->cartable instanceof Path) {
-            $cartItemType = 'path';
-            $cartItemId = $cart->cartable->id;
-        } elseif ($cart->cartable instanceof Plan) {
-            $cartItemType = 'vip';
-            $cartItemId = $cart->cartable->id;
+        $cartContext = $this->getCartContext($user);
+        $items = collect($cartContext['items']);
+
+        if ($items->isEmpty()) {
+            throw new DiscountException('empty_cart', 'سبد خرید خالی است.');
         }
 
-        // If there is no eligibility restricting items, consider item eligible
-        $hasItemTargetingEligibility = $discount->eligibilities->contains(function ($el) {
-            $normalizedType = $this->normalizeTargetType($el->target_type);
-            return in_array($normalizedType, ['course', 'path', 'vip', 'category']);
+        $eligibilities = $discount->eligibilities;
+        $userInclusions = $eligibilities->filter(fn ($el) => $this->normalizeTargetType($el->target_type) === 'user' && $el->type === 'inclusion');
+        $userExclusions = $eligibilities->filter(fn ($el) => $this->normalizeTargetType($el->target_type) === 'user' && $el->type === 'exclusion');
+
+        if ($userInclusions->isNotEmpty() && !$userInclusions->contains(fn ($el) => (int) $el->target_id === (int) $user->id)) {
+            throw new DiscountException('not_eligible_user', 'این کد فقط برای کاربران مجاز تعریف شده است.');
+        }
+
+        if ($userExclusions->contains(fn ($el) => (int) $el->target_id === (int) $user->id)) {
+            throw new DiscountException('not_eligible_user', 'این کد برای این کاربر غیرفعال است.');
+        }
+
+        foreach (['course', 'path', 'vip'] as $scope) {
+            $inclusions = $eligibilities->filter(fn ($el) => $this->normalizeTargetType($el->target_type) === $scope && $el->type === 'inclusion');
+            if ($inclusions->isEmpty()) {
+                continue;
+            }
+
+            $exists = $items->contains(function ($item) use ($inclusions, $scope) {
+                if ($item['type'] !== $scope) {
+                    return false;
+                }
+
+                return $inclusions->contains(fn ($el) => (int) $el->target_id === (int) $item['id']);
+            });
+
+            if (!$exists) {
+                $message = match ($scope) {
+                    'path' => 'این کد برای مسیر انتخاب‌شده قابل استفاده نیست.',
+                    'vip' => 'این کد برای اشتراک انتخاب‌شده قابل استفاده نیست.',
+                    default => 'این کد برای دوره انتخاب‌شده قابل استفاده نیست.',
+                };
+                throw new DiscountException('not_eligible_item', $message);
+            }
+        }
+
+        $categoryInclusions = $eligibilities->filter(fn ($el) => $this->normalizeTargetType($el->target_type) === 'category' && $el->type === 'inclusion');
+        if ($categoryInclusions->isNotEmpty()) {
+            $exists = $items->contains(function ($item) use ($categoryInclusions) {
+                $categories = $item['categories'] ?? [];
+                return $categoryInclusions->contains(fn ($el) => in_array((int) $el->target_id, array_map('intval', $categories), true));
+            });
+            if (!$exists) {
+                throw new DiscountException('not_eligible_category', 'این کد فقط برای دسته‌بندی‌های مشخصی معتبر است.');
+            }
+        }
+    }
+
+    public function isCartItemEligible(Discount $discount, Cart $cart, User $user): bool
+    {
+        $item = $cart->cartable;
+        if (!$item) {
+            return false;
+        }
+
+        $eligibilities = $discount->relationLoaded('eligibilities')
+            ? $discount->eligibilities
+            : $discount->eligibilities()->get();
+
+        if ($item instanceof Course) {
+            return $this->matchesCourse($discount, $item, $eligibilities);
+        }
+
+        if ($item instanceof Path) {
+            return $this->matchesScopedItem($eligibilities, 'path', $item->id, []);
+        }
+
+        if ($item instanceof Plan) {
+            return $this->matchesScopedItem($eligibilities, 'vip', $item->id, []);
+        }
+
+        return false;
+    }
+
+    public function matchesCourse(Discount $discount, Course $course, ?Collection $eligibilities = null): bool
+    {
+        $eligibilities = $eligibilities ?: ($discount->relationLoaded('eligibilities')
+            ? $discount->eligibilities
+            : $discount->eligibilities()->get());
+
+        $categories = [];
+        if ($course->relationLoaded('category')) {
+            $categories = $course->category->pluck('id')->map(fn ($id) => (int) $id)->all();
+        } elseif (method_exists($course, 'category')) {
+            $categories = $course->category()->pluck('categories.id')->map(fn ($id) => (int) $id)->all();
+        }
+
+        return $this->matchesScopedItem($eligibilities, 'course', $course->id, $categories);
+    }
+
+    protected function matchesScopedItem(Collection $eligibilities, string $itemType, int $itemId, array $categoryIds): bool
+    {
+        $normalized = $eligibilities->map(function ($el) {
+            return [
+                'kind' => $el->type,
+                'target' => $this->normalizeTargetType($el->target_type),
+                'id' => (int) $el->target_id,
+            ];
         });
 
-        if (!$hasItemTargetingEligibility) {
+        $exclusions = $normalized->where('kind', 'exclusion');
+        if ($exclusions->contains(fn ($el) => $el['target'] === $itemType && $el['id'] === $itemId)) {
+            return false;
+        }
+        if ($itemType === 'course' && $exclusions->contains(fn ($el) => $el['target'] === 'category' && in_array($el['id'], $categoryIds, true))) {
+            return false;
+        }
+
+        $typeInclusions = $normalized->where('kind', 'inclusion')->where('target', $itemType);
+        $categoryInclusions = $normalized->where('kind', 'inclusion')->where('target', 'category');
+        $hasItemTargeting = $normalized->contains(fn ($el) => in_array($el['target'], ['course', 'path', 'vip', 'category'], true));
+
+        if (!$hasItemTargeting) {
             return true;
         }
 
-        // Apply inclusion/exclusion logic
-        foreach ($discount->eligibilities as $eligibility) {
-            $targetType = $this->normalizeTargetType($eligibility->target_type);
-            
-            switch ($targetType) {
-                case 'course':
-                    if ($cartItemType === 'course') {
-                        if ($eligibility->type === 'inclusion' && $eligibility->target_id != $cartItemId) {
-                            return false;
-                        }
-                        if ($eligibility->type === 'exclusion' && $eligibility->target_id == $cartItemId) {
-                            return false;
-                        }
-                    }
-                    break;
+        $matchesType = $typeInclusions->isEmpty()
+            ? !$normalized->contains(fn ($el) => $el['kind'] === 'inclusion' && in_array($el['target'], ['course', 'path', 'vip'], true))
+            : $typeInclusions->contains(fn ($el) => $el['id'] === $itemId);
 
-                case 'path':
-                    if ($cartItemType === 'path') {
-                        if ($eligibility->type === 'inclusion' && $eligibility->target_id != $cartItemId) {
-                            return false;
-                        }
-                        if ($eligibility->type === 'exclusion' && $eligibility->target_id == $cartItemId) {
-                            return false;
-                        }
-                    }
-                    break;
+        if ($itemType !== 'course') {
+            return $matchesType;
+        }
 
-                case 'vip':
-                    if ($cartItemType === 'vip') {
-                        if ($eligibility->type === 'inclusion' && $eligibility->target_id != $cartItemId) {
-                            return false;
-                        }
-                        if ($eligibility->type === 'exclusion' && $eligibility->target_id == $cartItemId) {
-                            return false;
-                        }
-                    }
-                    break;
+        $matchesCategory = $categoryInclusions->isEmpty()
+            || $categoryInclusions->contains(fn ($el) => in_array($el['id'], $categoryIds, true));
 
-                case 'category':
-                    if ($cartItemType === 'course') {
-                        $categories = $cart->cartable->category->pluck('id')->toArray();
-                        $inCategory = in_array($eligibility->target_id, $categories);
-                        if ($eligibility->type === 'inclusion' && !$inCategory) {
-                            return false;
-                        }
-                        if ($eligibility->type === 'exclusion' && $inCategory) {
-                            return false;
-                        }
-                    }
-                    break;
-            }
+        if ($typeInclusions->isNotEmpty() && $categoryInclusions->isNotEmpty()) {
+            return $matchesType || $matchesCategory;
+        }
+
+        if ($typeInclusions->isNotEmpty()) {
+            return $matchesType;
+        }
+
+        if ($categoryInclusions->isNotEmpty()) {
+            return $matchesCategory;
         }
 
         return true;
@@ -292,11 +360,12 @@ class DiscountService
 
     public function isValidForCart(Discount $discount, Cart $cart): bool
     {
-        // time condition
-        if ($discount->starts_at && $discount->starts_at->isFuture()) return false;
-        if ($discount->ends_at && $discount->ends_at->isPast()) return false;
-
-        // global capacity condition
+        if ($discount->starts_at && $discount->starts_at->isFuture()) {
+            return false;
+        }
+        if ($discount->ends_at && $discount->ends_at->isPast()) {
+            return false;
+        }
         if ($discount->usage_limit !== null && $discount->usages()->count() >= $discount->usage_limit) {
             return false;
         }
@@ -304,67 +373,52 @@ class DiscountService
         return true;
     }
 
-    /**
-     * Validate discount conditions and throw precise messages when a condition fails.
-     */
     public function validateConditionsOrFail(Discount $discount, User $user, Cart $cart): void
     {
-        $cartSummary = $this->getCartSummary($user);
+        $cartSummary = $this->getCartContext($user);
 
         foreach ($discount->conditions as $condition) {
-            $value     = $condition->value;
-            $operator  = $condition->operator;
-            $extra     = $condition->extra ?? [];
+            $value = $condition->value;
+            $operator = $condition->operator;
+            $extra = $condition->extra ?? [];
 
             switch ($condition->condition_type) {
-                /* ==============================
-             * 1. مبلغ سبد خرید
-             * ============================== */
                 case 'min_cart_total':
                 case 'max_cart_total':
                     if (!$this->compare($cartSummary['total_price'], $operator, $value)) {
                         $label = $condition->condition_type === 'min_cart_total' ? 'حداقل' : 'حداکثر';
-                        $operatorText = $this->getOperatorText($operator);
-                        throw new \Exception("{$label} مبلغ سبد باید {$operatorText} {$value} باشد.");
+                        throw new DiscountException(
+                            'min_purchase',
+                            "{$label} مبلغ خرید برای استفاده از این کد {$value} تومان است."
+                        );
                     }
                     break;
 
                 case 'min_item_price':
                     $minItemPrice = collect($cartSummary['items'])->min('price');
                     if (!$this->compare($minItemPrice, $operator, $value)) {
-                        $operatorText = $this->getOperatorText($operator);
-                        throw new \Exception("حداقل قیمت آیتم باید {$operatorText} {$value} باشد.");
+                        throw new DiscountException('condition', 'حداقل قیمت آیتم با شرط این کد سازگار نیست.');
                     }
                     break;
 
                 case 'max_item_price':
                     $maxItemPrice = collect($cartSummary['items'])->max('price');
                     if (!$this->compare($maxItemPrice, $operator, $value)) {
-                        $operatorText = $this->getOperatorText($operator);
-                        throw new \Exception("حداکثر قیمت آیتم باید {$operatorText} {$value} باشد.");
+                        throw new DiscountException('condition', 'حداکثر قیمت آیتم با شرط این کد سازگار نیست.');
                     }
                     break;
 
-                /* ==============================
-             * 2. تعداد آیتم‌ها
-             * ============================== */
                 case 'min_item_count':
                 case 'max_item_count':
                     $count = count($cartSummary['items']);
                     if (!$this->compare($count, $operator, $value)) {
-                        $label = $condition->condition_type === 'min_item_count' ? 'حداقل' : 'حداکثر';
-                        $operatorText = $this->getOperatorText($operator);
-                        throw new \Exception("{$label} تعداد آیتم‌های سبد باید {$operatorText} {$value} باشد.");
+                        throw new DiscountException('condition', 'تعداد آیتم‌های سبد با شرط این کد سازگار نیست.');
                     }
                     break;
 
-
-                /* ==============================
-             * 3. کاربر
-             * ============================== */
                 case 'first_purchase':
                     if ($user->payments()->whereNotNull('paid_at')->where('status', true)->exists()) {
-                        throw new \Exception('این کد فقط برای اولین خرید قابل استفاده است.');
+                        throw new DiscountException('first_purchase', 'این کد فقط برای اولین خرید قابل استفاده است.');
                     }
                     break;
 
@@ -376,279 +430,282 @@ class DiscountService
                         ->first();
 
                     if ($lastPayment && $lastPayment->created_at->gt(now()->subDays($value))) {
-                        throw new \Exception('از آخرین خرید شما به اندازه کافی زمان نگذشته است.');
+                        throw new DiscountException('condition', 'از آخرین خرید شما به اندازه کافی زمان نگذشته است.');
                     }
                     break;
 
                 case 'min_orders_count':
-                    $count = $user->payments()
-                        ->whereNotNull('paid_at')
-                        ->where('status', true)
-                        ->count();
-
-                    if (!$this->compare($count, $operator, $value)) {
-                        throw new \Exception('تعداد سفارش‌های کاربر با شرط تعیین‌شده سازگار نیست.');
-                    }
-                    break;
-
                 case 'max_orders_count':
                     $count = $user->payments()
                         ->whereNotNull('paid_at')
                         ->where('status', true)
                         ->count();
-
                     if (!$this->compare($count, $operator, $value)) {
-                        throw new \Exception('تعداد سفارش‌های کاربر با شرط تعیین‌شده سازگار نیست.');
+                        throw new DiscountException('condition', 'تعداد سفارش‌های کاربر با شرط تعیین‌شده سازگار نیست.');
                     }
                     break;
 
-
-
-                /* ==============================
-             * 4. زمان
-             * ============================== */
                 case 'day_of_week':
                     $days = $extra['days'] ?? [];
-                    
-                    // اگر days رشته است، ابتدا سعی کن آن را به آرایه تبدیل کن
                     if (is_string($days)) {
-                        // ابتدا سعی کن JSON decode کن
                         $decoded = json_decode($days, true);
-                        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
-                            $days = $decoded;
-                        } else {
-                            // اگر JSON نیست، سعی کن با کاما جدا کن
-                            $days = array_map('intval', explode(',', $days));
-                        }
-                    }
-                    // اگر days عدد است، آن را به آرایه تبدیل کن
-                    elseif (is_numeric($days)) {
-                        $days = [(int)$days];
-                    }
-                    // اگر days آرایه نیست، آن را به آرایه خالی تبدیل کن
-                    elseif (!is_array($days)) {
+                        $days = (json_last_error() === JSON_ERROR_NONE && is_array($decoded))
+                            ? $decoded
+                            : array_map('intval', explode(',', $days));
+                    } elseif (is_numeric($days)) {
+                        $days = [(int) $days];
+                    } elseif (!is_array($days)) {
                         $days = [];
                     }
-                    
                     if (!in_array(now()->dayOfWeek, $days)) {
-                        throw new \Exception('این کد در روز فعلی هفته قابل استفاده نیست.');
+                        throw new DiscountException('condition', 'این کد در روز فعلی هفته قابل استفاده نیست.');
                     }
                     break;
 
                 case 'time_range':
                     $start = $extra['start'] ?? null;
-                    $end   = $extra['end'] ?? null;
-                    $now   = now()->format('H:i');
+                    $end = $extra['end'] ?? null;
+                    $now = now()->format('H:i');
                     if ($start && $end && !($now >= $start && $now <= $end)) {
-                        throw new \Exception('این کد در بازه زمانی فعلی قابل استفاده نیست.');
+                        throw new DiscountException('condition', 'این کد در بازه زمانی فعلی قابل استفاده نیست.');
                     }
                     break;
 
                 case 'date_range':
                     $start = $extra['start_date'] ?? null;
-                    $end   = $extra['end_date'] ?? null;
-                    
-                    // اگر تاریخ‌ها رشته هستند، آن‌ها را به Carbon تبدیل کن
+                    $end = $extra['end_date'] ?? null;
                     if ($start && is_string($start)) {
                         $start = \Carbon\Carbon::parse($start);
                     }
                     if ($end && is_string($end)) {
                         $end = \Carbon\Carbon::parse($end);
                     }
-                    
-                    if ($start && now()->lt($start)) throw new \Exception('زمان شروع استفاده از این کد هنوز نرسیده است.');
-                    if ($end && now()->gt($end)) throw new \Exception('مهلت استفاده از این کد به پایان رسیده است.');
-                    break;
-
-                /* ==============================
-             * 5. محصولات و دسته‌بندی‌ها
-             * ============================== */
-                case 'required_item':
-                    $itemId = $condition->target_id; // Use target_id instead of value
-                    $itemType = $this->normalizeItemType($condition->item_type); // Normalize item_type
-                    $exists = collect($cartSummary['items'])
-                        ->contains(
-                            fn($item) => (!$itemType || $item['type'] === $itemType) &&
-                                (
-                                    ($item['type'] === 'course' && $item['course']['id'] == $itemId) ||
-                                    ($item['type'] === 'path' && $item['path']['id'] == $itemId) ||
-                                    ($item['type'] === 'vip' && $item['vip']['id'] == $itemId)
-                                )
-                        );
-                    if (!$exists) throw new \Exception('آیتم الزامی در سبد خرید شما وجود ندارد.');
-                    break;
-
-                case 'forbidden_item':
-                    $itemId = $condition->target_id; // Use target_id instead of value
-                    $itemType = $this->normalizeItemType($condition->item_type); // Normalize item_type
-                    $exists = collect($cartSummary['items'])
-                        ->contains(
-                            fn($item) => (!$itemType || $item['type'] === $itemType) &&
-                                (
-                                    ($item['type'] === 'course' && $item['course']['id'] == $itemId) ||
-                                    ($item['type'] === 'path' && $item['path']['id'] == $itemId) ||
-                                    ($item['type'] === 'vip' && $item['vip']['id'] == $itemId)
-                                )
-                        );
-                    if ($exists) throw new \Exception('وجود یک آیتم ممنوعه در سبد استفاده از کد را محدود کرده است.');
-                    break;
-
-
-                case 'required_category':
-                    $catId = $value;
-                    $exists = collect($cartSummary['items'])
-                        ->contains(
-                            fn($item) =>
-                            $item['type'] === 'course' && in_array($catId, $item['course']['categories'] ?? [])
-                        );
-                    if (!$exists) throw new \Exception('دسته‌بندی الزامی در سبد شما وجود ندارد.');
-                    break;
-
-                case 'forbidden_category':
-                    $catId = $value;
-                    $exists = collect($cartSummary['items'])
-                        ->contains(
-                            fn($item) =>
-                            $item['type'] === 'course' && in_array($catId, $item['course']['categories'] ?? [])
-                        );
-                    if ($exists) throw new \Exception('وجود یک دسته‌بندی ممنوعه در سبد استفاده از کد را محدود کرده است.');
-                    break;
-
-
-                /* ==============================
-             * 6. سفارشات قبلی
-             * ============================== */
-                case 'min_total_spent':
-                    $spent = $user->payments()
-                        ->whereNotNull('paid_at')
-                        ->where('status', true)->sum('amount');
-                    if (!$this->compare($spent, $operator, $value)) {
-                        throw new \Exception('مجموع مبالغ خرید شما با شرط تعیین‌شده سازگار نیست.');
+                    if ($start && now()->lt($start)) {
+                        throw new DiscountException('not_started', 'زمان شروع استفاده از این کد هنوز شروع نشده است.');
+                    }
+                    if ($end && now()->gt($end)) {
+                        throw new DiscountException('expired', 'این کد تخفیف منقضی شده است.');
                     }
                     break;
 
+                case 'required_item':
+                    $itemId = $condition->target_id;
+                    $itemType = $this->normalizeItemType($condition->item_type);
+                    $exists = collect($cartSummary['items'])->contains(
+                        fn ($item) => (!$itemType || $item['type'] === $itemType) && (int) $item['id'] === (int) $itemId
+                    );
+                    if (!$exists) {
+                        throw new DiscountException('condition', 'آیتم الزامی در سبد خرید شما وجود ندارد.');
+                    }
+                    break;
+
+                case 'forbidden_item':
+                    $itemId = $condition->target_id;
+                    $itemType = $this->normalizeItemType($condition->item_type);
+                    $exists = collect($cartSummary['items'])->contains(
+                        fn ($item) => (!$itemType || $item['type'] === $itemType) && (int) $item['id'] === (int) $itemId
+                    );
+                    if ($exists) {
+                        throw new DiscountException('condition', 'وجود یک آیتم ممنوعه در سبد استفاده از کد را محدود کرده است.');
+                    }
+                    break;
+
+                case 'required_category':
+                    $catId = (int) $value;
+                    $exists = collect($cartSummary['items'])->contains(
+                        fn ($item) => in_array($catId, array_map('intval', $item['categories'] ?? []), true)
+                    );
+                    if (!$exists) {
+                        throw new DiscountException('condition', 'دسته‌بندی الزامی در سبد شما وجود ندارد.');
+                    }
+                    break;
+
+                case 'forbidden_category':
+                    $catId = (int) $value;
+                    $exists = collect($cartSummary['items'])->contains(
+                        fn ($item) => in_array($catId, array_map('intval', $item['categories'] ?? []), true)
+                    );
+                    if ($exists) {
+                        throw new DiscountException('condition', 'وجود یک دسته‌بندی ممنوعه در سبد استفاده از کد را محدود کرده است.');
+                    }
+                    break;
+
+                case 'min_total_spent':
                 case 'max_total_spent':
                     $spent = $user->payments()
                         ->whereNotNull('paid_at')
                         ->where('status', true)->sum('amount');
                     if (!$this->compare($spent, $operator, $value)) {
-                        throw new \Exception('مجموع مبالغ خرید شما با شرط تعیین‌شده سازگار نیست.');
+                        throw new DiscountException('condition', 'مجموع مبالغ خرید شما با شرط تعیین‌شده سازگار نیست.');
                     }
                     break;
 
                 case 'purchased_product_before':
-                    $itemId = $condition->target_id; // Use target_id instead of value
-                    $itemType = $this->normalizeItemType($condition->item_type); // Normalize item_type
-                    $exists = $user->payments()->whereNotNull('paid_at')->where('status', true)->get()->contains(function ($payment) use ($itemId, $itemType) {
-                        $item = $payment->payable;
-                        return ($itemType === 'course' && $item instanceof Course && $item->id == $itemId) ||
-                            ($itemType === 'path' && $item instanceof Path && $item->id == $itemId) ||
-                            ($itemType === 'vip' && $item instanceof Plan && $item->id == $itemId);
-                    });
-                    if (!$exists) throw new \Exception('تا کنون این آیتم را خریداری نکرده‌اید.');
-                    break;
-
                 case 'not_purchased_product_before':
-                    $itemId = $condition->target_id; // Use target_id instead of value
-                    $itemType = $this->normalizeItemType($condition->item_type); // Normalize item_type
+                    $itemId = $condition->target_id;
+                    $itemType = $this->normalizeItemType($condition->item_type);
                     $exists = $user->payments()->whereNotNull('paid_at')->where('status', true)->get()->contains(function ($payment) use ($itemId, $itemType) {
                         $item = $payment->payable;
                         return ($itemType === 'course' && $item instanceof Course && $item->id == $itemId) ||
                             ($itemType === 'path' && $item instanceof Path && $item->id == $itemId) ||
                             ($itemType === 'vip' && $item instanceof Plan && $item->id == $itemId);
                     });
-                    if ($exists) throw new \Exception('پیش‌تر این آیتم را خریداری کرده‌اید.');
+                    if ($condition->condition_type === 'purchased_product_before' && !$exists) {
+                        throw new DiscountException('condition', 'تا کنون این آیتم را خریداری نکرده‌اید.');
+                    }
+                    if ($condition->condition_type === 'not_purchased_product_before' && $exists) {
+                        throw new DiscountException('condition', 'پیش‌تر این آیتم را خریداری کرده‌اید.');
+                    }
                     break;
-
-
-                /* ==============================
-             * 7. شرط‌های خاص
-             * ============================== */
 
                 case 'new_user':
                     $days = $value ?? 7;
                     if ($user->created_at->lt(now()->subDays($days))) {
-                        throw new \Exception('این کد فقط برای کاربران جدید قابل استفاده است.');
+                        throw new DiscountException('new_user', 'این کد فقط برای کاربران جدید قابل استفاده است.');
                     }
                     break;
             }
         }
-        // all conditions satisfied
-        return;
     }
-
 
     public function calculateDiscountAmount(Discount $discount, Cart $cart): int
     {
-        // محاسبه قیمت اصلی آیتم
-        $originalPrice = app(\App\Services\CartService::class)->calculateOriginalPrice($cart);
-        
-        switch ($discount->type) {
-            case 'percent':
-                return intval($originalPrice * ($discount->value / 100));
-            case 'fixed':
-                return intval($discount->value);
-            case 'free':
-                return intval($originalPrice);
-            default:
-                return 0;
+        $user = $cart->user;
+        $pricing = $this->priceCalculator->forCartItem($cart, $discount, $user);
+
+        return (int) $pricing['coupon_discount_amount'];
+    }
+
+    /**
+     * Fully validate a coupon against the current cart without mutating it.
+     */
+    public function validateForCart(Discount $discount, User $user): void
+    {
+        $this->assertSchedule($discount);
+        $this->checkEligibilities($discount, $user);
+
+        $carts = $user->carts()->with('cartable')->get();
+        if ($carts->isEmpty()) {
+            throw new DiscountException('empty_cart', 'سبد خرید خالی است.');
+        }
+
+        $firstCart = $carts->first();
+        $this->validateConditionsOrFail($discount, $user, $firstCart);
+
+        $applied = false;
+        foreach ($carts as $cart) {
+            if ($this->isCartItemEligible($discount, $cart, $user)) {
+                $applied = true;
+                break;
+            }
+        }
+
+        if (!$applied) {
+            throw new DiscountException('not_applicable', 'این کد برای هیچ‌یک از آیتم‌های سبد شما قابل اعمال نیست.');
         }
     }
 
     public function apply(Discount $discount, Cart $cart, User $user): array
     {
-        // 1) Eligibilities
+        $this->assertSchedule($discount);
         $this->checkEligibilities($discount, $user);
-
-        // 2) Cart level validations with precise messages
-        if ($discount->starts_at && $discount->starts_at->isFuture()) {
-            throw new \Exception('زمان شروع استفاده از این کد هنوز نرسیده است.');
-        }
-        if ($discount->ends_at && $discount->ends_at->isPast()) {
-            throw new \Exception('مهلت استفاده از این کد به پایان رسیده است.');
-        }
-        if ($discount->usage_limit !== null && $discount->usages()->count() >= $discount->usage_limit) {
-            throw new \Exception('ظرفیت استفاده از این کد به پایان رسیده است.');
-        }
-
-        // 3) Conditions
         $this->validateConditionsOrFail($discount, $user, $cart);
 
-        $amount = $this->calculateDiscountAmount($discount, $cart);
-        $originalPrice = app(\App\Services\CartService::class)->calculateOriginalPrice($cart);
+        $pricing = $this->priceCalculator->forCartItem($cart, $discount, $user);
 
         return [
-            'discount_id'   => $discount->id,
+            'discount_id' => $discount->id,
             'discount_code' => $discount->code,
-            'amount'        => $amount,
-            'final_price'   => max(0, $originalPrice - $amount),
+            'amount' => $pricing['coupon_discount_amount'],
+            'course_discount_amount' => $pricing['course_discount_amount'],
+            'total_discount' => $pricing['total_discount'],
+            'final_price' => $pricing['final_price'],
+            'original_price' => $pricing['original_price'],
         ];
     }
 
     /**
-     * Normalize item type to handle both short names and full model names.
+     * Persist coupon + recalculated prices on all cart rows.
+     * Caller must already have validated the coupon.
      */
-    protected function normalizeItemType($itemType): ?string
+    public function persistCouponOnCart(User $user, Discount $discount): void
     {
-        if (!$itemType) {
+        $carts = $user->carts()->with('cartable')->get();
+
+        foreach ($carts as $cart) {
+            $eligibleCoupon = $this->isCartItemEligible($discount, $cart, $user) ? $discount : null;
+            $pricing = $this->priceCalculator->forCartItem($cart, $eligibleCoupon, $user);
+
+            $cart->update([
+                'discount_id' => $eligibleCoupon?->id,
+                'discount_amount' => $pricing['total_discount'],
+                'price' => $pricing['final_price'],
+            ]);
+        }
+    }
+
+    public function persistWithoutCoupon(User $user): void
+    {
+        $carts = $user->carts()->with('cartable')->get();
+
+        foreach ($carts as $cart) {
+            $pricing = $this->priceCalculator->forCartItem($cart, null, $user);
+            $cart->update([
+                'discount_id' => null,
+                'discount_amount' => $pricing['total_discount'],
+                'price' => $pricing['final_price'],
+            ]);
+        }
+    }
+
+    public function currentCartCoupon(User $user): ?Discount
+    {
+        $discountId = $user->carts()->whereNotNull('discount_id')->value('discount_id');
+        if (!$discountId) {
             return null;
         }
 
-        // If it's already a short name, return as is
-        if (in_array($itemType, ['course', 'path', 'vip'])) {
-            return $itemType;
+        return Discount::with(['eligibilities', 'conditions'])->find($discountId);
+    }
+
+    public function recordUsage(Discount $discount, User $user, $payment): void
+    {
+        $already = $discount->usages()
+            ->where('payment_id', $payment->id)
+            ->where('user_id', $user->id)
+            ->exists();
+
+        if ($already) {
+            return;
         }
 
-        // Convert full model names to short names
-        switch ($itemType) {
-            case 'App\\Models\\Course':
-                return 'course';
-            case 'App\\Models\\Path':
-                return 'path';
-            case 'App\\Models\\Plan':
-                return 'vip';
-            default:
-                return $itemType;
+        $locked = Discount::query()->whereKey($discount->id)->lockForUpdate()->first();
+        if (!$locked) {
+            return;
         }
+
+        if ($locked->usage_limit !== null && $locked->usages()->count() >= $locked->usage_limit) {
+            throw new DiscountException('usage_limit', 'سقف استفاده از این کد تکمیل شده است.');
+        }
+
+        if ($locked->per_user_limit !== null && $locked->usages()->where('user_id', $user->id)->count() >= $locked->per_user_limit) {
+            throw new DiscountException('per_user_limit', 'شما قبلاً از این کد استفاده کرده‌اید.');
+        }
+
+        $locked->usages()->create([
+            'user_id' => $user->id,
+            'payment_id' => $payment->id,
+            'used_at' => now(),
+        ]);
+    }
+
+    protected function cartItemType(Cart $cart): ?string
+    {
+        return match ($cart->cartable_type) {
+            Course::class => 'course',
+            Path::class => 'path',
+            Plan::class => 'vip',
+            default => null,
+        };
     }
 }

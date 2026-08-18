@@ -23,7 +23,7 @@ class VideoView extends Model
     protected $casts = [
         'watched_times' => 'array',
         'watched' => 'boolean',
-        'last_position' => 'float',
+        'last_position' => 'integer',
     ];
 
     public function user()

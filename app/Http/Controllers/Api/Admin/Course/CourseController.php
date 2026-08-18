@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Admin\Course;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\AuthorizesAdminCourses;
+use App\Models\Attach;
 use App\Models\Cart;
 use App\Models\Category;
 use App\Models\Course;
@@ -181,14 +182,8 @@ class CourseController extends Controller
             'username' => $course->teacher->username,
         ] : null;
 
-        $rowAttach = $course->attachs->first();
-        $attach = null;
-        if ($rowAttach) {
-            $attach = [
-                'url' => $rowAttach->url,
-                'size' => $this->urlDetails($rowAttach->url)['size']
-            ];
-        }
+        $attachs = $course->attachs->map(fn ($row) => $this->mapAttachRecord($row))->values();
+        $attach = $attachs->first();
 
 
         $rawTrailer = $course->videos
@@ -372,6 +367,7 @@ class CourseController extends Controller
             'end_date' => $course->end_date,
             'teacher' => $teacher,
             'attach' => $attach,
+            'attachs' => $attachs,
             'trailer' => $trailerUrl,
             'trailer_status' => $trailerStatus,
             'trailer_video_id' => $trailerVideoId,
@@ -737,6 +733,9 @@ class CourseController extends Controller
             ],
             'publish' => ['required', 'boolean'],
             'allows_installment' => ['nullable', 'boolean'],
+            'has_money_back_guarantee' => ['nullable', 'boolean'],
+            'certificate_enabled' => ['nullable', 'boolean'],
+            'certificate_template_id' => ['nullable', 'exists:certificate_templates,id'],
             'price' => ['required', 'numeric', 'max:100000000'],
             'start_date' => ['nullable', "date", "before:end_date"],
             'end_date' => ['nullable', "date", "after:start_date"],
@@ -746,6 +745,14 @@ class CourseController extends Controller
         } else {
             $user = auth('api')->user();
             $validData = $validator->validated();
+            $validData['allows_installment'] = (bool) ($validData['allows_installment'] ?? false);
+            $validData['has_money_back_guarantee'] = array_key_exists('has_money_back_guarantee', $validData)
+                ? (bool) $validData['has_money_back_guarantee']
+                : true;
+            $validData['certificate_enabled'] = (bool) ($validData['certificate_enabled'] ?? false);
+            if (empty($validData['certificate_enabled'])) {
+                $validData['certificate_template_id'] = null;
+            }
 
             // Clean and format meta_keywords
             if (isset($validData['meta_keywords']) && $validData['meta_keywords']) {
@@ -886,13 +893,8 @@ class CourseController extends Controller
         }
 
         $rowAttach = $course->attachs->first();
-        $attach = null;
-        if ($rowAttach) {
-            $attach = [
-                'url' => $rowAttach->url,
-                'size' => $this->urlDetails($rowAttach->url)['size']
-            ];
-        }
+        $attach = $rowAttach ? $this->mapAttachRecord($rowAttach) : null;
+        $attachs = $course->attachs->map(fn ($row) => $this->mapAttachRecord($row))->values();
 
 
         $response = [
@@ -907,6 +909,8 @@ class CourseController extends Controller
             'poster' => $course->poster,
             'publish' => $course->publish,
             'price' => $course->price,
+            'allows_installment' => (bool) $course->allows_installment,
+            'has_money_back_guarantee' => $course->has_money_back_guarantee !== false,
             'start_date' => $course->start_date,
             'end_date' => $course->end_date,
             'categories' => $categories,
@@ -918,6 +922,7 @@ class CourseController extends Controller
             'trailer_status' => $trailerStatus,
             'trailer_video_id' => $trailerVideoId,
             'attach' => $attach,
+            'attachs' => $attachs,
             'certificate_enabled' => (bool) $course->certificate_enabled,
             'certificate_template_id' => $course->certificate_template_id,
             'certificate_template' => $course->certificateTemplate ? [
@@ -982,6 +987,7 @@ class CourseController extends Controller
             ],
             'publish' => ['required', 'boolean'],
             'allows_installment' => ['nullable', 'boolean'],
+            'has_money_back_guarantee' => ['nullable', 'boolean'],
             'price' => ['required', 'numeric', 'max:100000000'],
             'start_date' => ['nullable', "date", "before:end_date"],
             'end_date' => ['nullable', "date", "after:start_date"],
@@ -1000,6 +1006,11 @@ class CourseController extends Controller
             } else {
                 $validData['meta_keywords'] = null;
             }
+
+            $validData['allows_installment'] = (bool) ($validData['allows_installment'] ?? false);
+            $validData['has_money_back_guarantee'] = array_key_exists('has_money_back_guarantee', $validData)
+                ? (bool) $validData['has_money_back_guarantee']
+                : true;
 
             if (empty($validData['certificate_enabled'])) {
                 $validData['certificate_enabled'] = false;
@@ -1096,6 +1107,7 @@ class CourseController extends Controller
             'filename' => ['required', 'string'],
             'mime' => ['required', 'string'],
             'size' => ['required', 'integer', 'min:1'],
+            'title' => ['nullable', 'string', 'max:255'],
         ]);
         if (!$validator->passes()) {
             return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
@@ -1122,8 +1134,11 @@ class CourseController extends Controller
                 'path' => $filePath,
                 'mime' => $validData['mime'],
                 'size' => (int) $validData['size'],
+                'filename' => $validData['filename'],
+                'title' => $this->attachmentTitle($validData),
                 'courseId' => $course->id,
                 'userId' => optional($user)->id,
+                'replace' => false,
             ];
 
             $tokenData = UploadTokenService::generate($claims);
@@ -1139,19 +1154,33 @@ class CourseController extends Controller
         }
     }
 
-    public function removeAttachedFile($course)
+    public function removeAttachedFile($course, $attachId = null)
     {
         $this->authorizeCourse($course, 'update');
 
-        $attach = $course->attachs->first();
-        if ($attach) {
-            $disk = $this->urlDetails($attach->url)['disk'];
-            $path = $this->urlDetails($attach->url)['path'];
-            if (Storage::disk($disk)->exists($path)) {
-                Storage::disk($disk)->delete($path);
-                $course->attachs()->delete();
-            }
+        $query = $course->attachs();
+        if ($attachId) {
+            $query->where('id', $attachId);
         }
+        $attaches = $query->get();
+
+        foreach ($attaches as $attach) {
+            $details = $this->urlDetails($attach->url);
+            if ($details && !empty($details['disk']) && !empty($details['path'])) {
+                try {
+                    if (Storage::disk($details['disk'])->exists($details['path'])) {
+                        Storage::disk($details['disk'])->delete($details['path']);
+                    }
+                } catch (\Throwable $e) {
+                    $attach->deleteMediaFiles();
+                }
+            } else {
+                $attach->deleteMediaFiles();
+            }
+            $attach->delete();
+        }
+
+        return $attaches->count();
     }
 
     public function removeTrailer($course)
@@ -1276,6 +1305,7 @@ class CourseController extends Controller
     {
         $courseId = $request->input('course_id');
         $fileType = $request->input('file_type');
+        $attachId = $request->input('attach_id');
 
         $course = Course::find($courseId);
         if (!$course) {
@@ -1292,7 +1322,10 @@ class CourseController extends Controller
                 $response = ['message' => "Success, trailer of the course has been deleted successfully."];
                 break;
             case 'attached_file':
-                $this->removeAttachedFile($course);
+                $deleted = $this->removeAttachedFile($course, $attachId);
+                if ($attachId && $deleted === 0) {
+                    return response()->json(['message' => 'Attached file not found.'], 404);
+                }
                 $response = ['message' => "Success, attached file of the course has been deleted successfully."];
                 break;
             default:
@@ -1319,7 +1352,7 @@ class CourseController extends Controller
         // Load course basic info
         $course->load([
             'videos' => function ($query) {
-                $query->select('id', 'videoable_id', 'videoable_type', 'type', 'path', 'disk', 'status', 'duration', 'quality', 'created_at');
+                $query->select('id', 'videoable_id', 'videoable_type', 'type', 'path', 'disk', 'status', 'progress', 'error_message', 'duration', 'quality', 'created_at');
             },
             'attachs' => function ($query) {
                 $query->select('id', 'attachable_id', 'attachable_type', 'url', 'title', 'created_at');
@@ -1639,26 +1672,40 @@ class CourseController extends Controller
                 $videos = $videosQuery->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
 
                 $response['videos'] = $videos->map(function ($video) {
-                    $diskUrl = config("filesystems.disks.{$video->disk}.url");
-                    $videoUrl = null;
-                    if ($diskUrl) {
-                        $videoUrl = rtrim($diskUrl, '/') . '/' . ltrim($video->path, '/');
-                    } else {
-                        $videoUrl = $video->path;
+                    $fileSize = null;
+                    try {
+                        if ($video->path && Storage::disk($video->disk)->exists($video->path)) {
+                            $fileSize = Storage::disk($video->disk)->size($video->path);
+                        }
+                    } catch (\Throwable $e) {
+                        $fileSize = null;
                     }
 
-                    $fileSize = null;
-                    if (Storage::disk($video->disk)->exists($video->path)) {
-                        $fileSize = Storage::disk($video->disk)->size($video->path);
+                    $viewUrl = null;
+                    try {
+                        if ($video->path && $video->disk) {
+                            $viewUrl = \Illuminate\Support\Facades\URL::temporarySignedRoute(
+                                'api.admin.video.view',
+                                now()->addHours(6),
+                                ['video' => $video->id]
+                            );
+                        }
+                    } catch (\Throwable $e) {
+                        $diskUrl = config("filesystems.disks.{$video->disk}.url");
+                        $viewUrl = $diskUrl
+                            ? rtrim($diskUrl, '/') . '/' . ltrim($video->path, '/')
+                            : $video->path;
                     }
 
                     return [
                         'id' => $video->id,
                         'type' => $video->type,
                         'status' => $video->status,
+                        'progress' => $video->progress,
+                        'error_message' => $video->error_message,
                         'path' => $video->path,
                         'disk' => $video->disk,
-                        'url' => $videoUrl,
+                        'url' => $viewUrl,
                         'duration' => $video->duration,
                         'quality' => $video->quality,
                         'size' => $fileSize,
@@ -1691,7 +1738,7 @@ class CourseController extends Controller
                     return [
                         'id' => $attach->id,
                         'url' => $attach->url,
-                        'title' => $attach->title ?? null,
+                        'title' => $attach->displayTitle(),
                         'size' => $details ? ($details['size'] ?? null) : null,
                         'ext' => $details ? ($details['ext'] ?? null) : null,
                         'created_at' => $attach->created_at,
@@ -1816,7 +1863,7 @@ class CourseController extends Controller
                     return [
                         'id' => $attach->id,
                         'url' => $attach->url,
-                        'title' => $attach->title ?? null,
+                        'title' => $attach->displayTitle(),
                         'size' => $details ? ($details['size'] ?? null) : null,
                         'ext' => $details ? ($details['ext'] ?? null) : null,
                         'created_at' => $attach->created_at,
@@ -1839,6 +1886,49 @@ class CourseController extends Controller
         }
 
         return response()->json($response, 200);
+    }
+
+    public function updateAttachedFile(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'course_id' => ['required', 'exists:courses,id'],
+            'attach_id' => ['required', 'exists:attaches,id'],
+            'title' => ['required', 'string', 'max:255'],
+        ]);
+        if (!$validator->passes()) {
+            return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
+        }
+        $course = Course::findOrFail($request->input('course_id'));
+        $this->authorizeCourse($course, 'update');
+        $attach = $course->attachs()->where('id', $request->input('attach_id'))->first();
+        if (!$attach) {
+            return response()->json(['message' => 'Attached file not found.'], 404);
+        }
+        $attach->title = $this->attachmentTitle(['title' => $request->input('title'), 'filename' => $attach->title]);
+        $attach->save();
+        return response()->json(['message' => 'Success', 'attach' => $this->mapAttachRecord($attach)], 200);
+    }
+
+    protected function attachmentTitle(array $data): string
+    {
+        $title = trim((string) ($data['title'] ?? ''));
+        if ($title !== '' && !Attach::isUuidLikeName($title)) {
+            return Attach::prettyTitle($title, $title);
+        }
+
+        return Attach::prettyTitle($data['filename'] ?? '');
+    }
+
+    protected function mapAttachRecord($attach): array
+    {
+        $details = $this->urlDetails($attach->url) ?: [];
+        return [
+            'id' => $attach->id,
+            'url' => $attach->url,
+            'title' => $attach->displayTitle(),
+            'size' => $details['size'] ?? null,
+            'ext' => $details['ext'] ?? null,
+        ];
     }
 
     public function urlDetails($url)
@@ -1868,7 +1958,7 @@ class CourseController extends Controller
                 $result['disk'] = $disk;
                 $result['path'] = $relativePath;
                 $result['size'] = Storage::disk($disk)->size($relativePath);
-                $result['ext'] = explode('.', $relativePath)[1];
+                $result['ext'] = pathinfo($relativePath, PATHINFO_EXTENSION);
                 $result['url'] = $url;
                 break;
             }

@@ -38,6 +38,7 @@ class Course extends Model implements Likeable
         'end_date',
         'price',
         'allows_installment',
+        'has_money_back_guarantee',
         'publish',
         'status_id',
         'level_id',
@@ -53,6 +54,7 @@ class Course extends Model implements Likeable
         'publish' => 'boolean',
         'certificate_enabled' => 'boolean',
         'allows_installment' => 'boolean',
+        'has_money_back_guarantee' => 'boolean',
     ];
 
     public function getCascadeRelations(): array
