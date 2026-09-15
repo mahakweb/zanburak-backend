@@ -175,6 +175,15 @@ class MessengerCryptoService
                 // Device public keys — needed so siblings can wrap User Identity
                 // transfers without opening a conversation.
                 'identity_public_key' => $d->identity_public_key,
+                // Convenience fields for clients that do not parse the JSON blob.
+                'identity_signing_public_key' => data_get(
+                    json_decode((string) $d->identity_public_key, true) ?: [],
+                    'signing'
+                ),
+                'identity_agreement_public_key' => data_get(
+                    json_decode((string) $d->identity_public_key, true) ?: [],
+                    'agreement'
+                ),
             ]);
     }
 
