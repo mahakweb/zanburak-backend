@@ -24,20 +24,23 @@ class ValuableCommentListener
         }
 
         $comment = $event->comment;
-        
-        // بررسی اینکه آیا این اولین کامنت تایید شده در این دوره است که لایک گرفته
-        $isFirstValuable = Comment::query()
+
+        if (!$comment->approved || !$comment->likes()->where('type', 'like')->exists()) {
+            return;
+        }
+
+        $earlierLikedComment = Comment::query()
             ->where('commentable_type', $comment->commentable_type)
             ->where('commentable_id', $comment->commentable_id)
             ->where('approved', true)
             ->where('id', '!=', $comment->id)
+            ->where('created_at', '<', $comment->created_at)
             ->whereHas('likes', function ($q) {
                 $q->where('type', 'like');
             })
-            ->where('created_at', '<', $comment->created_at)
-            ->doesntExist();
+            ->exists();
 
-        if ($comment->approved && $isFirstValuable) {
+        if (!$earlierLikedComment) {
             upgrade_mission_for_user($event->user->id, $this->missionId);
         }
     }

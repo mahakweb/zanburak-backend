@@ -26,18 +26,16 @@ class FastestCompletionListener
             return;
         }
 
-        $purchaseTime = $pivot->pivot->created_at;
-        $completionTime = $pivot->pivot->completed_at;
-        $completionDuration = $completionTime->diffInHours($purchaseTime);
+        $completionDuration = elapsed_hours($pivot->pivot->created_at, $pivot->pivot->completed_at);
 
-        // بررسی اینکه آیا این سریع‌ترین تکمیل برای این دوره است
         $fastestCompletion = DB::table('course_user')
             ->where('course_id', $event->course->id)
             ->whereNotNull('completed_at')
-            ->selectRaw('MIN(TIMESTAMPDIFF(HOUR, created_at, completed_at)) as min_hours')
-            ->value('min_hours');
+            ->get(['created_at', 'completed_at'])
+            ->map(fn ($row) => elapsed_hours($row->created_at, $row->completed_at))
+            ->min();
 
-        if ($fastestCompletion && $completionDuration <= $fastestCompletion) {
+        if ($fastestCompletion !== null && $completionDuration <= $fastestCompletion) {
             upgrade_mission_for_user($event->user->id, $this->missionId);
         }
     }

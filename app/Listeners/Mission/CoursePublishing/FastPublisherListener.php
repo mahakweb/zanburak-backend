@@ -25,6 +25,6 @@ class FastPublisherListener
             ->where('created_at', '>=', $monthStart)
             ->count();
 
-        upgrade_mission_for_user($event->user->id, $this->missionId, $publishedThisMonth, 1);
+        sync_mission_progress_for_user($event->user->id, $this->missionId, (int) $publishedThisMonth);
     }
 }

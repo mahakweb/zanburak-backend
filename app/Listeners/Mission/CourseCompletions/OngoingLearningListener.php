@@ -5,6 +5,7 @@ namespace App\Listeners\Mission\CourseCompletions;
 use App\Support\SqlDialect;
 use App\Events\Mission\CourseCompletionEvent;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class OngoingLearningListener
 {
@@ -28,9 +29,10 @@ class OngoingLearningListener
             ->count();
 
         // بررسی اینکه آیا تکمیل‌ها در ماه‌های مختلف توزیع شده‌اند (حداقل 6 ماه)
-        $monthsWithCompletions = $event->user->courses()
-            ->wherePivot('completed_at', '>=', $oneYearAgo)
-            ->wherePivotNotNull('completed_at')
+        $monthsWithCompletions = DB::table('course_user')
+            ->where('user_id', $event->user->id)
+            ->where('completed_at', '>=', $oneYearAgo)
+            ->whereNotNull('completed_at')
             ->selectRaw(SqlDialect::year('completed_at').' as year, '.SqlDialect::month('completed_at').' as month')
             ->groupBy('year', 'month')
             ->get()

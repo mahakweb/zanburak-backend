@@ -125,9 +125,8 @@ class ScoresController extends Controller
 
         $user = auth('api')->user();
         
-        // نرخ تبدیل: 1 امتیاز = 1 تومان (می‌توان از config یا env خواند)
-        $conversionRate = config('scores.conversion_rate', 1);
-        $minScores = config('scores.min_scores', 1000);
+        $conversionRate = $this->scoresService->getConversionRate();
+        $minScores = $this->scoresService->getMinScores();
         
         $result = $this->scoresService->convertScoresToMoney($user, $request->scores, $conversionRate, $minScores);
 
@@ -154,15 +153,15 @@ class ScoresController extends Controller
      */
     public function conversionInfo()
     {
-        $rate = config('scores.conversion_rate', 1);
-        $minScores = config('scores.min_scores', 1000);
+        $rate = $this->scoresService->getConversionRate();
+        $minScores = $this->scoresService->getMinScores();
 
         return response()->json([
             'success' => true,
             'data' => [
                 'conversion_rate' => $rate,
                 'min_scores' => $minScores,
-                'description' => "هر {$rate} امتیاز = 1 تومان",
+                'description' => "هر 1 امتیاز = {$rate} تومان",
             ],
         ]);
     }

@@ -3,6 +3,9 @@
 namespace App\Listeners\Mission\CoursePublishing;
 
 use App\Events\Mission\CoursePublishingEvent;
+use App\Events\Score\Rating\RatingSubmitted;
+use App\Models\Course;
+use App\Models\User;
 
 class PositiveFeedbackListener
 {
@@ -15,15 +18,33 @@ class PositiveFeedbackListener
      * @param  CoursePublishingEvent  $event
      * @return void
      */
-    public function handle(CoursePublishingEvent $event)
+    public function handle(CoursePublishingEvent|RatingSubmitted $event)
     {
-        $course = $event->course;
-        
+        [$course, $teacher] = $this->courseAndTeacher($event);
+        if (!$course || !$teacher) {
+            return;
+        }
+
         $likesCount = $course->likes()->where('type', 'like')->count();
         $avgRating = $course->ratings()->avg('rating') ?? 0;
 
         if ($likesCount >= 1000 || $avgRating >= 4.5) {
-            upgrade_mission_for_user($event->user->id, $this->missionId);
+            upgrade_mission_for_user($teacher->id, $this->missionId);
         }
+    }
+
+    protected function courseAndTeacher(CoursePublishingEvent|RatingSubmitted $event): array
+    {
+        if ($event instanceof RatingSubmitted) {
+            $course = $event->rating->rateable;
+            if (!$course instanceof Course) {
+                return [null, null];
+            }
+            $teacher = $course->teacher ?: ($course->teacher_id ? User::find($course->teacher_id) : null);
+
+            return [$course, $teacher];
+        }
+
+        return [$event->course, $event->user];
     }
 }

@@ -323,11 +323,14 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.missions.show',
             'api.admin.missions.participants',
         ], ['missions.view']);
+        $assign('api.admin.missions.participants.all', ['missions.view']);
+        $assign('api.admin.missions.sync-report-progress', ['missions.update']);
         $assign('api.admin.missions.create', ['missions.create']);
         $assign('api.admin.missions.upload-icon', ['missions.create', 'missions.update']);
         $assign([
             'api.admin.missions.update',
             'api.admin.missions.toggle-active',
+            'api.admin.missions.score-settings.update',
         ], ['missions.update']);
         $assign('api.admin.missions.delete', ['missions.delete']);
         $assign([

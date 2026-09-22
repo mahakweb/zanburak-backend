@@ -5,6 +5,7 @@ namespace App\Listeners\Mission\Purchases;
 use App\Support\SqlDialect;
 use App\Events\Mission\PurchaseEvent;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class LoyalCustomerListener
 {
@@ -26,9 +27,9 @@ class LoyalCustomerListener
             ->wherePivot('created_at', '>=', $oneYearAgo)
             ->count();
 
-        // بررسی اینکه آیا خریدها در ماه‌های مختلف توزیع شده‌اند (حداقل 3 ماه)
-        $monthsWithPurchases = $event->user->courses()
-            ->wherePivot('created_at', '>=', $oneYearAgo)
+        $monthsWithPurchases = DB::table('course_user')
+            ->where('user_id', $event->user->id)
+            ->where('created_at', '>=', $oneYearAgo)
             ->selectRaw(SqlDialect::year('created_at').' as year, '.SqlDialect::month('created_at').' as month')
             ->groupBy('year', 'month')
             ->get()

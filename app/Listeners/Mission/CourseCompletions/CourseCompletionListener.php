@@ -21,6 +21,6 @@ class CourseCompletionListener
             ->wherePivotNotNull('completed_at')
             ->count();
 
-        upgrade_mission_for_user($event->user->id, $this->missionId, $completedCoursesCount, 1);
+        sync_mission_progress_for_user($event->user->id, $this->missionId, (int) $completedCoursesCount);
     }
 }

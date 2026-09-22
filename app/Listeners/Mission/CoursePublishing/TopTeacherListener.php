@@ -3,8 +3,8 @@
 namespace App\Listeners\Mission\CoursePublishing;
 
 use App\Events\Mission\CoursePublishingEvent;
-use Illuminate\Support\Facades\DB;
-use Carbon\Carbon;
+use App\Events\Mission\PurchaseEvent;
+use App\Models\User;
 
 class TopTeacherListener
 {
@@ -17,32 +17,55 @@ class TopTeacherListener
      * @param  CoursePublishingEvent  $event
      * @return void
      */
-    public function handle(CoursePublishingEvent $event)
+    public function handle(CoursePublishingEvent|PurchaseEvent $event)
     {
-        $course = $event->course;
-        $firstWeekEnd = $event->publishedAt->copy()->addWeek();
+        if ($event instanceof PurchaseEvent) {
+            $course = $event->course;
+            $teacher = $course?->teacher;
+            if (!$teacher && $course?->teacher_id) {
+                $teacher = User::find($course->teacher_id);
+            }
+        } else {
+            $course = $event->course;
+            $teacher = $event->user;
+        }
 
-        // تعداد خریدها در هفته اول
+        if (!$course || !$teacher || !$course->created_at) {
+            return;
+        }
+
+        $publishedAt = $course->created_at;
+        $firstWeekEnd = $publishedAt->copy()->addWeek();
+
         $purchasesInFirstWeek = $course->users()
-            ->wherePivot('created_at', '>=', $event->publishedAt)
+            ->wherePivot('created_at', '>=', $publishedAt)
             ->wherePivot('created_at', '<=', $firstWeekEnd)
             ->count();
 
-        if ($purchasesInFirstWeek >= 100) {
-            // تعداد دوره‌هایی که این مدرس با 100+ خرید در هفته اول داشته
-            $popularCoursesCount = $event->user->addCourse()
-                ->where('publish', true)
-                ->get()
-                ->filter(function($c) {
-                    $firstWeekEnd = $c->created_at->copy()->addWeek();
-                    return $c->users()
-                        ->wherePivot('created_at', '>=', $c->created_at)
-                        ->wherePivot('created_at', '<=', $firstWeekEnd)
-                        ->count() >= 100;
-                })
-                ->count();
+        if ($purchasesInFirstWeek < 100) {
+            return;
+        }
 
-            upgrade_mission_for_user($event->user->id, $this->missionId, $popularCoursesCount, 1);
+        $popularCoursesCount = $teacher->addCourse()
+            ->where('publish', true)
+            ->get()
+            ->filter(function ($c) {
+                if (!$c->created_at) {
+                    return false;
+                }
+                $firstWeekEnd = $c->created_at->copy()->addWeek();
+
+                return $c->users()
+                    ->wherePivot('created_at', '>=', $c->created_at)
+                    ->wherePivot('created_at', '<=', $firstWeekEnd)
+                    ->count() >= 100;
+            })
+            ->count();
+
+        sync_mission_progress_for_user($teacher->id, $this->missionId, (int) $popularCoursesCount);
+
+        if ($popularCoursesCount >= 5) {
+            sync_mission_progress_for_user($teacher->id, 'top-seller-teacher', 1);
         }
     }
 }

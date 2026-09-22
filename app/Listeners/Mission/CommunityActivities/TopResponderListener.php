@@ -3,8 +3,6 @@
 namespace App\Listeners\Mission\CommunityActivities;
 
 use App\Events\Mission\CommunityActivityEvent;
-use Illuminate\Support\Facades\DB;
-use Carbon\Carbon;
 
 class TopResponderListener
 {
@@ -24,15 +22,12 @@ class TopResponderListener
             return;
         }
 
-        // تعداد پاسخ‌هایی که حداقل 50 لایک دارند
         $helpfulAnswersCount = $event->user->answers()
-            ->whereHas('likes', function($query) {
-                $query->where('type', 'like')
-                      ->selectRaw('COUNT(*) as likes_count')
-                      ->havingRaw('likes_count >= 50');
-            })
+            ->whereHas('likes', function ($query) {
+                $query->where('type', 'like');
+            }, '>=', 50)
             ->count();
 
-        upgrade_mission_for_user($event->user->id, $this->missionId, $helpfulAnswersCount, 1);
+        sync_mission_progress_for_user($event->user->id, $this->missionId, (int) $helpfulAnswersCount);
     }
 }

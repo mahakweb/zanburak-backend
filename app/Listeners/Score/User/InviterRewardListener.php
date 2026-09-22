@@ -3,38 +3,23 @@
 namespace App\Listeners\Score\User;
 
 use App\Events\Score\User\UserRegistered;
-use App\Services\ScoresService;
 
 class InviterRewardListener
 {
-    protected $scoresService;
-
-    public function __construct(ScoresService $scoresService)
-    {
-        $this->scoresService = $scoresService;
-    }
-
-    /**
-     * Handle the event.
-     * اعطای امتیاز به دعوت‌کننده هنگام ثبت‌نام کاربر جدید با کد دعوت
-     *
-     * @param  UserRegistered  $event
-     * @return void
-     */
     public function handle(UserRegistered $event)
     {
-        // فقط اگر کاربر با کد دعوت ثبت‌نام کرده باشد
         if (!$event->inviter) {
             return;
         }
 
-        $inviteeName = $event->user->first_name . ' ' . $event->user->last_name;
-        
-        $this->scoresService->awardScores(
+        $inviteeName = trim(($event->user->first_name ?? '') . ' ' . ($event->user->last_name ?? ''));
+
+        // امتیاز هر دعوت از levels ماموریت خوانده می‌شود (تکراری)
+        award_mission_exp(
             $event->inviter,
-            "دعوت کاربر {$inviteeName} به زنبورک",
-            10000
+            'inviter-reward',
+            "دعوت کاربر {$inviteeName} به زنبورک"
         );
+        upgrade_mission_for_user($event->inviter->id, 'inviter-reward', 1, 1, false);
     }
 }
-

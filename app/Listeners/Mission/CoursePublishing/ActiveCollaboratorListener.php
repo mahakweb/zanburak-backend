@@ -38,7 +38,7 @@ class ActiveCollaboratorListener
                 })
                 ->count();
 
-            upgrade_mission_for_user($event->user->id, $this->missionId, $collaborativeCoursesCount, 1);
+            sync_mission_progress_for_user($event->user->id, $this->missionId, (int) $collaborativeCoursesCount);
         }
     }
 }

@@ -106,6 +106,10 @@ use App\Listeners\Mission\CoursePublishing\InteractivePublisherListener;
 use App\Listeners\Mission\CoursePublishing\SkillImprovementListener;
 use App\Listeners\Mission\CoursePublishing\GoldenFeedbackListener;
 use App\Listeners\Mission\CoursePublishing\PositiveFeedbackListener;
+use App\Listeners\Mission\CoursePublishing\PublishingExtrasListener;
+use App\Listeners\Mission\CourseCompletions\ProgressMakerListener;
+use App\Listeners\Mission\Invitations\InvitationExtrasListener;
+use App\Listeners\Mission\CommunityActivities\RemainingCommunityMissionsListener;
 use App\Listeners\Score\Discuss\SelectBestAnswerListener;
 use App\Listeners\Score\Discuss\SubmitNewAnswerListener;
 use App\Listeners\Score\Discuss\SubmitNewQuestionListener;
@@ -278,6 +282,8 @@ class EventServiceProvider extends ServiceProvider
             SkillUpgradeListener::class,
             TopPurchaserListener::class,
             LoyalCustomerListener::class,
+            TopTeacherListener::class,
+            PublishingExtrasListener::class,
         ],
 
         // Mission Events - Invitations
@@ -290,6 +296,7 @@ class EventServiceProvider extends ServiceProvider
             InfluentialInviterListener::class,
             CommunityGrowerListener::class,
             ContinuousInviterListener::class,
+            InvitationExtrasListener::class,
         ],
 
         // Mission Events - Course Completions
@@ -302,6 +309,7 @@ class EventServiceProvider extends ServiceProvider
             PersistenceListener::class,
             SpecialCourseListener::class,
             SpecialistCompletionListener::class,
+            ProgressMakerListener::class,
         ],
 
         // Mission Events - Community Activities
@@ -316,6 +324,7 @@ class EventServiceProvider extends ServiceProvider
             IssueReporterListener::class,
             ConstructiveFeedbackListener::class,
             AnalyticalResponderListener::class,
+            RemainingCommunityMissionsListener::class,
         ],
 
         // Mission Events - Course Publishing
@@ -329,6 +338,7 @@ class EventServiceProvider extends ServiceProvider
             SkillImprovementListener::class,
             GoldenFeedbackListener::class,
             PositiveFeedbackListener::class,
+            PublishingExtrasListener::class,
         ],
 
         // Score events
@@ -342,6 +352,9 @@ class EventServiceProvider extends ServiceProvider
 
         RatingSubmitted::class => [
             RatingSubmittedListener::class,
+            PositiveFeedbackListener::class,
+            GoldenFeedbackListener::class,
+            PublishingExtrasListener::class,
         ],
 
         ProfileCompleted::class => [

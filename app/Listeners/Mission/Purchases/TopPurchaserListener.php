@@ -24,14 +24,16 @@ class TopPurchaserListener
 
         // مجموع هزینه‌های کاربر در این ماه
         $userTotalSpent = $event->user->payments()
-            ->where('status', 'paid')
+            ->where('status', true)
+            ->whereNotNull('paid_at')
             ->where('created_at', '>=', $monthStart)
             ->where('created_at', '<=', $monthEnd)
             ->sum('amount');
 
         // بیشترین هزینه در این ماه توسط هر کاربر
         $maxSpentThisMonth = DB::table('payments')
-            ->where('status', 'paid')
+            ->where('status', true)
+            ->whereNotNull('paid_at')
             ->where('created_at', '>=', $monthStart)
             ->where('created_at', '<=', $monthEnd)
             ->select(DB::raw('user_id, SUM(amount) as total'))

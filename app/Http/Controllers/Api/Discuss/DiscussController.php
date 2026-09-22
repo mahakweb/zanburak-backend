@@ -347,7 +347,9 @@ class DiscussController extends Controller
                 $user,
                 $postTitle,
                 $actionType,
-                $actionUrl
+                $actionUrl,
+                class_basename($obj),
+                $obj->id
             ));
         }
 

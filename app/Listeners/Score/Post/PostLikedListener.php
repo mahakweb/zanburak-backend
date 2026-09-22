@@ -2,52 +2,73 @@
 
 namespace App\Listeners\Score\Post;
 
+use App\Events\Mission\CommunityActivityEvent;
 use App\Events\Post\PostLiked;
-use App\Services\ScoresService;
+use App\Models\Answer;
+use App\Models\Comment;
+use App\Models\Question;
 
 class PostLikedListener
 {
-    protected $scoresService;
-
-    public function __construct(ScoresService $scoresService)
-    {
-        $this->scoresService = $scoresService;
-    }
-
     public function handle(PostLiked $event)
     {
-        // فقط اگر لایک باشد (نه دیس‌لایک)
         if ($event->actionType !== 'لایک') {
             return;
         }
 
-        // بررسی نوع محتوا از طریق URL
+        [$missionId, $description] = $this->resolveMission($event);
+
+        if ($missionId) {
+            award_mission_exp($event->user, $missionId, $description);
+            upgrade_mission_for_user($event->user->id, $missionId, 1, 1, false);
+        }
+
+        $this->replayCommunityActivity($event);
+    }
+
+    protected function resolveMission(PostLiked $event): array
+    {
+        $type = class_basename((string) $event->subjectType);
+
+        if ($type === 'Answer') {
+            return ['like-on-answer', "دریافت لایک روی پاسخ: {$event->postTitle}"];
+        }
+
+        if ($type === 'Question') {
+            return ['like-on-question', "دریافت لایک روی پرسش: {$event->postTitle}"];
+        }
+
+        if ($type === 'Comment') {
+            return ['like-on-comment', "دریافت لایک روی نظر: {$event->postTitle}"];
+        }
+
         $url = $event->actionUrl ?? '';
-        
-        // برای پاسخ‌ها
-        if (str_contains($url, '/discuss/') || str_contains($url, '/answer')) {
-            $this->scoresService->awardScores(
-                $event->user,
-                "دریافت لایک روی پاسخ: {$event->postTitle}",
-                10
-            );
+        if (str_contains($url, '/episode/') || str_contains($url, '/comment')) {
+            return ['like-on-comment', "دریافت لایک روی نظر: {$event->postTitle}"];
         }
-        // برای پرسش‌ها
-        elseif (str_contains($url, '/question') || str_contains($url, '/discuss')) {
-            $this->scoresService->awardScores(
-                $event->user,
-                "دریافت لایک روی پرسش: {$event->postTitle}",
-                5
-            );
+
+        return [null, null];
+    }
+
+    protected function replayCommunityActivity(PostLiked $event): void
+    {
+        $type = class_basename((string) $event->subjectType);
+        $map = [
+            'Answer' => [Answer::class, 'answer'],
+            'Question' => [Question::class, 'question'],
+            'Comment' => [Comment::class, 'comment'],
+        ];
+
+        if (!isset($map[$type]) || !$event->subjectId) {
+            return;
         }
-        // برای نظرات (episode comments)
-        elseif (str_contains($url, '/episode/') || str_contains($url, '/comment')) {
-            $this->scoresService->awardScores(
-                $event->user,
-                "دریافت لایک روی نظر: {$event->postTitle}",
-                5
-            );
+
+        [$class, $activity] = $map[$type];
+        $model = $class::find($event->subjectId);
+        if (!$model) {
+            return;
         }
+
+        event(new CommunityActivityEvent($event->user, $activity, $model));
     }
 }
-

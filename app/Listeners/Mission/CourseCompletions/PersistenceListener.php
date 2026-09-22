@@ -28,7 +28,7 @@ class PersistenceListener
         }
 
         // بررسی اینکه آیا دوره طولانی یا دشوار است
-        $isLongCourse = $course->total_time && $course->total_time > 20 * 60; // بیش از 20 ساعت (به دقیقه)
+        $isLongCourse = (int) $course->totalTime() >= 20 * 3600;
         $isHardCourse = $episodeCount > 50;
 
         if ($isLongCourse || $isHardCourse) {

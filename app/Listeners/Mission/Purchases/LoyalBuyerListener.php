@@ -18,6 +18,6 @@ class LoyalBuyerListener
     public function handle(PurchaseEvent $event)
     {
         $userCourseCount = $event->user->courses()->count();
-        upgrade_mission_for_user($event->user->id, $this->missionId, $userCourseCount, 1);
+        sync_mission_progress_for_user($event->user->id, $this->missionId, (int) $userCourseCount);
     }
 }

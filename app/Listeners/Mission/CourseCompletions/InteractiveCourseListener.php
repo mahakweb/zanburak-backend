@@ -22,8 +22,10 @@ class InteractiveCourseListener
         
         // بررسی سطح تعامل دوره
         $commentsCount = $course->comments()->count();
-        $hasProjects = $course->section()->whereHas('episode', function($q) {
-            $q->whereNotNull('attached_file'); // فرض: اپیزودهای با فایل ضمیمه = پروژه
+        $hasProjects = $course->section()->where(function ($q) {
+            $q->whereNotNull('attached_file')
+                ->where('attached_file', '!=', '')
+                ->orWhereHas('episode.attachs');
         })->exists();
 
         // اگر دوره دارای تعامل بالا باشد (بیش از 50 کامنت یا دارای پروژه)

@@ -26,6 +26,6 @@ class ActiveInviterListener
         // حداکثر 200 کاربر
         $invitedCount = min($invitedCount, 200);
 
-        upgrade_mission_for_user($event->inviter->id, $this->missionId, $invitedCount, 1);
+        sync_mission_progress_for_user($event->inviter->id, $this->missionId, (int) $invitedCount);
     }
 }

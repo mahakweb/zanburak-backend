@@ -47,7 +47,9 @@ class LikeController extends Controller
                     $user,
                     $postTitle,
                     'لایک',
-                    $actionUrl
+                    $actionUrl,
+                    class_basename($modelInstance),
+                    $modelInstance->id
                 ));
             }
     

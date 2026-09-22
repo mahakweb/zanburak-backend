@@ -34,7 +34,7 @@ class DiverseCompletionListener
             ->count();
 
         if ($totalCompleted >= 5 && $diverseCategoriesCount >= 2) {
-            upgrade_mission_for_user($event->user->id, $this->missionId, min($diverseCategoriesCount, 5), 1);
+            sync_mission_progress_for_user($event->user->id, $this->missionId, (int) min($diverseCategoriesCount, 5));
         }
     }
 }

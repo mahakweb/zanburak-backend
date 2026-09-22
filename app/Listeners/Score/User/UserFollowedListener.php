@@ -3,24 +3,18 @@
 namespace App\Listeners\Score\User;
 
 use App\Events\Score\User\UserFollowed;
-use App\Services\ScoresService;
 
 class UserFollowedListener
 {
-    protected $scoresService;
-
-    public function __construct(ScoresService $scoresService)
-    {
-        $this->scoresService = $scoresService;
-    }
-
     public function handle(UserFollowed $event)
     {
-        $this->scoresService->awardScores(
+        $name = trim(($event->followedUser->first_name ?? '') . ' ' . ($event->followedUser->last_name ?? ''));
+
+        award_mission_exp(
             $event->user,
-            "دنبال کردن کاربر: {$event->followedUser->first_name} {$event->followedUser->last_name}",
-            5
+            'user-followed',
+            "دنبال کردن کاربر: {$name}"
         );
+        upgrade_mission_for_user($event->user->id, 'user-followed', 1, 1, false);
     }
 }
-

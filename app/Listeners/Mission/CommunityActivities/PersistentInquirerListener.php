@@ -19,33 +19,46 @@ class PersistentInquirerListener
      */
     public function handle(CommunityActivityEvent $event)
     {
-        if ($event->type !== 'question' || !$event->question) {
+        $question = null;
+        $owner = null;
+
+        if ($event->type === 'question' && $event->question) {
+            $question = $event->question;
+            $owner = $event->user;
+        } elseif ($event->type === 'answer' && $event->answer) {
+            $question = $event->answer->question;
+            $owner = $question?->user;
+        }
+
+        if (!$question || !$owner || !$question->created_at) {
             return;
         }
 
-        $question = $event->question;
         $firstDayEnd = $question->created_at->copy()->addDay();
-
-        // تعداد پاسخ‌ها در 24 ساعت اول
         $answersInFirstDay = $question->answers()
             ->where('created_at', '>=', $question->created_at)
             ->where('created_at', '<=', $firstDayEnd)
             ->count();
 
-        if ($answersInFirstDay >= 10) {
-            // تعداد کل سوالات چالشی کاربر
-            $challengingQuestionsCount = $event->user->questions()
-                ->get()
-                ->filter(function($q) {
-                    $firstDayEnd = $q->created_at->copy()->addDay();
-                    return $q->answers()
-                        ->where('created_at', '>=', $q->created_at)
-                        ->where('created_at', '<=', $firstDayEnd)
-                        ->count() >= 10;
-                })
-                ->count();
-
-            upgrade_mission_for_user($event->user->id, $this->missionId, $challengingQuestionsCount, 1);
+        if ($answersInFirstDay < 10) {
+            return;
         }
+
+        $challengingQuestionsCount = $owner->questions()
+            ->get()
+            ->filter(function ($q) {
+                if (!$q->created_at) {
+                    return false;
+                }
+                $firstDayEnd = $q->created_at->copy()->addDay();
+
+                return $q->answers()
+                    ->where('created_at', '>=', $q->created_at)
+                    ->where('created_at', '<=', $firstDayEnd)
+                    ->count() >= 10;
+            })
+            ->count();
+
+        sync_mission_progress_for_user($owner->id, $this->missionId, (int) $challengingQuestionsCount);
     }
 }

@@ -39,7 +39,7 @@ class TopSpenderListener
         
         // اگر کاربر بیشترین خرید را داشته باشد
         if ($userPurchasesThisWeek > 0 && $userPurchasesThisWeek >= $maxPurchasesThisWeek) {
-            upgrade_mission_for_user($event->user->id, $this->missionId, $userPurchasesThisWeek, 1);
+            sync_mission_progress_for_user($event->user->id, $this->missionId, (int) $userPurchasesThisWeek);
         }
     }
 }

@@ -23,10 +23,11 @@ class FastPurchaseListener
         }
 
         $coursePublishedAt = $event->course->created_at;
-        $purchaseTime = now();
-        
-        // بررسی اینکه آیا خرید در 24 ساعت اول پس از انتشار بوده است
-        if ($purchaseTime->diffInHours($coursePublishedAt) <= 24) {
+        if (!$coursePublishedAt) {
+            return;
+        }
+
+        if (elapsed_hours($coursePublishedAt, now()) <= 24) {
             upgrade_mission_for_user($event->user->id, $this->missionId);
         }
     }

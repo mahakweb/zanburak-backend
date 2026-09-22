@@ -3,27 +3,19 @@
 namespace App\Listeners\Score\Episode;
 
 use App\Events\Score\Episode\EpisodeFullyWatched;
-use App\Services\ScoresService;
 
 class EpisodeFullyWatchedListener
 {
-    protected $scoresService;
-
-    public function __construct(ScoresService $scoresService)
-    {
-        $this->scoresService = $scoresService;
-    }
-
     public function handle(EpisodeFullyWatched $event)
     {
         $episode = $event->episode;
         $course = $episode->section->course;
-        
-        $this->scoresService->awardScores(
+
+        award_mission_exp(
             $event->user,
-            "مشاهده کامل اپیزود: {$episode->title} از دوره {$course->title}",
-            25
+            'episode-fully-watched',
+            "مشاهده کامل اپیزود: {$episode->title} از دوره {$course->title}"
         );
+        upgrade_mission_for_user($event->user->id, 'episode-fully-watched', 1, 1, false);
     }
 }
-

@@ -29,6 +29,6 @@ class InquirerListener
             ->where('created_at', '>=', $monthStart)
             ->count();
 
-        upgrade_mission_for_user($event->user->id, $this->missionId, $questionsCount, 1);
+        sync_mission_progress_for_user($event->user->id, $this->missionId, (int) $questionsCount);
     }
 }

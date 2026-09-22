@@ -21,8 +21,10 @@ class InteractivePublisherListener
         $course = $event->course;
         
         // بررسی سطح تعامل دوره
-        $hasAttachments = $course->section()->whereHas('episode', function($q) {
-            $q->whereNotNull('attached_file');
+        $hasAttachments = $course->section()->where(function ($q) {
+            $q->whereNotNull('attached_file')
+                ->where('attached_file', '!=', '')
+                ->orWhereHas('episode.attachs');
         })->exists();
         
         $commentsCount = $course->comments()->count();
@@ -35,14 +37,16 @@ class InteractivePublisherListener
                 ->where('publish', true)
                 ->get()
                 ->filter(function($c) {
-                    $hasAttachments = $c->section()->whereHas('episode', function($q) {
-                        $q->whereNotNull('attached_file');
+                    $hasAttachments = $c->section()->where(function ($q) {
+                        $q->whereNotNull('attached_file')
+                            ->where('attached_file', '!=', '')
+                            ->orWhereHas('episode.attachs');
                     })->exists();
                     return $hasAttachments || $c->comments()->count() > 50;
                 })
                 ->count();
 
-            upgrade_mission_for_user($event->user->id, $this->missionId, $interactiveCoursesCount, 1);
+            sync_mission_progress_for_user($event->user->id, $this->missionId, (int) $interactiveCoursesCount);
         }
     }
 }

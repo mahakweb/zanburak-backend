@@ -53,6 +53,16 @@ else
     echo "WARNING: production-env.txt not found in package"
 fi
 
+# Zip excludes writable runtime dirs; recreate them before config/view cache.
+mkdir -p \
+    "$TARGET/storage/framework/cache/data" \
+    "$TARGET/storage/framework/sessions" \
+    "$TARGET/storage/framework/views" \
+    "$TARGET/storage/framework/testing" \
+    "$TARGET/storage/logs" \
+    "$TARGET/storage/app/public" \
+    "$TARGET/bootstrap/cache"
+
 if id www-data >/dev/null 2>&1; then
     chown -R www-data:www-data "$TARGET/storage" "$TARGET/bootstrap/cache" "$TARGET/database" || true
     chown www-data:www-data "$TARGET/.env" 2>/dev/null || true

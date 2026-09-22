@@ -7,11 +7,37 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 
 
+if (!function_exists("parse_mission_levels")) {
+    /**
+     * Normalize mission levels JSON/array to a sorted associative array.
+     */
+    function parse_mission_levels(mixed $levels): array
+    {
+        if (is_string($levels)) {
+            $levels = json_decode($levels, true);
+        }
+
+        if (!is_array($levels) || $levels === []) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($levels as $key => $level) {
+            if (!is_array($level)) {
+                continue;
+            }
+            $normalized[(int) $key] = $level;
+        }
+        ksort($normalized);
+
+        return $normalized;
+    }
+}
+
 if (!function_exists("get_mission_current_level")) {
     function get_mission_current_level(Mission $mission, UserMission|null $userMission)
     {
-        $levels = json_decode($mission->levels, true);
-        ksort($levels);
+        $levels = parse_mission_levels($mission->levels);
         if (!$userMission) {
             return (object) [
                 "level" => 0,
@@ -28,13 +54,13 @@ if (!function_exists("get_mission_current_level")) {
             "requirements" => []
         ];
         foreach ($levels as $key => $level) {
-            if ($userMission->progress < $level['goal']) {
+            if ($userMission->progress < ($level['goal'] ?? 0)) {
                 break;
             } else {
                 $lastLevel = (object) [
                     "level" => $key,
-                    "exp" => $level['exp'],
-                    "goal" => $level['goal'],
+                    "exp" => $level['exp'] ?? 0,
+                    "goal" => $level['goal'] ?? 0,
                     "requirements" => $level['requirements'] ?? []
                 ];
             }
@@ -47,8 +73,7 @@ if (!function_exists("get_mission_current_level")) {
 if (!function_exists("get_mission_previous_level")) {
     function get_mission_previous_level(Mission $mission, UserMission|null $userMission)
     {
-        $levels = json_decode($mission->levels, true);
-        ksort($levels);
+        $levels = parse_mission_levels($mission->levels);
         $previousLevel = (object) [
             "level" => 0,
             "exp" => 0,
@@ -63,8 +88,8 @@ if (!function_exists("get_mission_previous_level")) {
                 if (isset($levels[$previousLevelIndex])) {
                     $previousLevel = (object) [
                         "level" => $previousLevelIndex,
-                        "exp" => $levels[$previousLevelIndex]['exp'],
-                        "goal" => $levels[$previousLevelIndex]['goal'],
+                        "exp" => $levels[$previousLevelIndex]['exp'] ?? 0,
+                        "goal" => $levels[$previousLevelIndex]['goal'] ?? 0,
                         "requirements" => $levels[$previousLevelIndex]['requirements'] ?? []
                     ];
                 }
@@ -78,23 +103,34 @@ if (!function_exists("get_mission_previous_level")) {
 if (!function_exists("get_mission_next_level")) {
     function get_mission_next_level(Mission $mission, UserMission|null $userMission)
     {
-        $levels = json_decode($mission->levels, true);
-        ksort($levels);
-        if (!$userMission) {
+        $levels = parse_mission_levels($mission->levels);
+        if ($levels === []) {
             return (object) [
-                "level" => 1,
-                "exp" => $levels[1]['exp'],
-                "goal" => $levels[1]['goal'],
-                "requirements" => $levels[1]['requirements'] ?? []
+                "level" => 0,
+                "exp" => 0,
+                "goal" => 0,
+                "requirements" => []
+            ];
+        }
+
+        if (!$userMission) {
+            $firstKey = array_key_first($levels);
+            $first = $levels[$firstKey];
+
+            return (object) [
+                "level" => $firstKey,
+                "exp" => $first['exp'] ?? 0,
+                "goal" => $first['goal'] ?? 0,
+                "requirements" => $first['requirements'] ?? []
             ];
         }
 
         foreach ($levels as $key => $level) {
-            if ($userMission->progress < $level['goal']) {
+            if ($userMission->progress < ($level['goal'] ?? 0)) {
                 return (object) [
                     "level" => $key,
-                    "exp" => $level['exp'],
-                    "goal" => $level['goal'],
+                    "exp" => $level['exp'] ?? 0,
+                    "goal" => $level['goal'] ?? 0,
                     "requirements" => $level['requirements'] ?? []
                 ];
             }
@@ -139,12 +175,137 @@ if (!function_exists("check_requirements")) {
     }
 }
 
-if (!function_exists("upgrade_mission_for_user")) {
-    function upgrade_mission_for_user($userId, $missionId, $defaultProgressValue = 1, $defaultIncrementValue = 1)
+if (!function_exists("get_mission_level_exp")) {
+    /**
+     * خواندن امتیاز (exp) یک سطح ماموریت از دیتابیس
+     */
+    function get_mission_level_exp(string $missionId, int $level = 1): int
     {
-        $mission = Mission::where('id', $missionId)->first();
-
+        $mission = Mission::find($missionId);
         if (!$mission || !($mission->is_active ?? true)) {
+            return 0;
+        }
+
+        $levels = parse_mission_levels($mission->levels);
+
+        if (!isset($levels[$level])) {
+            return 0;
+        }
+
+        return max(0, (int) ($levels[$level]['exp'] ?? 0));
+    }
+}
+
+if (!function_exists("award_mission_exp")) {
+    /**
+     * اعطای امتیاز مستقیم از levels ماموریت (بدون نیاز به level-up).
+     * برای رویدادهای تکراری مثل لایک، خرید، ورود روزانه.
+     */
+    function award_mission_exp($user, string $missionId, ?string $description = null, int $level = 1): ?\App\Models\Score
+    {
+        $mission = Mission::find($missionId);
+        if (!$mission || !($mission->is_active ?? true)) {
+            return null;
+        }
+
+        $exp = get_mission_level_exp($missionId, $level);
+        if ($exp <= 0) {
+            return null;
+        }
+
+        $userModel = $user instanceof User ? $user : User::find($user);
+        if (!$userModel) {
+            return null;
+        }
+
+        $finalDescription = $description ?? ("بابت ماموریت {$mission->title}");
+
+        return $userModel->scores()->create([
+            'description' => $finalDescription,
+            'score' => $exp,
+        ]);
+    }
+}
+
+if (!function_exists("elapsed_hours")) {
+    function elapsed_hours(mixed $from, mixed $to): float
+    {
+        if (!$from || !$to) {
+            return INF;
+        }
+
+        $start = $from instanceof \DateTimeInterface ? $from->getTimestamp() : strtotime((string) $from);
+        $end = $to instanceof \DateTimeInterface ? $to->getTimestamp() : strtotime((string) $to);
+
+        if ($start === false || $end === false) {
+            return INF;
+        }
+
+        return abs($end - $start) / 3600;
+    }
+}
+
+if (!function_exists("upgrade_mission_for_user")) {
+    /**
+     * Advance a mission by a fixed increment (one user action = +1).
+     */
+    function upgrade_mission_for_user($userId, $missionId, $defaultProgressValue = 1, $defaultIncrementValue = 1, bool $awardScore = true)
+    {
+        $existing = UserMission::where([
+            ['mission_id', $missionId],
+            ['user_id', $userId],
+        ])->first();
+
+        if ($existing && $existing->completed_at) {
+            return;
+        }
+
+        $target = $existing
+            ? (int) $existing->progress + (int) $defaultIncrementValue
+            : (int) $defaultProgressValue;
+
+        apply_mission_progress($userId, $missionId, $target, $awardScore);
+    }
+}
+
+if (!function_exists("sync_mission_progress_for_user")) {
+    /**
+     * Set mission progress to an absolute count (purchases, likes, invites, ...).
+     * Progress never goes backwards, and EXP is granted for every level crossed.
+     */
+    function sync_mission_progress_for_user($userId, $missionId, int $progress, bool $awardScore = true): void
+    {
+        if ($progress <= 0) {
+            return;
+        }
+
+        $existing = UserMission::where([
+            ['mission_id', $missionId],
+            ['user_id', $userId],
+        ])->first();
+
+        if ($existing && ($existing->completed_at || (int) $existing->progress >= $progress)) {
+            return;
+        }
+
+        apply_mission_progress($userId, $missionId, $progress, $awardScore);
+    }
+}
+
+if (!function_exists("apply_mission_progress")) {
+    function apply_mission_progress($userId, $missionId, int $targetProgress, bool $awardScore = true): void
+    {
+        if ($targetProgress <= 0) {
+            return;
+        }
+
+        $mission = Mission::where('id', $missionId)->first();
+        if (!$mission || !($mission->is_active ?? true)) {
+            return;
+        }
+
+        $levels = parse_mission_levels($mission->levels);
+        if ($levels === []) {
             return;
         }
 
@@ -152,52 +313,88 @@ if (!function_exists("upgrade_mission_for_user")) {
             ['mission_id', $missionId],
             ['user_id', $userId],
         ])->first();
-        $currentLevel = get_mission_current_level($mission, $userMission);
-        $nextLevel = get_mission_next_level($mission, $userMission);
 
-        $levels = json_decode($mission->levels, true);
-        ksort($levels);
+        if ($userMission && $userMission->completed_at) {
+            return;
+        }
+
+        $previousLevel = get_mission_current_level($mission, $userMission);
 
         if (!$userMission) {
             $firstLevel = reset($levels);
-            if (isset($firstLevel['requirements']) && is_array($firstLevel['requirements']) && !empty($firstLevel['requirements'])) {
-                if (!check_requirements($firstLevel['requirements'], $userId)) {
-                    return;
-                }
+            $requirements = $firstLevel['requirements'] ?? [];
+            if (is_array($requirements) && $requirements !== [] && !check_requirements($requirements, $userId)) {
+                return;
             }
+
             $userMission = UserMission::create([
                 'user_id' => $userId,
-                "mission_id" => $missionId,
-                "progress" => $defaultProgressValue,
+                'mission_id' => $missionId,
+                'progress' => 0,
             ]);
-        } else if (!$userMission->completed_at) {
-            if ($userMission->progress < $currentLevel->goal || $nextLevel->level > 0) {
-                if ($userMission->progress + $defaultIncrementValue >= $currentLevel->goal) {
-                    if (isset($nextLevel->requirements) && is_array($nextLevel->requirements) && !empty($nextLevel->requirements)) {
-                        if (!check_requirements($nextLevel->requirements, $userId)) {
-                            return;
-                        }
-                    }
+        }
+
+        foreach ($levels as $level) {
+            $goal = (int) ($level['goal'] ?? 0);
+            $requirements = $level['requirements'] ?? [];
+            if ($userMission->progress < $goal && $targetProgress >= $goal && is_array($requirements) && $requirements !== []) {
+                if (!check_requirements($requirements, $userId)) {
+                    $targetProgress = max((int) $userMission->progress, $goal - 1);
+                    break;
                 }
-                $userMission->increment('progress', $defaultIncrementValue);
             }
         }
+
+        if ($targetProgress <= (int) $userMission->progress) {
+            return;
+        }
+
+        $userMission->progress = $targetProgress;
+        $userMission->save();
+
         $newCurrentLevel = get_mission_current_level($mission, $userMission);
         $newNextLevel = get_mission_next_level($mission, $userMission);
-        if (!$userMission->completed_at && $newNextLevel->level == 0) {
+
+        if (!$userMission->completed_at && $newNextLevel->level == 0 && $newCurrentLevel->level > 0) {
             $userMission->completed_at = Carbon::now();
             $userMission->save();
-            
-            // ارسال notification دستیابی به Mission
+
             $user = User::find($userId);
             if ($user) {
-                $user->notify(new \App\Notifications\Achievement\MissionAchievedNotification($mission));
+                try {
+                    $user->notify(new \App\Notifications\Achievement\MissionAchievedNotification($mission));
+                } catch (\Throwable $e) {
+                    Log::warning('Mission achievement notification failed: '.$e->getMessage(), [
+                        'user_id' => $userId,
+                        'mission_id' => $missionId,
+                    ]);
+                }
             }
         }
-        if ($newCurrentLevel->level != $currentLevel->level && $newCurrentLevel->exp > 0) {
-            User::find($userId)->scores()->create([
-                "description" => "بابت اتمام ماموریت $mission->title ، سطح $newCurrentLevel->level",
-                "score" => $newCurrentLevel->exp,
+
+        if (!$awardScore || $newCurrentLevel->level <= $previousLevel->level) {
+            return;
+        }
+
+        $user = User::find($userId);
+        if (!$user) {
+            return;
+        }
+
+        foreach ($levels as $key => $level) {
+            $levelNumber = (int) $key;
+            if ($levelNumber <= $previousLevel->level || $levelNumber > $newCurrentLevel->level) {
+                continue;
+            }
+
+            $exp = (int) ($level['exp'] ?? 0);
+            if ($exp <= 0) {
+                continue;
+            }
+
+            $user->scores()->create([
+                'description' => "بابت اتمام ماموریت {$mission->title} ، سطح {$levelNumber}",
+                'score' => $exp,
             ]);
         }
     }
@@ -206,24 +403,17 @@ if (!function_exists("upgrade_mission_for_user")) {
 if (!function_exists("calculate_progress_percent")) {
     function calculate_progress_percent($progress, $levels)
     {
-        if (is_string($levels)) {
-            $levels = json_decode($levels, true);
-        }
+        $levels = parse_mission_levels($levels);
 
-        if (!is_array($levels)) {
-            \Log::error('Invalid levels format in calculate_progress_percent', ['levels' => $levels]);
+        if ($levels === []) {
             return 0;
         }
 
-        ksort($levels);
-
         $previousLevelGoal = 0;
         $currentLevelGoal = 0;
-        $currentLevel = 0;
 
-        foreach ($levels as $key => $level) {
-            $currentLevel = $key;
-            $currentLevelGoal = $level['goal'];
+        foreach ($levels as $level) {
+            $currentLevelGoal = (int) ($level['goal'] ?? 0);
 
             if ($progress <= $currentLevelGoal) {
                 break;

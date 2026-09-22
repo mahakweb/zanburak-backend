@@ -29,6 +29,6 @@ class PopularCommenterListener
             ->get()
             ->sum('likes_count');
 
-        upgrade_mission_for_user($event->user->id, $this->missionId, $totalLikes, 1);
+        sync_mission_progress_for_user($event->user->id, $this->missionId, (int) $totalLikes);
     }
 }

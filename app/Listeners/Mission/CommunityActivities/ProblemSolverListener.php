@@ -21,13 +21,14 @@ class ProblemSolverListener
             return;
         }
 
-        // تعداد پاسخ‌هایی که به عنوان بهترین پاسخ انتخاب شده‌اند
         $bestAnswersCount = $event->user->answers()
-            ->whereHas('question', function($query) {
-                $query->whereColumn('questions.best_answer', 'answers.id');
+            ->whereIn('id', function ($query) {
+                $query->select('best_answer')
+                    ->from('questions')
+                    ->whereNotNull('best_answer');
             })
             ->count();
 
-        upgrade_mission_for_user($event->user->id, $this->missionId, $bestAnswersCount, 1);
+        sync_mission_progress_for_user($event->user->id, $this->missionId, (int) $bestAnswersCount);
     }
 }

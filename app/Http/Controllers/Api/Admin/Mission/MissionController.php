@@ -110,6 +110,28 @@ class MissionController extends Controller
         ]);
     }
 
+    public function allParticipants(Request $request)
+    {
+        $result = $this->missionAdminService->getAllParticipants([
+            'page' => $request->input('page', 1),
+            'per_page' => $request->input('perPage', $request->input('per_page', 30)),
+            'mission_id' => $request->input('mission_id') ?: null,
+            'status' => $request->input('status') ?: null,
+            'search' => $request->input('search') ?: null,
+        ]);
+
+        return response()->json(array_merge(['message' => 'Success'], $result));
+    }
+
+    public function syncReportProgress()
+    {
+        $result = $this->missionAdminService->syncApprovedReportMissions();
+
+        return response()->json(array_merge([
+            'message' => 'پیشرفت ماموریت گزارش‌ها همگام‌سازی شد.',
+        ], $result));
+    }
+
     public function toggleActive(Mission $mission)
     {
         $mission->update(['is_active' => !$mission->is_active]);
@@ -124,24 +146,37 @@ class MissionController extends Controller
     public function uploadIcon(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'icon' => ['required', 'mimes:jpg,jpeg,png,webp,svg', 'max:3072'],
+            'icon' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,svg', 'max:3072'],
             'old_icon' => ['nullable', 'string', 'max:500'],
+        ], [
+            'icon.required' => 'فایل تصویر الزامی است.',
+            'icon.mimes' => 'فرمت تصویر باید JPG، PNG، WEBP یا SVG باشد.',
+            'icon.max' => 'حداکثر حجم تصویر ۳ مگابایت است.',
         ]);
 
         if (!$validator->passes()) {
             return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
         }
 
-        $disk = 'static';
-        $folder = 'missions/' . date('Y/m/d');
-        $filePath = $request->file('icon')->store($folder, $disk);
-        $url = Storage::disk($disk)->url($filePath);
+        try {
+            $disk = 'static';
+            $folder = 'images/icon/missions/' . date('Y/m/d');
+            $filePath = $request->file('icon')->store($folder, $disk);
+            $url = Storage::disk($disk)->url($filePath);
 
-        if ($request->filled('old_icon')) {
-            $this->deleteIconFile($request->input('old_icon'));
+            if ($request->filled('old_icon')) {
+                $this->deleteIconFile($request->input('old_icon'));
+            }
+
+            return response()->json(['message' => 'تصویر با موفقیت آپلود شد.', 'icon' => $url], 200);
+        } catch (\Throwable $e) {
+            \Log::error('Mission icon upload failed: ' . $e->getMessage());
+
+            return response()->json([
+                'message' => 'آپلود تصویر ناموفق بود. اتصال استوریج را بررسی کنید.',
+                'errors' => ['icon' => ['آپلود تصویر ناموفق بود.']],
+            ], 500);
         }
-
-        return response()->json(['message' => 'تصویر با موفقیت آپلود شد.', 'icon' => $url], 200);
     }
 
     protected function deleteIconFile(?string $url): void
@@ -267,6 +302,33 @@ class MissionController extends Controller
             ]);
 
         return response()->json(['message' => 'Success', 'categories' => $categories]);
+    }
+
+    public function updateScoreSettings(Request $request, \App\Services\ScoresService $scoresService)
+    {
+        $validator = Validator::make($request->all(), [
+            'conversion_rate' => ['required', 'numeric', 'min:0', 'max:1000000'],
+            'min_scores' => ['required', 'integer', 'min:0', 'max:100000000'],
+        ]);
+
+        if (!$validator->passes()) {
+            return response()->json([
+                'message' => 'Validation error!',
+                'errors' => $validator->errors()->toArray(),
+            ], 422);
+        }
+
+        $data = $validator->validated();
+        $settings = $scoresService->updateConversionSettings(
+            (float) $data['conversion_rate'],
+            (int) $data['min_scores'],
+            auth('api')->id()
+        );
+
+        return response()->json([
+            'message' => 'تنظیمات تبدیل امتیاز ذخیره شد.',
+            'score_settings' => $settings,
+        ]);
     }
 
     protected function validateMission(Request $request, ?Mission $mission = null): \Illuminate\Validation\Validator

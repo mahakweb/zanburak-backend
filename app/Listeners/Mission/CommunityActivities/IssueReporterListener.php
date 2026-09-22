@@ -21,14 +21,18 @@ class IssueReporterListener
             return;
         }
 
-        // اگر گزارش تایید شده باشد
-        if ($event->report->status) {
-            // تعداد گزارش‌های تایید شده کاربر
-            $approvedReportsCount = $event->user->reports()
-                ->where('status', true)
-                ->count();
-
-            upgrade_mission_for_user($event->user->id, $this->missionId, $approvedReportsCount, 1);
+        if (!$event->report->status) {
+            return;
         }
+
+        $approvedReportsCount = $event->user->reports()
+            ->where('status', true)
+            ->count();
+
+        if ($approvedReportsCount < 1) {
+            return;
+        }
+
+        sync_mission_progress_for_user($event->user->id, $this->missionId, (int) $approvedReportsCount);
     }
 }

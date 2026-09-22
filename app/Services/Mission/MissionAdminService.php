@@ -22,18 +22,35 @@ class MissionAdminService
         }
 
         $ids = [];
-        $listenerPath = app_path('Listeners/Mission');
+        $paths = [
+            app_path('Listeners/Mission'),
+            app_path('Listeners/Score'),
+        ];
 
-        if (File::isDirectory($listenerPath)) {
+        foreach ($paths as $listenerPath) {
+            if (!File::isDirectory($listenerPath)) {
+                continue;
+            }
             foreach (File::allFiles($listenerPath) as $file) {
                 $contents = File::get($file->getPathname());
-                if (preg_match("/protected\s+\\\$missionId\s*=\s*['\"]([^'\"]+)['\"]/", $contents, $matches)) {
-                    $ids[] = $matches[1];
+                if (preg_match_all("/(?:protected\s+)?(?:\\\$this->)?\\\$missionId\s*=\s*['\"]([^'\"]+)['\"]/", $contents, $matches)) {
+                    foreach ($matches[1] as $id) {
+                        $ids[] = $id;
+                    }
+                }
+                if (preg_match_all("/(?:upgrade_mission_for_user|sync_mission_progress_for_user|award_mission_exp|get_mission_level_exp)\s*\(\s*[^,]+,\s*['\"]([^'\"]+)['\"]/", $contents, $matches)) {
+                    foreach ($matches[1] as $id) {
+                        $ids[] = $id;
+                    }
+                }
+                if (preg_match_all("/['\"](submit-first-answer|submit-answer|like-on-answer|like-on-question|like-on-comment)['\"]/", $contents, $matches)) {
+                    foreach ($matches[1] as $id) {
+                        $ids[] = $id;
+                    }
                 }
             }
         }
 
-        $ids[] = 'daily-login';
         $this->wiredMissionIds = array_values(array_unique($ids));
 
         return $this->wiredMissionIds;
@@ -101,24 +118,140 @@ class MissionAdminService
         }
 
         return $query->latest('updated_at')->limit($limit)->get()->map(function ($um) use ($missionId) {
-            $mission = Mission::find($missionId);
-            $currentLevel = $mission ? get_mission_current_level($mission, $um) : null;
-            $maxGoal = $mission ? $this->getMaxGoal($this->normalizeLevels($mission->levels)) : 1;
-            $progressPercent = $maxGoal > 0 ? min(100, round(($um->progress / $maxGoal) * 100, 1)) : 0;
-
-            return [
-                'user_id' => $um->user_id,
-                'username' => $um->user?->username,
-                'name' => trim(($um->user?->first_name ?? '') . ' ' . ($um->user?->last_name ?? '')),
-                'profile_pic' => $um->user?->profile_pic,
-                'progress' => $um->progress,
-                'progress_percent' => $progressPercent,
-                'current_level' => $currentLevel?->level ?? 1,
-                'completed_at' => $um->completed_at,
-                'status' => $um->completed_at ? 'completed' : 'in_progress',
-                'updated_at' => $um->updated_at,
-            ];
+            return $this->transformParticipant($um, Mission::find($missionId));
         })->toArray();
+    }
+
+    public function getAllParticipants(array $filters = []): array
+    {
+        $perPage = min(max((int) ($filters['per_page'] ?? 30), 1), 100);
+        $page = max((int) ($filters['page'] ?? 1), 1);
+        $status = $filters['status'] ?? null;
+        $missionId = $filters['mission_id'] ?? null;
+        $search = trim((string) ($filters['search'] ?? ''));
+
+        $query = UserMission::with([
+            'user:id,username,first_name,last_name,profile_pic',
+            'mission:id,title,icon,category_id',
+            'mission.category:id,title',
+        ]);
+
+        if ($missionId) {
+            $query->where('mission_id', $missionId);
+        }
+
+        if ($status === 'completed') {
+            $query->whereNotNull('completed_at');
+        } elseif ($status === 'in_progress') {
+            $query->whereNull('completed_at');
+        }
+
+        if ($search !== '') {
+            $query->whereHas('user', function ($q) use ($search) {
+                $q->where('username', 'ilike', "%{$search}%")
+                    ->orWhere('first_name', 'ilike', "%{$search}%")
+                    ->orWhere('last_name', 'ilike', "%{$search}%");
+            });
+        }
+
+        $paginator = $query->latest('updated_at')->paginate($perPage, ['*'], 'page', $page);
+
+        $missionsCache = [];
+        $items = $paginator->getCollection()->map(function ($um) use (&$missionsCache) {
+            $mission = $um->mission;
+            if ($mission && !isset($missionsCache[$mission->id])) {
+                $missionsCache[$mission->id] = $mission;
+            }
+            $row = $this->transformParticipant($um, $missionsCache[$um->mission_id] ?? $mission);
+            $row['mission'] = $mission ? [
+                'id' => $mission->id,
+                'title' => $mission->title,
+                'icon' => $mission->icon,
+                'category' => $mission->category?->title,
+            ] : null;
+
+            return $row;
+        })->values()->toArray();
+
+        $base = UserMission::query();
+        if ($missionId) {
+            $base->where('mission_id', $missionId);
+        }
+
+        $total = (clone $base)->count();
+        $completed = (clone $base)->whereNotNull('completed_at')->count();
+
+        return [
+            'participants' => $items,
+            'summary' => [
+                'total' => $total,
+                'completed' => $completed,
+                'in_progress' => $total - $completed,
+                'unique_users' => (clone $base)->distinct('user_id')->count('user_id'),
+            ],
+            'pagination' => [
+                'total' => $paginator->total(),
+                'per_page' => $paginator->perPage(),
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+            ],
+        ];
+    }
+
+    public function syncApprovedReportMissions(): array
+    {
+        $synced = 0;
+        $users = \App\Models\User::whereHas('reports', fn ($q) => $q->where('status', true))
+            ->with(['reports' => fn ($q) => $q->where('status', true)->latest()])
+            ->get();
+
+        foreach ($users as $user) {
+            $report = $user->reports->first();
+            if (!$report) {
+                continue;
+            }
+
+            event(new \App\Events\Mission\CommunityActivityEvent($user, 'report', $report));
+
+            // One-time catch-up for report-approved mission if never started
+            $hasReportApproved = UserMission::where([
+                ['user_id', $user->id],
+                ['mission_id', 'report-approved'],
+            ])->exists();
+
+            if (!$hasReportApproved) {
+                event(new \App\Events\Score\Report\ReportApprovedForScores($user, $report));
+            }
+
+            $synced++;
+        }
+
+        return ['synced_users' => $synced];
+    }
+
+    protected function transformParticipant($um, $mission = null): array
+    {
+        $mission = $mission ?: Mission::find($um->mission_id);
+        $currentLevel = $mission ? get_mission_current_level($mission, $um) : null;
+        $maxGoal = $mission ? $this->getMaxGoal($this->normalizeLevels($mission->levels)) : 1;
+        $progressPercent = $maxGoal > 0 ? min(100, round(($um->progress / $maxGoal) * 100, 1)) : 0;
+
+        return [
+            'id' => $um->id,
+            'user_id' => $um->user_id,
+            'mission_id' => $um->mission_id,
+            'username' => $um->user?->username,
+            'name' => trim(($um->user?->first_name ?? '') . ' ' . ($um->user?->last_name ?? '')),
+            'profile_pic' => $um->user?->profile_pic,
+            'progress' => $um->progress,
+            'progress_percent' => $progressPercent,
+            'current_level' => $currentLevel?->level ?? 1,
+            'completed_at' => $um->completed_at,
+            'status' => $um->completed_at ? 'completed' : 'in_progress',
+            'updated_at' => $um->updated_at,
+        ];
     }
 
     public function normalizeLevels(mixed $levels): array
@@ -226,8 +359,8 @@ class MissionAdminService
             ],
             'recent_completions' => $this->getRecentCompletions(10),
             'score_settings' => [
-                'conversion_rate' => (float) config('scores.conversion_rate', 1),
-                'min_scores' => (int) config('scores.min_scores', 1000),
+                'conversion_rate' => app(\App\Services\ScoresService::class)->getConversionRate(),
+                'min_scores' => app(\App\Services\ScoresService::class)->getMinScores(),
             ],
             'period_days' => $days,
         ];

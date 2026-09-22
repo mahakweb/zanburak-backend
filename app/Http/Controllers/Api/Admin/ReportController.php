@@ -464,14 +464,29 @@ class ReportController extends Controller
             'status' => 'required|boolean'
         ]);
 
-        $report = Report::find($id);
+        $report = Report::with('user')->find($id);
 
         if (!$report) {
             return response()->json(['message' => 'Report not found'], 404);
         }
 
-        $report->status = $request->status;
+        $wasResolved = (bool) $report->status;
+        $newStatus = (bool) $request->status;
+
+        $report->status = $newStatus;
         $report->save();
+
+        // Marking as reviewed should award mission progress (same as content action)
+        if (!$wasResolved && $newStatus && $report->user) {
+            $this->dispatchReportApprovedRewards($report);
+        } elseif ($newStatus && $report->user) {
+            // Re-sync issue-reporter progress from approved count (no double score award)
+            try {
+                event(new \App\Events\Mission\CommunityActivityEvent($report->user, 'report', $report));
+            } catch (\Throwable $e) {
+                \Log::warning('Report status sync side-effects failed: ' . $e->getMessage());
+            }
+        }
 
         return response()->json([
             'message' => 'Report status updated successfully',
@@ -532,6 +547,8 @@ class ReportController extends Controller
             return response()->json(['message' => 'Reported content not found'], 404);
         }
 
+        $wasResolved = (bool) $report->status;
+
         DB::beginTransaction();
         try {
             $type = class_basename($report->reportable_type);
@@ -585,9 +602,10 @@ class ReportController extends Controller
                 $actionTaken = $this->getActionTaken($report, 'deactivated');
                 event(new \App\Events\Report\ReportApproved($report->user, $reportTitle, $actionTaken));
 
-                // Fire event for points (only if report led to action)
-                if ($actionTaken) {
-                    event(new \App\Events\Score\Report\ReportApprovedForScores($report->user, $report));
+                // Only award missions/scores the first time the report becomes resolved
+                if (!$wasResolved && $actionTaken) {
+                    $this->dispatchReportApprovedRewards($report, false);
+                } elseif ($wasResolved && $report->user) {
                     event(new \App\Events\Mission\CommunityActivityEvent($report->user, 'report', $report));
                 }
             } catch (\Exception $eventException) {
@@ -635,6 +653,38 @@ class ReportController extends Controller
             $baseType = class_basename($reportableType);
             if (empty($baseType)) {
                 $baseType = $reportableType;
+            }
+
+            $relatedReports = Report::with('user')
+                ->where(function ($q) use ($reportableType, $baseType) {
+                    $q->where('reportable_type', $reportableType)
+                        ->orWhere('reportable_type', $baseType);
+                })
+                ->where('reportable_id', $reportableId)
+                ->get();
+
+            // Award missions before deleting reports
+            foreach ($relatedReports as $related) {
+                if (!$related->user) {
+                    continue;
+                }
+                $wasResolved = (bool) $related->status;
+                if (!$wasResolved) {
+                    $related->status = true;
+                    $related->save();
+                }
+                try {
+                    if (!$wasResolved) {
+                        $reportTitle = $this->getReportTitle($related);
+                        $actionTaken = $this->getActionTaken($related, 'deactivated');
+                        event(new \App\Events\Report\ReportApproved($related->user, $reportTitle, $actionTaken ?: 'محتوا حذف شد'));
+                        $this->dispatchReportApprovedRewards($related, false);
+                    } else {
+                        event(new \App\Events\Mission\CommunityActivityEvent($related->user, 'report', $related));
+                    }
+                } catch (\Throwable $e) {
+                    \Log::warning('Report deleteContent side-effects failed: ' . $e->getMessage());
+                }
             }
 
             // Delete the content
@@ -794,6 +844,28 @@ class ReportController extends Controller
                 return $action === 'deactivated' ? 'مقاله غیرفعال شد' : 'مقاله دوباره فعال شد';
             default:
                 return $action === 'deactivated' ? 'محتوا غیرفعال شد' : 'محتوا دوباره فعال شد';
+        }
+    }
+
+    /**
+     * Award report-related mission progress / scores for an approved report.
+     */
+    private function dispatchReportApprovedRewards(Report $report, bool $notify = true): void
+    {
+        if (!$report->user) {
+            return;
+        }
+
+        try {
+            if ($notify) {
+                $reportTitle = $this->getReportTitle($report);
+                event(new \App\Events\Report\ReportApproved($report->user, $reportTitle, 'گزارش بررسی و تایید شد'));
+            }
+
+            event(new \App\Events\Score\Report\ReportApprovedForScores($report->user, $report));
+            event(new \App\Events\Mission\CommunityActivityEvent($report->user, 'report', $report));
+        } catch (\Throwable $e) {
+            \Log::warning('Report reward side-effects failed: ' . $e->getMessage());
         }
     }
 }

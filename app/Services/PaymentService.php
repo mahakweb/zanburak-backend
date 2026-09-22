@@ -343,6 +343,7 @@ class PaymentService
                             'payment_id' => $payment->id,
                             'price' => (int) round($course->price - ($course->price * $this->discountPercentForPath / 100)),
                         ]);
+                        $courses[] = $course;
                     }
                     $paths[] = $payable;
                     break;

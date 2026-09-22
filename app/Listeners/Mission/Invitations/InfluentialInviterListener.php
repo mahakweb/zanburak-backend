@@ -23,13 +23,13 @@ class InfluentialInviterListener
             ->join('mission_user', function($join) {
                 $join->on('invites.invitee_id', '=', 'mission_user.user_id')
                      ->where('mission_user.mission_id', '=', 'loyal-buyer')
-                     ->whereNotNull('mission_user.completed_at');
+                     ->where('mission_user.progress', '>=', 5);
             })
             ->where('invites.inviter_id', $event->inviter->id)
             ->where('invites.invite_status', 'active')
             ->distinct()
             ->count('invites.invitee_id');
 
-        upgrade_mission_for_user($event->inviter->id, $this->missionId, $influentialInviteesCount, 1);
+        sync_mission_progress_for_user($event->inviter->id, $this->missionId, (int) $influentialInviteesCount);
     }
 }

@@ -52,7 +52,7 @@ class SuccessfulInviterListener
                 })
                 ->count();
 
-            upgrade_mission_for_user($event->inviter->id, $this->missionId, $activeInviteesCount, 1);
+            sync_mission_progress_for_user($event->inviter->id, $this->missionId, (int) $activeInviteesCount);
         }
     }
 }

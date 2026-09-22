@@ -23,6 +23,6 @@ class NetworkBuilderListener
             ->where('invite_status', 'active')
             ->count();
 
-        upgrade_mission_for_user($event->inviter->id, $this->missionId, $invitedCount, 1);
+        sync_mission_progress_for_user($event->inviter->id, $this->missionId, (int) $invitedCount);
     }
 }

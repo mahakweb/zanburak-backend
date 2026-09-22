@@ -940,6 +940,15 @@ function Stop-SystemdServices {
 }
 
 function Invoke-PostDeployOptimize {
+    $t = $script:Config.RemoteDir
+    $u = $script:Config.WebUser
+    $g = $script:Config.WebGroup
+    Write-DeployStep "Ensuring Laravel storage directories exist"
+    $mkdirCmd = @"
+mkdir -p $t/storage/framework/cache/data $t/storage/framework/sessions $t/storage/framework/views $t/storage/framework/testing $t/storage/logs $t/storage/app/public $t/bootstrap/cache && chown -R ${u}:${g} $t/storage $t/bootstrap/cache && chmod -R ug+rwx $t/storage $t/bootstrap/cache
+"@
+    [void](Invoke-RemoteCommand $mkdirCmd.Trim())
+
     Invoke-RemoteArtisan 'config:cache'
     Invoke-RemoteArtisan 'route:cache'
     Invoke-RemoteArtisan 'view:cache'

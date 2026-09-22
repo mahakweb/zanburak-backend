@@ -3,27 +3,19 @@
 namespace App\Listeners\Score\Comment;
 
 use App\Events\Score\Comment\CommentOnEpisode;
-use App\Services\ScoresService;
 
 class CommentOnEpisodeListener
 {
-    protected $scoresService;
-
-    public function __construct(ScoresService $scoresService)
-    {
-        $this->scoresService = $scoresService;
-    }
-
     public function handle(CommentOnEpisode $event)
     {
         $commentable = $event->comment->commentable;
         $title = $commentable->title ?? $commentable->subject ?? 'محتوا';
-        
-        $this->scoresService->awardScores(
+
+        award_mission_exp(
             $event->user,
-            "ثبت نظر روی: {$title}",
-            30
+            'comment-on-episode',
+            "ثبت نظر روی: {$title}"
         );
+        upgrade_mission_for_user($event->user->id, 'comment-on-episode', 1, 1, false);
     }
 }
-

@@ -171,6 +171,9 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
         Route::get('/stats', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'stats'])->name('stats');
         Route::post('/list', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'index'])->name('index');
         Route::get('/categories', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'categories'])->name('categories');
+        Route::post('/participants', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'allParticipants'])->name('participants.all');
+        Route::post('/sync-report-progress', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'syncReportProgress'])->name('sync-report-progress');
+        Route::post('/score-settings/update', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'updateScoreSettings'])->name('score-settings.update');
         Route::post('/create', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'store'])->name('create');
         Route::post('/upload-icon', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'uploadIcon'])->name('upload-icon');
         Route::get('/{mission}', [\App\Http\Controllers\Api\Admin\Mission\MissionController::class, 'show'])->name('show');

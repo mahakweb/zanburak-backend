@@ -26,6 +26,6 @@ class SkillImprovementListener
             ->distinct()
             ->count('category_course.category_id');
 
-        upgrade_mission_for_user($event->user->id, $this->missionId, $diverseCategoriesCount, 1);
+        sync_mission_progress_for_user($event->user->id, $this->missionId, (int) $diverseCategoriesCount);
     }
 }

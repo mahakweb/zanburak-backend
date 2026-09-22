@@ -4,12 +4,57 @@ namespace App\Services;
 
 use App\Models\User;
 use App\Models\Score;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
 
 class ScoresService
 {
+    /**
+     * نرخ تبدیل امتیاز → تومان (از site_settings با fallback به config/env)
+     */
+    public function getConversionRate(): float
+    {
+        return (float) app(SiteSettingService::class)->get(
+            'scores.conversion_rate',
+            config('scores.conversion_rate', 1)
+        );
+    }
+
+    /**
+     * حداقل امتیاز لازم برای تبدیل
+     */
+    public function getMinScores(): int
+    {
+        return (int) app(SiteSettingService::class)->get(
+            'scores.min_scores',
+            config('scores.min_scores', 1000)
+        );
+    }
+
+    /**
+     * ذخیره تنظیمات تبدیل امتیاز در دیتابیس
+     */
+    public function updateConversionSettings(float $conversionRate, int $minScores, ?int $updatedBy = null): array
+    {
+        app(SiteSettingService::class)->putMany([
+            'scores.conversion_rate' => [
+                'value' => $conversionRate,
+                'type' => 'float',
+                'group' => 'scores',
+            ],
+            'scores.min_scores' => [
+                'value' => $minScores,
+                'type' => 'integer',
+                'group' => 'scores',
+            ],
+        ], $updatedBy);
+
+        return [
+            'conversion_rate' => $this->getConversionRate(),
+            'min_scores' => $this->getMinScores(),
+        ];
+    }
+
     /**
      * اعطای امتیاز به کاربر
      *
@@ -20,6 +65,10 @@ class ScoresService
      */
     public function awardScores(User $user, string $description, int $scores): ?Score
     {
+        if ($scores <= 0) {
+            return null;
+        }
+
         try {
             // ایجاد رکورد امتیاز
             $score = $user->scores()->create([
