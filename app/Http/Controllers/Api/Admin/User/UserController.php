@@ -799,7 +799,7 @@ class UserController extends Controller
         $sort = $request->input('sort', 'newest');  // newest | oldest
 
         $query = $username->payments()
-            ->select('id', 'uuid', 'payment_method', 'tracking_number', 'reference_id', 'amount', 'driver', 'discount_amount', 'discount_code', 'status', 'paid_at', 'expired_at', 'created_at', 'updated_at', 'description')
+            ->select('id', 'uuid', 'payment_method', 'tracking_number', 'reference_id', 'amount', 'driver', 'wallet_paid_amount', 'gateway_paid_amount', 'discount_amount', 'discount_code', 'status', 'paid_at', 'expired_at', 'created_at', 'updated_at', 'description')
             ->with(['attempts', 'items.payable']);
 
         // Status filter
@@ -858,6 +858,8 @@ class UserController extends Controller
                 'reference_id' => $payment->reference_id,
                 'driver' => $payment->driver,
                 'amount' => $payment->amount,
+                'wallet_paid_amount' => $payment->wallet_paid_amount,
+                'gateway_paid_amount' => $payment->gateway_paid_amount,
                 'discount_amount' => $payment->discount_amount,
                 'discount_code' => $payment->discount_code,
                 'status' => $payment->status,
@@ -947,6 +949,7 @@ class UserController extends Controller
         $sortOrder = $sort === 'oldest' ? 'asc' : 'desc';
 
         $query = $username->wallets()
+            ->with('payment:id,uuid')
             ->select('id', 'uuid', 'description', 'amount', 'after_balance', 'type', 'tracking_number', 'payment_id', 'reference_id', 'created_at', 'updated_at')
             ->orderBy('created_at', $sortOrder);
 
@@ -972,6 +975,7 @@ class UserController extends Controller
                 'type' => $wallet->type,
                 'tracking_number' => $wallet->tracking_number,
                 'payment_id' => $wallet->payment_id,
+                'payment_uuid' => $wallet->payment?->uuid,
                 'reference_id' => $wallet->reference_id,
                 'created_at' => $wallet->created_at,
                 'updated_at' => $wallet->updated_at,

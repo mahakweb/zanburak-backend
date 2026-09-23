@@ -40,11 +40,16 @@ class WelcomeNotification extends Notification
      */
     public function toMail($notifiable)
     {
+        $name = trim(($notifiable->first_name ?? '') . ' ' . ($notifiable->last_name ?? ''));
+
         return (new MailMessage)
                     ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
-                    ->line('The introduction to the notification.')
-                    ->action('Notification Action', frontendUrl())
-                    ->line('Thank you for using our application!');
+                    ->subject('خوش آمدید به زنبورک')
+                    ->greeting($name !== '' ? ($name . ' عزیز، سلام') : 'سلام')
+                    ->line('خیلی خوشحالیم که به خانواده زنبورک ملحق شدی.')
+                    ->line('می‌توانی از لیست دوره‌ها دیدن کنی، دوره ببینی و متخصص شوی.')
+                    ->action('مشاهده دوره‌ها', frontendUrl('courses'))
+                    ->line('با تشکر از همراهی شما');
     }
 
     /**

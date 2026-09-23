@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 
 // Index and paths
+Route::get('/index/home', [\App\Http\Controllers\Api\IndexController::class, 'home'])->name('api.index.home');
 Route::get('/index/stats', [\App\Http\Controllers\Api\IndexController::class, 'platformStats'])->name('api.index.stats');
 Route::get('/index/latestCourses', [\App\Http\Controllers\Api\IndexController::class, 'latestCourses'])->name('api.index.latest-courses');
 Route::get('/index/freeCourses', [\App\Http\Controllers\Api\IndexController::class, 'freeCourses'])->name('api.index.free-courses');

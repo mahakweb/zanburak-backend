@@ -137,9 +137,11 @@ use App\Listeners\SendWelcomeNotification;
 use App\Listeners\User\ChangeMobileListener;
 use App\Listeners\User\ChangePasswordListener;
 use Illuminate\Auth\Events\Login;
+use App\Listeners\BlockDisabledNotificationChannels;
 use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Auth\Listeners\SendEmailVerificationNotification;
+use Illuminate\Notifications\Events\NotificationSending;
 use Illuminate\Foundation\Support\Providers\EventServiceProvider as ServiceProvider;
 use Illuminate\Support\Facades\Event;
 
@@ -379,6 +381,10 @@ class EventServiceProvider extends ServiceProvider
 
         ReportApprovedForScores::class => [
             ReportApprovedListener::class,
+        ],
+
+        NotificationSending::class => [
+            BlockDisabledNotificationChannels::class,
         ],
 
         UserRegistered::class => [

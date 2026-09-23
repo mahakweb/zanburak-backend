@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth:sanctum')->prefix('panel')->as('api.panel.')->group(function () {
     Route::post('/index', [\App\Http\Controllers\Api\PanelController::class, 'index'])->name('index');
     Route::post('/financial', [\App\Http\Controllers\Api\PanelController::class, 'financial'])->name('financial');
+    Route::post('/wallet-transactions', [\App\Http\Controllers\Api\PanelController::class, 'walletTransactions'])->name('wallet-transactions');
     Route::post('/increase-wallet-balance', [\App\Http\Controllers\Api\PanelController::class, 'increamentWalletAmount'])->name('increase-wallet-balance');
     Route::post('/courses', [\App\Http\Controllers\Api\PanelController::class, 'courses'])->name('courses');
     Route::post('/missions', [\App\Http\Controllers\Api\PanelController::class, 'missions'])->name('missions');

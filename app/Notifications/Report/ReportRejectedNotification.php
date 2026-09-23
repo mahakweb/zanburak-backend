@@ -55,7 +55,7 @@ class ReportRejectedNotification extends BaseNotification implements ShouldQueue
         }
         
         $mail->line('در صورت نیاز می‌توانید گزارش جدیدی ارسال کنید.')
-            ->action('ارسال گزارش جدید', frontendUrl('panel/reports'))
+            ->action('مشاهده اعلان‌ها', frontendUrl('panel/notifications'))
             ->line('با تشکر از شما');
 
         return $mail;

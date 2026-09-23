@@ -107,6 +107,25 @@ class ArticleController extends Controller
         ]);
     }
 
+    public function latestPublishedItems($user, int $limit = 24): array
+    {
+        $articles = Article::published()
+            ->sort('latest')
+            ->with([
+                'user:id,first_name,last_name,username,profile_pic',
+                'category:id,title,english_title,slug',
+                'tags',
+            ])
+            ->withCount(['likes as likes_count', 'bookmarkers as bookmarks_count', 'comments as comments_count', 'views as views_count'])
+            ->take(max(1, $limit))
+            ->get();
+
+        return $articles
+            ->map(fn (Article $article) => $this->formatArticleListItem($article, $user))
+            ->values()
+            ->all();
+    }
+
     public function featured(Request $request)
     {
         $user = auth('api')->user();

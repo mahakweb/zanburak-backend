@@ -50,7 +50,7 @@ class SalesReportController extends Controller
 
         // Filter by payment method
         if ($request->filled('payment_method')) {
-            $query->where('payment_method', $request->payment_method);
+            $query->forReportedMethod($request->payment_method);
         }
 
         // Filter by driver
@@ -124,6 +124,8 @@ class SalesReportController extends Controller
                 'final_amount' => $payment->amount,
                 'driver' => $payment->driver,
                 'payment_method' => $payment->payment_method,
+                'wallet_paid_amount' => $payment->wallet_paid_amount,
+                'gateway_paid_amount' => $payment->gateway_paid_amount,
                 'paid_at' => $payment->paid_at,
                 'created_at' => $payment->created_at,
                 
@@ -353,7 +355,7 @@ class SalesReportController extends Controller
         }
 
         if ($request->filled('payment_method')) {
-            $query->where('payment_method', $request->payment_method);
+            $query->forReportedMethod($request->payment_method);
         }
 
         $sales = $query->orderBy('paid_at', 'desc')->get();
@@ -370,6 +372,8 @@ class SalesReportController extends Controller
                 'final_amount' => $payment->amount,
                 'driver' => $payment->driver ?? 'نامشخص',
                 'payment_method' => $payment->payment_method,
+                'wallet_paid_amount' => $payment->wallet_paid_amount,
+                'gateway_paid_amount' => $payment->gateway_paid_amount,
                 'paid_at' => $payment->paid_at->format('Y-m-d H:i:s'),
                 'items_count' => $payment->items->count(),
                 'items' => $payment->items->map(function($item) {
@@ -411,7 +415,7 @@ class SalesReportController extends Controller
         }
 
         if ($request->filled('payment_method')) {
-            $baseQuery->where('payment_method', $request->payment_method);
+            $baseQuery->forReportedMethod($request->payment_method);
         }
 
         if ($request->filled('driver')) {
@@ -721,7 +725,7 @@ class SalesReportController extends Controller
     private function applyPaymentFilters(Builder $query, Request $request): void
     {
         if ($request->filled('payment_method')) {
-            $query->where('payment_method', $request->payment_method);
+            $query->forReportedMethod($request->payment_method);
         }
 
         if ($request->filled('driver')) {

@@ -98,4 +98,27 @@ class Payment extends Model
     {
         return !$this->status && !$this->paid_at && $this->expired_at && $this->expired_at->greaterThan(now());
     }
+
+    public function scopeForReportedMethod($query, ?string $method)
+    {
+        if (!$method || $method === 'all') {
+            return $query;
+        }
+
+        if ($method === 'bank') {
+            return $query->whereIn('payment_method', ['bank', 'wallet_bank']);
+        }
+
+        if ($method === 'wallet') {
+            return $query->where(function ($inner) {
+                $inner->where('payment_method', 'wallet')
+                    ->orWhere(function ($split) {
+                        $split->where('payment_method', 'wallet_bank')
+                            ->where('wallet_paid_amount', '>', 0);
+                    });
+            });
+        }
+
+        return $query->where('payment_method', $method);
+    }
 }

@@ -52,6 +52,10 @@ class User extends Authenticatable implements MustVerifyEmail
         'bio',
         'active',
         'notifications_enabled',
+        'notify_email',
+        'notify_sms',
+        'notify_telegram',
+        'notify_site',
         'deactivated_by',
         'deactivation_reason',
         'deactivated_until',
@@ -84,6 +88,10 @@ class User extends Authenticatable implements MustVerifyEmail
             'is_superuser' => 'boolean',
             'is_staff' => 'boolean',
             'notifications_enabled' => 'boolean',
+            'notify_email' => 'boolean',
+            'notify_sms' => 'boolean',
+            'notify_telegram' => 'boolean',
+            'notify_site' => 'boolean',
         ];
     }
 

@@ -1,9 +1,7 @@
 @component('vendor.mail.html.layout')
 {{-- Header --}}
 @slot('header')
-@component('vendor.mail.html.header', ['url' => config('app.url')])
-{{--  {{ config('app.name') }}  --}}
-<img src="https://api.zanburak.ir/assets/images/logo/logo-wide.png" class="logo" alt="zanburak Logo">
+@component('vendor.mail.html.header', ['url' => config('app.frontend_url', 'https://zanburak.ir')])
 @endcomponent
 @endslot
 

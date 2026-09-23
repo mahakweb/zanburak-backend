@@ -115,6 +115,9 @@ class PaymentController extends Controller
                 'discount_amount' => $payment->discount_amount,
                 'discount_code' => $payment->discount_code,
                 'driver' => $payment->driver,
+                'payment_method' => $payment->payment_method,
+                'wallet_paid_amount' => $payment->wallet_paid_amount,
+                'gateway_paid_amount' => $payment->gateway_paid_amount,
                 'status' => $payment->status,
                 'paid_at' => $payment->paid_at,
                 'expired_at' => $payment->expired_at,
@@ -231,6 +234,8 @@ class PaymentController extends Controller
             'discount_code' => $payment->discount_code,
             'driver' => $payment->driver,
             'payment_method' => $payment->payment_method,
+            'wallet_paid_amount' => $payment->wallet_paid_amount,
+            'gateway_paid_amount' => $payment->gateway_paid_amount,
             'status' => $payment->status,
             'paid_at' => $payment->paid_at,
             'expired_at' => $payment->expired_at,
@@ -757,7 +762,7 @@ class PaymentController extends Controller
     {
         $request->validate([
             'user_id' => 'required|exists:users,id',
-            'payment_method' => 'required|in:wallet,bank',
+            'payment_method' => 'required|in:wallet,bank,wallet_bank',
             'items' => 'required|array|min:1',
             'items.*.payable_type' => 'required|in:course,plan,path,wallet',
             'items.*.payable_id' => 'required_unless:items.*.payable_type,wallet|nullable|integer',
@@ -766,7 +771,7 @@ class PaymentController extends Controller
             'amount' => 'required|numeric|min:0',
             'discount_amount' => 'nullable|numeric|min:0',
             'discount_code' => 'nullable|string|max:50',
-            'driver' => 'required_if:payment_method,bank|string|max:50',
+            'driver' => 'required_if:payment_method,bank,wallet_bank|string|max:50',
             'description' => 'nullable|string|max:1000',
             'auto_approve' => 'boolean',
             'expired_at' => 'required|date|after:now',
@@ -972,7 +977,7 @@ class PaymentController extends Controller
 
         $request->validate([
             'user_id' => 'required|exists:users,id',
-            'payment_method' => 'required|in:wallet,bank',
+            'payment_method' => 'required|in:wallet,bank,wallet_bank',
             'items' => 'required|array|min:1',
             'items.*.payable_type' => 'required|in:course,plan,path,wallet',
             'items.*.payable_id' => 'required_unless:items.*.payable_type,wallet|nullable|integer',
@@ -981,7 +986,7 @@ class PaymentController extends Controller
             'amount' => 'required|numeric|min:0',
             'discount_amount' => 'nullable|numeric|min:0',
             'discount_code' => 'nullable|string|max:50',
-            'driver' => 'required_if:payment_method,bank|string|max:50',
+            'driver' => 'required_if:payment_method,bank,wallet_bank|string|max:50',
             'description' => 'nullable|string|max:1000',
             'expired_at' => 'nullable|date',
         ]);

@@ -227,12 +227,17 @@ class PaymentService
             $verifyAmount = (int) ($payment->gateway_paid_amount ?? $payment->amount);
             $result = $gateway->verify($verifyAmount, $payment->tracking_number, $verifyOptions);
 
+            $settlement = $this->extractDigipaySettlementFields($result);
+            if ($payment->payment_method === 'wallet_bank') {
+                unset($settlement['gateway_paid_amount']);
+            }
+
             $payment->update([
                 'status'       => true,
                 'paid_at'      => now(),
                 'expired_at'   => null,
                 'reference_id' => $result['reference_id'] ?? $payment->reference_id,
-            ] + $this->extractDigipaySettlementFields($result));
+            ] + $settlement);
 
             if ($payment->driver === 'digipay' && !empty($result['digipay_type'])) {
                 $this->handleDigipayPostVerify($payment, $result);
@@ -258,7 +263,14 @@ class PaymentService
                 $this->handleSuccessfulWalletPayment($payment, $receipt);
             } else {
                 if ((int) $payment->wallet_paid_amount > 0) {
-                    $this->deductWalletSplitAmount($payment);
+                    try {
+                        $this->deductWalletSplitAmount($payment->fresh());
+                    } catch (\Throwable $walletException) {
+                        Log::error('Wallet split deduction failed after gateway success', [
+                            'payment_id' => $payment->id,
+                            'error' => $walletException->getMessage(),
+                        ]);
+                    }
                 }
                 $this->handleSuccessfulPayment($payment);
             }
@@ -697,19 +709,43 @@ class PaymentService
             return;
         }
 
-        $user = $payment->user;
-        $after = max(0, (int) $user->wallet_balance - $walletPart);
+        DB::transaction(function () use ($payment, $walletPart) {
+            $user = $payment->user()->lockForUpdate()->first();
+            if (!$user) {
+                return;
+            }
 
-        $user->wallets()->create([
-            'description'     => 'خرید ترکیبی (کیف پول + درگاه)',
-            'amount'          => $walletPart,
-            'after_balance'   => $after,
-            'type'            => 'decrease',
-            'payment_id'      => $payment->id,
-            'tracking_number' => $payment->reference_id,
-        ]);
+            $alreadyDeducted = $user->wallets()
+                ->where('payment_id', $payment->id)
+                ->where('type', 'decrease')
+                ->exists();
 
-        $user->update(['wallet_balance' => $after]);
+            if ($alreadyDeducted) {
+                return;
+            }
+
+            $deduct = min($walletPart, max(0, (int) $user->wallet_balance));
+            if ($deduct <= 0) {
+                return;
+            }
+
+            $after = (int) $user->wallet_balance - $deduct;
+
+            $user->wallets()->create([
+                'description'     => 'کسر موجودی بابت خرید ترکیبی با درگاه بانکی',
+                'amount'          => $deduct,
+                'after_balance'   => $after,
+                'type'            => 'decrease',
+                'payment_id'      => $payment->id,
+                'tracking_number' => $payment->reference_id,
+            ]);
+
+            $user->update(['wallet_balance' => $after]);
+
+            if ($deduct !== $walletPart) {
+                $payment->update(['wallet_paid_amount' => $deduct]);
+            }
+        });
     }
 
     protected function extractDigipaySettlementFields(array $verifyResult): array

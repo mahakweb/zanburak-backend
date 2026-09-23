@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\User;
 use App\Models\Event;
 use App\Models\NotificationPreference;
+use App\Services\NotificationChannelGate;
 use App\Notifications\CustomEventNotification;
 use App\Notifications\Channels\SmsNotificationChannel;
 use App\Notifications\Channels\SyncDatabaseChannel;
@@ -75,6 +76,8 @@ class NotificationService
             }
 
             // اگر هیچ کانالی فعال نبود، اطلاع‌رسانی ارسال نمی‌شود
+            $channels = app(NotificationChannelGate::class)->filterChannels($user, $channels);
+
             if (empty($channels)) {
                 Log::info("No active channels for user {$user->id} and event {$eventSlug}");
                 return;
@@ -137,10 +140,11 @@ class NotificationService
             // پیدا کردن رویداد
             $event = Event::where('slug', $eventSlug)->first();
             
+            $gate = app(NotificationChannelGate::class);
+
             if (!$event) {
                 Log::warning("NotificationService: Event not found: {$eventSlug} for user {$user->id}");
-                // اگر event پیدا نشد، حداقل database را برمی‌گردانیم
-                return [SyncDatabaseChannel::class];
+                return $gate->allows($user, SyncDatabaseChannel::class) ? [SyncDatabaseChannel::class] : [];
             }
 
             // بررسی تنظیمات کاربر برای این رویداد
@@ -189,13 +193,11 @@ class NotificationService
                 ]
             ]);
 
-            // اگر هیچ کانالی فعال نبود، حداقل database را برمی‌گردانیم
+            $channels = $gate->filterChannels($user, $channels);
+
             if (empty($channels)) {
-                Log::warning("NotificationService: No channels found, using database only", [
-                    'user_id' => $user->id,
-                    'event_slug' => $eventSlug
-                ]);
-                return [SyncDatabaseChannel::class];
+                Log::info("NotificationService: Every channel is disabled for user {$user->id} and event '{$eventSlug}'");
+                return [];
             }
 
             return $channels;
@@ -206,8 +208,7 @@ class NotificationService
                 'event_slug' => $eventSlug,
                 'trace' => $e->getTraceAsString()
             ]);
-            // در صورت خطا، حداقل database را برمی‌گردانیم
-            return [SyncDatabaseChannel::class];
+            return [];
         }
     }
 }

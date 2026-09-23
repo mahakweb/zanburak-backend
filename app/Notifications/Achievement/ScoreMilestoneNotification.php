@@ -55,7 +55,7 @@ class ScoreMilestoneNotification extends BaseNotification implements ShouldQueue
             ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line($message)
-            ->action('مشاهده کیف پول', frontendUrl('panel/wallet'))
+            ->action('مشاهده کیف پول', frontendUrl('panel/financial'))
             ->line('با تشکر از شما');
     }
 

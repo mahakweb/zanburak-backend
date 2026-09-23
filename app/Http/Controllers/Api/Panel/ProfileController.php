@@ -6,6 +6,8 @@ use App\Events\User\ChangeMobile;
 use App\Http\Controllers\Controller;
 use App\Models\ActiveCode;
 use App\Models\Event;
+use App\Models\NotificationChannelSetting;
+use App\Services\NotificationChannelGate;
 use App\Models\EventGroup;
 use App\Models\NotificationPreference;
 use App\Models\UserLogin;
@@ -523,6 +525,7 @@ class ProfileController extends Controller
     {
         $user = auth('api')->user();
         $userId = $user->id;
+        $adminChannels = NotificationChannelSetting::current()->flags();
         $eventGroups = EventGroup::with(['events'])->get();
 
         $groupedPreferences = [];
@@ -553,10 +556,10 @@ class ProfileController extends Controller
                     'via_sms' => $preference->via_sms ?? $event->is_sms_enabled,
                     'via_telegram' => $preference->via_telegram ?? $event->is_telegram_enabled,
                     'via_site' => $preference->via_site ?? $event->is_site_enabled,
-                    'is_email_enabled' => $event->is_email_enabled,
-                    'is_sms_enabled' => $event->is_sms_enabled,
-                    'is_telegram_enabled' => $event->is_telegram_enabled,
-                    'is_site_enabled' => $event->is_site_enabled
+                    'is_email_enabled' => $event->is_email_enabled && $adminChannels['email'],
+                    'is_sms_enabled' => $event->is_sms_enabled && $adminChannels['sms'],
+                    'is_telegram_enabled' => $event->is_telegram_enabled && $adminChannels['telegram'],
+                    'is_site_enabled' => $event->is_site_enabled && $adminChannels['site']
                 ];
             }
 
@@ -569,7 +572,14 @@ class ProfileController extends Controller
         return response()->json([
             'message' => 'Success', 
             'grouped_preferences' => $groupedPreferences,
-            'notifications_enabled' => $notificationsEnabled
+            'notifications_enabled' => $notificationsEnabled,
+            'user_channels' => [
+                'via_email' => $user->notify_email !== false,
+                'via_sms' => $user->notify_sms !== false,
+                'via_telegram' => $user->notify_telegram !== false,
+                'via_site' => $user->notify_site !== false,
+            ],
+            'admin_channels' => $adminChannels,
         ], 200);
     }
 
@@ -588,9 +598,16 @@ class ProfileController extends Controller
         }
 
         $event = Event::findOrFail($eventId);
+        $gate = app(NotificationChannelGate::class);
+        $channelKey = $gate->keyForPreferenceField($field);
 
-        if (!$event->isChannelEnabled($field)) {
-            return response()->json(['message' => 'This channel is disabled by admin.'], 403);
+        if (!$event->isChannelEnabled($field) || ($channelKey && !$gate->adminEnabled($channelKey))) {
+            return response()->json(['message' => 'این کانال توسط مدیر غیرفعال شده است.'], 403);
+        }
+
+        if ($boolValue === true && $channelKey) {
+            $user->{'notify_'.$channelKey} = true;
+            $user->save();
         }
 
         // بررسی اعتبارسنجی برای فعال‌سازی ایمیل یا پیامک
@@ -688,6 +705,12 @@ class ProfileController extends Controller
         $action = $request->input('action');
         $channel = $request->input('channel');
         $eventIds = $request->input('event_ids', []);
+        $gate = app(NotificationChannelGate::class);
+        $channelKey = $channel ? $gate->keyForPreferenceField($channel) : null;
+
+        if ($action === 'enable_channel' && $channelKey && !$gate->adminEnabled($channelKey)) {
+            return response()->json(['message' => 'این کانال توسط مدیر برای همه غیرفعال شده است.'], 403);
+        }
 
         // بررسی اعتبارسنجی اولیه برای enable_channel (قبل از حلقه)
         // اما بررسی کامل در داخل حلقه انجام می‌شود
@@ -814,6 +837,28 @@ class ProfileController extends Controller
             return response()->json([
                 'message' => implode(' ', array_unique($validationErrors))
             ], 422);
+        }
+
+        if ($channelKey && in_array($action, ['enable_channel', 'disable_channel'], true)) {
+            $user->{'notify_'.$channelKey} = $action === 'enable_channel';
+            $user->save();
+        }
+
+        if ($action === 'disable_all') {
+            $user->notify_email = false;
+            $user->notify_sms = false;
+            $user->notify_telegram = false;
+            $user->notify_site = false;
+            $user->save();
+        }
+
+        if (in_array($action, ['enable_all', 'reset_to_default'], true)) {
+            $flags = NotificationChannelSetting::current()->flags();
+            $user->notify_email = $flags['email'];
+            $user->notify_sms = $flags['sms'];
+            $user->notify_telegram = $flags['telegram'];
+            $user->notify_site = $flags['site'];
+            $user->save();
         }
 
         return response()->json([

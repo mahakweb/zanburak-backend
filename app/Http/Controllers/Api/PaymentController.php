@@ -50,6 +50,19 @@ class PaymentController extends Controller
                 $payable = (int) $payment->amount;
 
                 if ($walletBalance < $payable) {
+                    if ($walletBalance <= 0) {
+                        try {
+                            $payment->items()->delete();
+                            $payment->delete();
+                        } catch (\Throwable $cleanupEx) {
+                        }
+
+                        return response()->json([
+                            'error' => 'موجودی کیف پول شما صفر است. لطفاً از درگاه آنلاین پرداخت کنید.',
+                            'code' => 'wallet_empty',
+                        ], 422);
+                    }
+
                     if (!($data['wallet_split_confirmed'] ?? false)) {
                         try {
                             $payment->items()->delete();
@@ -66,14 +79,14 @@ class PaymentController extends Controller
                         ], 422);
                     }
 
-                    if (empty($data['driver'])) {
+                    if (empty($data['driver']) || PaymentGatewayMetadata::isInstallmentGatewayData($data)) {
                         try {
                             $payment->items()->delete();
                             $payment->delete();
                         } catch (\Throwable $cleanupEx) {
                         }
 
-                        return response()->json(['error' => 'برای پرداخت مابقی مبلغ، انتخاب درگاه الزامی است.'], 422);
+                        return response()->json(['error' => 'برای پرداخت مابقی مبلغ، یک درگاه بانکی آنلاین انتخاب کنید.'], 422);
                     }
 
                     $payment = $this->service->prepareWalletSplitPayment($payment, $user);
@@ -249,13 +262,40 @@ class PaymentController extends Controller
 
             // Wallet retry path
             if (($options['payment_method'] ?? 'bank') === 'wallet' && (int) $payment->amount > 0) {
-                // Check balance
-                if ((int) $user->wallet_balance < (int) $payment->amount) {
-                    return response()->json(['error' => 'موجودی کیف پول شما کافی نیست'], 422);
-                }
+                $walletBalance = (int) $user->wallet_balance;
+                $payable = (int) $payment->amount;
 
+                if ($walletBalance < $payable) {
+                    if ($walletBalance <= 0 || !($options['wallet_split_confirmed'] ?? false)) {
+                        return response()->json([
+                            'error' => $walletBalance <= 0
+                                ? 'موجودی کیف پول شما صفر است. لطفاً از درگاه آنلاین پرداخت کنید.'
+                                : 'موجودی کیف پول شما برای پرداخت کامل کافی نیست.',
+                            'code' => $walletBalance <= 0 ? 'wallet_empty' : 'wallet_insufficient',
+                            'wallet_balance' => $walletBalance,
+                            'payable_amount' => $payable,
+                            'gateway_remainder' => max(0, $payable - $walletBalance),
+                        ], 422);
+                    }
+
+                    if (empty($options['driver']) || PaymentGatewayMetadata::isInstallmentGatewayData($options)) {
+                        return response()->json(['error' => 'برای پرداخت مابقی مبلغ، یک درگاه بانکی آنلاین انتخاب کنید.'], 422);
+                    }
+
+                    $payment = $this->service->prepareWalletSplitPayment($payment, $user);
+                    $payment->update(array_merge(
+                        PaymentGatewayMetadata::applyToPaymentArray($options),
+                        ['driver' => $options['driver']]
+                    ));
+                    $payment->refresh();
+                    $options['payment_method'] = 'wallet_bank';
+                    $purchaseOptions['payment_method'] = 'wallet_bank';
+                    $purchaseOptions['driver'] = $options['driver'];
+                } else {
                 $payment->update([
                     'payment_method' => 'wallet',
+                    'wallet_paid_amount' => (int) $payment->amount,
+                    'gateway_paid_amount' => 0,
                     'status'         => true,
                     'paid_at'        => now(),
                     'expired_at'     => null,
@@ -293,6 +333,7 @@ class PaymentController extends Controller
                     'payment_uuid' => $payment->uuid,
                     'redirect_url' => $redirectUrl,
                 ], 200);
+                }
             }
 
             // If user chose bank on retry, update payment method/driver and recalculate gateway fees
@@ -321,7 +362,7 @@ class PaymentController extends Controller
                 'gateway'           => $payment->driver,
                 'status'            => 'pending',
                 'request_payload'   => json_encode([
-                    'amount'      => $payment->amount,
+                    'amount'      => $payment->gateway_paid_amount ?? $payment->amount,
                     'callbackUrl' => route('api.payment.callback', $payment->uuid),
                     'description' => '',
                     'user_ip'     => request()->ip(),
@@ -449,6 +490,9 @@ class PaymentController extends Controller
                 'tracking_number' => $payment->tracking_number,
                 'reference_id'    => $payment->reference_id,
                 'amount'          => $payment->amount,
+                'payment_method'  => $payment->payment_method,
+                'wallet_paid_amount' => $payment->wallet_paid_amount,
+                'gateway_paid_amount' => $payment->gateway_paid_amount,
                 'discount_amount' => $payment->discount_amount,
                 'driver'          => $payment->driver,
                 'paid_at'         => $payment->paid_at,

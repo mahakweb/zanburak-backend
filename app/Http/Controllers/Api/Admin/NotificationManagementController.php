@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Event;
 use App\Models\EventGroup;
+use App\Models\NotificationChannelSetting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -280,6 +281,42 @@ class NotificationManagementController extends Controller
                 'created_at' => $event->created_at,
                 'updated_at' => $event->updated_at,
             ]
+        ]);
+    }
+
+    public function channelSettings()
+    {
+        return response()->json([
+            'message' => 'Success',
+            'channels' => NotificationChannelSetting::current()->flags(),
+        ]);
+    }
+
+    public function updateChannelSettings(Request $request)
+    {
+        $validated = Validator::make($request->all(), [
+            'email' => ['required', 'boolean'],
+            'sms' => ['required', 'boolean'],
+            'telegram' => ['required', 'boolean'],
+            'site' => ['required', 'boolean'],
+        ]);
+
+        if ($validated->fails()) {
+            return response()->json(['message' => 'Error', 'errors' => $validated->errors()], 422);
+        }
+
+        $setting = NotificationChannelSetting::current();
+        $setting->fill([
+            'email_enabled' => $request->boolean('email'),
+            'sms_enabled' => $request->boolean('sms'),
+            'telegram_enabled' => $request->boolean('telegram'),
+            'site_enabled' => $request->boolean('site'),
+        ]);
+        $setting->save();
+
+        return response()->json([
+            'message' => 'کانال‌های اطلاع‌رسانی به‌روزرسانی شد.',
+            'channels' => $setting->flags(),
         ]);
     }
 

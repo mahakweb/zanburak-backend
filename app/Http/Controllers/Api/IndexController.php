@@ -32,140 +32,52 @@ class IndexController extends Controller
     {
         $limit = $request->input('limit');
 
-        $query = Category::query()
-            ->where('status', true)
-            ->withCount('course')
-            ->orderByDesc('course_count')
-            ->orderBy('title');
+        return response()->json([
+            'message' => 'success',
+            'categories' => $this->listedCategories($limit ? (int) $limit : null),
+        ], 200);
+    }
 
-        if ($limit) {
-            $query->limit(max(1, (int) $limit));
-        }
+    public function home()
+    {
+        $user = auth('api')->user();
 
-        $categories = $query->get()->map(
-            fn (Category $category) => $category->only(
-                'id',
-                'title',
-                'english_title',
-                'icon',
-                'slug',
-                'status',
-                'course_count'
-            )
-        );
-
-        return response()->json(['message' => 'success', 'categories' => $categories], 200);
+        return response()->json([
+            'message' => 'success',
+            'stats' => $this->platformStatsData(),
+            'latest_courses' => $this->publishedCourseCards($user, null, 10),
+            'free_courses' => $this->publishedCourseCards($user, 'free', 10),
+            'categories' => $this->listedCategories(12),
+            'paths' => $this->listedPaths(7, true),
+            'articles' => app(ArticleController::class)->latestPublishedItems($user, 24),
+        ], 200);
     }
 
     public function platformStats()
     {
-        $stats = Cache::remember('index.platform_stats_v2', now()->addMinutes(15), function () {
-            $publishedCourses = Course::query()
-                ->where('publish', '1')
-                ->notArchived();
-
-            return [
-                'students' => (int) DB::table('course_user')->distinct()->count('user_id'),
-                'courses' => (int) (clone $publishedCourses)->count(),
-                'fields' => (int) Tag::query()
-                    ->whereHas('courses', fn ($query) => $query->where('publish', '1'))
-                    ->count(),
-                'instructors' => (int) (clone $publishedCourses)
-                    ->whereNotNull('teacher_id')
-                    ->distinct()
-                    ->count('teacher_id'),
-                'paths' => (int) Path::query()->where('status', true)->count(),
-            ];
-        });
-
-        return response()->json(['message' => 'success', 'stats' => $stats], 200);
+        return response()->json(['message' => 'success', 'stats' => $this->platformStatsData()], 200);
     }
 
     public function latestCourses(Request $request)
     {
         $user = auth('api')->user();
         $limit = $request->input('limit', 10);
-        $availability = app(CourseAvailabilityService::class);
-        $calculator = app(PriceCalculator::class);
-        $rawCourses = Course::where('publish', '1')
-            ->notArchived()
-            ->with(['status:id,title,english_title,slug', 'category']);
-        if ($limit) {
-            $rawCourses = $rawCourses->limit($limit);
-        }
-        $rawCourses = $rawCourses->orderBy('id', 'desc')->get();
 
-        $courses = $rawCourses->map(function ($course) use ($user, $availability, $calculator) {
-            $teacher = $course->teacher
-                ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
-                : null;
-            $totalTime = $course->totalTime();
-            $likesCount = $course->likes()->count();
-            $userHasLiked = $user ? $user->hasLiked($course) : false;
-            $listMeta = $availability->listItemMeta($course);
-
-            return $calculator->decorateCourseArray([
-                'id' => $course->id,
-                'title' => $course->title,
-                'english_title' => $course->english_title,
-                'slug' => $course->slug,
-                'price' => $course->price,
-                'poster' => $course->poster,
-                'description' => $course->description,
-                'short_description' => $course->short_description,
-                'avgRating' => $course->averageRating(),
-                'total_time' => $totalTime,
-                'likes_count' => $likesCount,
-                'user_has_liked' => $userHasLiked,
-                'teacher' => $teacher,
-                'status' => $listMeta['status'],
-            ], $course);
-        });
-        return response()->json(['message' => 'success', 'courses' => $courses], 200);
+        return response()->json([
+            'message' => 'success',
+            'courses' => $this->publishedCourseCards($user, null, $limit),
+        ], 200);
     }
 
     public function freeCourses(Request $request)
     {
         $user = auth('api')->user();
         $limit = $request->input('limit', 10);
-        $availability = app(CourseAvailabilityService::class);
-        $calculator = app(PriceCalculator::class);
-        $rawCourses = Course::where('publish', '1')
-            ->where('type', 'free')
-            ->notArchived()
-            ->with(['status:id,title,english_title,slug', 'category']);
-        if ($limit) {
-            $rawCourses = $rawCourses->limit($limit);
-        }
-        $rawCourses = $rawCourses->orderBy('id', 'desc')->get();
 
-        $courses = $rawCourses->map(function ($course) use ($user, $availability, $calculator) {
-            $teacher = $course->teacher
-                ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
-                : null;
-            $totalTime = $course->totalTime();
-            $likesCount = $course->likes()->count();
-            $userHasLiked = $user ? $user->hasLiked($course) : false;
-            $listMeta = $availability->listItemMeta($course);
-
-            return $calculator->decorateCourseArray([
-                'id' => $course->id,
-                'title' => $course->title,
-                'english_title' => $course->english_title,
-                'slug' => $course->slug,
-                'price' => $course->price,
-                'poster' => $course->poster,
-                'description' => $course->description,
-                'short_description' => $course->short_description,
-                'avgRating' => $course->averageRating(),
-                'total_time' => $totalTime,
-                'likes_count' => $likesCount,
-                'user_has_liked' => $userHasLiked,
-                'teacher' => $teacher,
-                'status' => $listMeta['status'],
-            ], $course);
-        });
-        return response()->json(['message' => 'success', 'courses' => $courses], 200);
+        return response()->json([
+            'message' => 'success',
+            'courses' => $this->publishedCourseCards($user, 'free', $limit),
+        ], 200);
     }
 
     // public function paths(Request $request)
@@ -181,18 +93,11 @@ class IndexController extends Controller
     {
         $limit = $request->input('limit', 6);
         $showCourses = $request->input('show_courses', false);
-        $paths = Path::where('status', '1')
-            ->orderBy('id', 'desc')
-            ->select('id', 'title', 'english_title', 'slug', 'short_description', 'poster', 'icon', 'allows_installment');
-        if ($limit) {
-            $paths = $paths->take($limit);
-        }
-        if ($showCourses) {
-            $paths = $paths->with('publishedCourses:id,title,english_title,slug,short_description,poster,type,price');
-        }
 
-        $paths = $paths->get();
-        return response()->json(['message' => 'Success', 'paths' => $paths], 200);
+        return response()->json([
+            'message' => 'Success',
+            'paths' => $this->listedPaths($limit, (bool) $showCourses),
+        ], 200);
     }
 
 
@@ -631,6 +536,110 @@ class IndexController extends Controller
             'success' => false,
             'message' => 'No file was uploaded.',
         ], 400);
+    }
+
+    protected function platformStatsData(): array
+    {
+        return Cache::remember('index.platform_stats_v2', now()->addMinutes(15), function () {
+            $publishedCourses = Course::query()
+                ->where('publish', '1')
+                ->notArchived();
+
+            return [
+                'students' => (int) DB::table('course_user')->distinct()->count('user_id'),
+                'courses' => (int) (clone $publishedCourses)->count(),
+                'fields' => (int) Tag::query()
+                    ->whereHas('courses', fn ($query) => $query->where('publish', '1'))
+                    ->count(),
+                'instructors' => (int) (clone $publishedCourses)
+                    ->whereNotNull('teacher_id')
+                    ->distinct()
+                    ->count('teacher_id'),
+                'paths' => (int) Path::query()->where('status', true)->count(),
+            ];
+        });
+    }
+
+    protected function listedCategories(?int $limit)
+    {
+        $query = Category::query()
+            ->where('status', true)
+            ->withCount('course')
+            ->orderByDesc('course_count')
+            ->orderBy('title');
+
+        if ($limit) {
+            $query->limit(max(1, $limit));
+        }
+
+        return $query->get()->map(
+            fn (Category $category) => $category->only(
+                'id',
+                'title',
+                'english_title',
+                'icon',
+                'slug',
+                'status',
+                'course_count'
+            )
+        )->values();
+    }
+
+    protected function listedPaths($limit, bool $showCourses)
+    {
+        $paths = Path::where('status', '1')
+            ->orderBy('id', 'desc')
+            ->select('id', 'title', 'english_title', 'slug', 'short_description', 'poster', 'icon', 'allows_installment');
+
+        if ($limit) {
+            $paths = $paths->take($limit);
+        }
+        if ($showCourses) {
+            $paths = $paths->with('publishedCourses:id,title,english_title,slug,short_description,poster,type,price');
+        }
+
+        return $paths->get();
+    }
+
+    protected function publishedCourseCards($user, ?string $type, $limit): array
+    {
+        $availability = app(CourseAvailabilityService::class);
+        $calculator = app(PriceCalculator::class);
+
+        $query = Course::where('publish', '1')
+            ->notArchived()
+            ->with(['status:id,title,english_title,slug', 'category']);
+
+        if ($type === 'free') {
+            $query->where('type', 'free');
+        }
+        if ($limit) {
+            $query->limit($limit);
+        }
+
+        return $query->orderBy('id', 'desc')->get()->map(function ($course) use ($user, $availability, $calculator) {
+            $teacher = $course->teacher
+                ? $course->teacher->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+                : null;
+            $listMeta = $availability->listItemMeta($course);
+
+            return $calculator->decorateCourseArray([
+                'id' => $course->id,
+                'title' => $course->title,
+                'english_title' => $course->english_title,
+                'slug' => $course->slug,
+                'price' => $course->price,
+                'poster' => $course->poster,
+                'description' => $course->description,
+                'short_description' => $course->short_description,
+                'avgRating' => $course->averageRating(),
+                'total_time' => $course->totalTime(),
+                'likes_count' => $course->likes()->count(),
+                'user_has_liked' => $user ? $user->hasLiked($course) : false,
+                'teacher' => $teacher,
+                'status' => $listMeta['status'],
+            ], $course);
+        })->values()->all();
     }
 
     protected function pathCoursePayload($course, $user, PriceCalculator $calculator): array

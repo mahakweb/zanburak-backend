@@ -28,8 +28,8 @@ class SendLoginNotification
     public function handle($event)
     {
         $user = $event->user;
-        $currentIp = request()->ip();
-        $currentBrowser = request()->header('User-Agent');
+        $currentIp = request()->ip() ?: 'نامشخص';
+        $currentBrowser = request()->header('User-Agent') ?: 'نامشخص';
         
         // بررسی اینکه آیا این IP قبلاً استفاده شده است یا نه
         $previousLogin = \App\Models\UserLogin::where('user_id', $user->id)

@@ -397,6 +397,9 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
         Route::post('/event-group/{eventGroup}/update', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'updateEventGroup'])->name('event-group.update');
         Route::delete('/event-group/{eventGroup}', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'deleteEventGroup'])->name('event-group.delete');
 
+        Route::get('/channels', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'channelSettings'])->name('channels.show');
+        Route::post('/channels', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'updateChannelSettings'])->name('channels.update');
+
         // Events
         Route::post('/events', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'events'])->name('events.index');
         Route::post('/event/create', [\App\Http\Controllers\Api\Admin\NotificationManagementController::class, 'createEvent'])->name('event.create');

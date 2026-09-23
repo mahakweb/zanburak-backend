@@ -55,7 +55,7 @@ class ReportApprovedNotification extends BaseNotification implements ShouldQueue
         }
         
         $mail->line('با تشکر از گزارش شما')
-            ->action('مشاهده گزارش', frontendUrl('panel/reports'))
+            ->action('مشاهده گزارش', frontendUrl('panel/notifications'))
             ->line('با تشکر از شما');
 
         return $mail;

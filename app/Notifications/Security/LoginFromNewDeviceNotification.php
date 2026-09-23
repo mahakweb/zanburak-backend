@@ -20,7 +20,7 @@ class LoginFromNewDeviceNotification extends BaseNotification implements ShouldQ
      *
      * @return void
      */
-    public function __construct(string $ip, string $browser, string $device = null)
+    public function __construct(?string $ip, ?string $browser = null, ?string $device = null)
     {
         parent::__construct();
         $this->ip = $ip;
@@ -53,13 +53,13 @@ class LoginFromNewDeviceNotification extends BaseNotification implements ShouldQ
             ->from('noreply@zanburak.ir', 'zanburak | زنبورک')
             ->greeting('سلام ' . ($notifiable->first_name ?? 'کاربر') . ' عزیز!')
             ->line('ورود از دستگاه جدید:')
-            ->line("IP: {$this->ip}")
-            ->line("مرورگر: {$this->browser}")
+            ->line('IP: ' . ($this->ip ?: 'نامشخص'))
+            ->line('مرورگر: ' . ($this->browser ?: 'نامشخص'))
             ->when($deviceInfo, function ($mail) use ($deviceInfo) {
                 return $mail->line($deviceInfo);
             })
             ->line('در صورتی که این کار توسط شما انجام نشده است، لطفاً فوراً رمز عبور خود را تغییر دهید.')
-            ->action('تغییر رمز عبور', frontendUrl('panel/change-password'))
+            ->action('تغییر رمز عبور', frontendUrl('panel/profile/change-password'))
             ->line('با تشکر از شما');
     }
 

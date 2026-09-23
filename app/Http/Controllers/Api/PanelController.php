@@ -369,6 +369,58 @@ class PanelController extends Controller
         ], 200);
     }
 
+    public function walletTransactions(Request $request)
+    {
+        $user = auth('api')->user();
+        $sort = $request->input('sort', 'newest');
+        $sortOrder = $sort === 'oldest' ? 'asc' : 'desc';
+
+        $query = $user->wallets()
+            ->with('payment:id,uuid,payment_method,reference_id')
+            ->select('id', 'uuid', 'description', 'amount', 'after_balance', 'type', 'tracking_number', 'payment_id', 'reference_id', 'created_at', 'updated_at')
+            ->orderBy('created_at', $sortOrder);
+
+        $perPage = max(1, (int) $request->input('perPage', 10));
+        $currentPage = max(1, (int) $request->input('page', 1));
+        $total = (clone $query)->count();
+        $lastPage = (int) ceil($total / $perPage);
+        $prevPage = $currentPage > 1 ? $currentPage - 1 : null;
+        $nextPage = $currentPage < $lastPage ? $currentPage + 1 : null;
+
+        $rows = $query->skip(($currentPage - 1) * $perPage)->take($perPage)->get();
+
+        $result = $rows->map(function ($wallet) {
+            return [
+                'id' => $wallet->id,
+                'uuid' => $wallet->uuid,
+                'description' => $wallet->description,
+                'amount' => $wallet->amount,
+                'after_balance' => $wallet->after_balance,
+                'type' => $wallet->type,
+                'tracking_number' => $wallet->tracking_number,
+                'payment_id' => $wallet->payment_id,
+                'payment_uuid' => $wallet->payment?->uuid,
+                'payment_reference_id' => $wallet->payment?->reference_id,
+                'reference_id' => $wallet->reference_id,
+                'created_at' => $wallet->created_at,
+                'updated_at' => $wallet->updated_at,
+            ];
+        });
+
+        return response()->json([
+            'message' => 'Success',
+            'data' => $result,
+            'pagination' => [
+                'total' => $total,
+                'current_page' => $currentPage,
+                'per_page' => $perPage,
+                'last_page' => $lastPage,
+                'prev_page' => $prevPage,
+                'next_page' => $nextPage,
+            ],
+        ], 200);
+    }
+
     public function increamentWalletAmount(Request $request)
     {
         $user = auth('api')->user();
