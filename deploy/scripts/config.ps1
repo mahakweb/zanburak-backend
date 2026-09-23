@@ -8,7 +8,7 @@
     SshUser    = 'root'
     SshPass    = 'Milad@4970'
     SshKeyPath = ''   # Optional: SSH private key path (password auth skipped if set)
-    SshHostKey = 'SHA256:4WVRbNgj03rsMUNIJ9hng7p+1idgQDedvgu6gbuyQ5k'
+    SshHostKey = 'SHA256:7AnKcyOWmmrV4VnkAd9lcR7wjtbyD9hnW2Ksn0Mz3BI'
 
     # -- Server paths ---------------------------------------------------------
     RemoteDir     = '/var/www/zanburak-backend'

@@ -35,7 +35,7 @@ function Test-ShouldExcludeBackendPath {
     if (-not $path) { return $false }
 
     $excludeDirs = @(
-        '.git', 'node_modules', '.idea', '.vscode', 'tests', 'deploy',
+        '.git', 'node_modules', '.idea', '.vscode', 'tests', 'deploy', 'docs',
         'storage/logs',
         'storage/framework/cache/data',
         'storage/framework/sessions',
@@ -63,26 +63,11 @@ function Test-ShouldExcludeBackendPath {
     if ($path -like 'vendor/ip2location/*/data/*.BIN') { return $true }
     if ($path -eq 'vendor/laravel/pint' -or $path.StartsWith('vendor/laravel/pint/')) { return $true }
 
+    # Trim vendor noise (tests/docs) — fewer files = faster zip + smaller upload
+    if ($path -match '(?i)^vendor/[^/]+/[^/]+/(tests|test|docs|doc|examples|example|\.github)(/|$)') { return $true }
+    if ($path -match '(?i)^vendor/.+\.(md|markdown|rst|phpt)$') { return $true }
+
     return $false
-}
-
-function Get-BackendFilesForZip {
-    param([string]$SourceDir)
-
-    $sourceFull = (Resolve-Path $SourceDir).Path.TrimEnd('\', '/')
-    $files      = New-Object System.Collections.Generic.List[System.IO.FileInfo]
-
-    function Walk([string]$CurrentDir) {
-        foreach ($item in Get-ChildItem -Path $CurrentDir -Force) {
-            $relative = $item.FullName.Substring($sourceFull.Length + 1)
-            if (Test-ShouldExcludeBackendPath -RelativePath $relative -IsDirectory $item.PSIsContainer) { continue }
-            if ($item.PSIsContainer) { Walk $item.FullName }
-            else { [void]$files.Add($item) }
-        }
-    }
-
-    Walk $SourceDir
-    return $files
 }
 
 function New-BackendZip {
@@ -97,19 +82,57 @@ function New-BackendZip {
     if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 
     $sourceFull = (Resolve-Path $SourceDir).Path.TrimEnd('\', '/')
-    $zipStream  = [System.IO.File]::Create($ZipPath)
-    $zip        = New-Object System.IO.Compression.ZipArchive($zipStream, [System.IO.Compression.ZipArchiveMode]::Create)
-    $fileCount  = 0
+    # Fastest: Optimal on ~10k+ Laravel/vendor files looks "stuck" for many minutes.
+    $level     = [System.IO.Compression.CompressionLevel]::Fastest
+    $zipStream = [System.IO.File]::Create($ZipPath)
+    $zip       = New-Object System.IO.Compression.ZipArchive($zipStream, [System.IO.Compression.ZipArchiveMode]::Create)
+    $copyBuf   = New-Object byte[] (1024 * 1024)
+    $state     = @{ Files = 0; Bytes = 0L; LastReportSec = 0 }
+    $sw        = [System.Diagnostics.Stopwatch]::StartNew()
+    $stack     = New-Object System.Collections.Generic.Stack[string]
+    $stack.Push($sourceFull)
+
+    Write-Host "   packing with Fastest compression (live progress)..." -ForegroundColor DarkGray
 
     try {
-        foreach ($file in Get-BackendFilesForZip -SourceDir $SourceDir) {
-            $relative = $file.FullName.Substring($sourceFull.Length + 1) -replace '\\', '/'
-            $entry    = $zip.CreateEntry($relative, [System.IO.Compression.CompressionLevel]::Optimal)
-            $out      = $entry.Open()
-            $in       = [System.IO.File]::OpenRead($file.FullName)
-            try { $in.CopyTo($out) }
-            finally { $in.Close(); $out.Close() }
-            $fileCount++
+        while ($stack.Count -gt 0) {
+            $currentDir = $stack.Pop()
+            foreach ($entryPath in [System.IO.Directory]::EnumerateFileSystemEntries($currentDir)) {
+                $isDir = ([System.IO.File]::GetAttributes($entryPath) -band [System.IO.FileAttributes]::Directory) -ne 0
+                $relativeFs = $entryPath.Substring($sourceFull.Length + 1)
+                if (Test-ShouldExcludeBackendPath -RelativePath $relativeFs -IsDirectory $isDir) { continue }
+
+                if ($isDir) {
+                    $stack.Push($entryPath)
+                    continue
+                }
+
+                $relative = $relativeFs -replace '\\', '/'
+                $entry    = $zip.CreateEntry($relative, $level)
+                $out      = $entry.Open()
+                $in       = [System.IO.File]::OpenRead($entryPath)
+                try {
+                    while ($true) {
+                        $n = $in.Read($copyBuf, 0, $copyBuf.Length)
+                        if ($n -le 0) { break }
+                        $out.Write($copyBuf, 0, $n)
+                        $state.Bytes += $n
+                    }
+                }
+                finally {
+                    $in.Close()
+                    $out.Close()
+                }
+
+                $state.Files++
+                $elapsed = $sw.Elapsed.TotalSeconds
+                if (($state.Files % 250) -eq 0 -or ($elapsed - $state.LastReportSec) -ge 2) {
+                    $rate = if ($elapsed -gt 0) { $state.Files / $elapsed } else { 0 }
+                    Write-Host ("   ... {0} files / {1} ({2:N0} files/s)" -f `
+                        $state.Files, (Format-DeployBytes $state.Bytes), $rate) -ForegroundColor DarkGray
+                    $state.LastReportSec = $elapsed
+                }
+            }
         }
     }
     finally {
@@ -117,7 +140,11 @@ function New-BackendZip {
         $zipStream.Close()
     }
 
-    return $fileCount
+    $sw.Stop()
+    Write-Host ("   packed {0} files ({1}) in {2:N1}s" -f `
+        $state.Files, (Format-DeployBytes $state.Bytes), $sw.Elapsed.TotalSeconds) -ForegroundColor DarkGray
+
+    return $state.Files
 }
 
 function Get-PlinkPath {
@@ -469,8 +496,8 @@ function Send-RemoteFile {
         [string]$LocalPath,
         [string]$RemotePath,
         [int]$MaxAttempts = 3,
-        [int]$ChunkThresholdMb = 8,
-        [int]$ChunkSizeMb = 8,
+        [int]$ChunkThresholdMb = 48,
+        [int]$ChunkSizeMb = 32,
         [string]$ProgressLabel = 'upload'
     )
 
@@ -551,8 +578,8 @@ function Invoke-BackendExtrasUpload {
         Send-RemoteFile `
             -LocalPath $extra.LocalPath `
             -RemotePath $remotePath `
-            -ChunkThresholdMb 8 `
-            -ChunkSizeMb 8 `
+            -ChunkThresholdMb 48 `
+            -ChunkSizeMb 32 `
             -ProgressLabel "extra $i/$($extras.Count)"
     }
 
@@ -596,7 +623,8 @@ function Invoke-BackendUpload {
 
     $c = $script:Config
     Write-DeployStep "1/3 Uploading core package ($($c.SshHost):$($c.SshPort))"
-    Send-RemoteFileChunked -LocalPath $ZipPath -RemotePath $c.RemoteZip -ChunkSizeMb 8 -ProgressLabel 'core'
+    # Prefer one-shot upload; only split when zip is huge (fewer SSH round-trips = much faster).
+    Send-RemoteFile -LocalPath $ZipPath -RemotePath $c.RemoteZip -ChunkThresholdMb 96 -ChunkSizeMb 32 -ProgressLabel 'core'
 }
 
 function Invoke-BackendExtract {
