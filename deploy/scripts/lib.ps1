@@ -28,11 +28,20 @@ function Write-DeployError([string]$Message) {
 function Test-ShouldExcludeBackendPath {
     param(
         [string]$RelativePath,
-        [bool]$IsDirectory
+        [bool]$IsDirectory,
+        # app    = code only (exclude vendor)
+        # full   = code + vendor
+        # vendor = vendor tree only
+        [ValidateSet('app', 'full', 'vendor')]
+        [string]$Mode = 'app'
     )
 
     $path = ($RelativePath -replace '\\', '/').Trim('/')
     if (-not $path) { return $false }
+
+    if ($Mode -eq 'vendor') {
+        if ($path -ne 'vendor' -and -not $path.StartsWith('vendor/')) { return $true }
+    }
 
     $excludeDirs = @(
         '.git', 'node_modules', '.idea', '.vscode', 'tests', 'deploy', 'docs',
@@ -41,6 +50,10 @@ function Test-ShouldExcludeBackendPath {
         'storage/framework/sessions',
         'storage/framework/views'
     )
+    if ($Mode -eq 'app') {
+        $excludeDirs = @('vendor') + $excludeDirs
+    }
+
     foreach ($dir in $excludeDirs) {
         if ($path -eq $dir -or $path.StartsWith("$dir/")) { return $true }
     }
@@ -58,14 +71,15 @@ function Test-ShouldExcludeBackendPath {
     if ($path -like '.env.*') { return $true }
     if ($path -like '*.log') { return $true }
 
-    # Heavy / non-essential — shipped in a second upload after main extract
+    # Heavy geo DBs — always via extras upload (option 3)
     if ($path -like 'database/ip2location/*.BIN') { return $true }
     if ($path -like 'vendor/ip2location/*/data/*.BIN') { return $true }
-    if ($path -eq 'vendor/laravel/pint' -or $path.StartsWith('vendor/laravel/pint/')) { return $true }
 
-    # Trim vendor noise (tests/docs) — fewer files = faster zip + smaller upload
-    if ($path -match '(?i)^vendor/[^/]+/[^/]+/(tests|test|docs|doc|examples|example|\.github)(/|$)') { return $true }
-    if ($path -match '(?i)^vendor/.+\.(md|markdown|rst|phpt)$') { return $true }
+    if ($Mode -eq 'full' -or $Mode -eq 'vendor') {
+        if ($path -eq 'vendor/laravel/pint' -or $path.StartsWith('vendor/laravel/pint/')) { return $true }
+        if ($path -match '(?i)^vendor/[^/]+/[^/]+/(tests|test|docs|doc|examples|example|\.github)(/|$)') { return $true }
+        if ($path -match '(?i)^vendor/.+\.(md|markdown|rst|phpt)$') { return $true }
+    }
 
     return $false
 }
@@ -73,7 +87,9 @@ function Test-ShouldExcludeBackendPath {
 function New-BackendZip {
     param(
         [string]$SourceDir,
-        [string]$ZipPath
+        [string]$ZipPath,
+        [ValidateSet('app', 'full', 'vendor')]
+        [string]$Mode = 'app'
     )
 
     Add-Type -AssemblyName System.IO.Compression
@@ -82,7 +98,6 @@ function New-BackendZip {
     if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 
     $sourceFull = (Resolve-Path $SourceDir).Path.TrimEnd('\', '/')
-    # Fastest: Optimal on ~10k+ Laravel/vendor files looks "stuck" for many minutes.
     $level     = [System.IO.Compression.CompressionLevel]::Fastest
     $zipStream = [System.IO.File]::Create($ZipPath)
     $zip       = New-Object System.IO.Compression.ZipArchive($zipStream, [System.IO.Compression.ZipArchiveMode]::Create)
@@ -92,7 +107,7 @@ function New-BackendZip {
     $stack     = New-Object System.Collections.Generic.Stack[string]
     $stack.Push($sourceFull)
 
-    Write-Host "   packing with Fastest compression (live progress)..." -ForegroundColor DarkGray
+    Write-Host "   packing mode=$Mode (Fastest)..." -ForegroundColor DarkGray
 
     try {
         while ($stack.Count -gt 0) {
@@ -100,7 +115,7 @@ function New-BackendZip {
             foreach ($entryPath in [System.IO.Directory]::EnumerateFileSystemEntries($currentDir)) {
                 $isDir = ([System.IO.File]::GetAttributes($entryPath) -band [System.IO.FileAttributes]::Directory) -ne 0
                 $relativeFs = $entryPath.Substring($sourceFull.Length + 1)
-                if (Test-ShouldExcludeBackendPath -RelativePath $relativeFs -IsDirectory $isDir) { continue }
+                if (Test-ShouldExcludeBackendPath -RelativePath $relativeFs -IsDirectory $isDir -Mode $Mode) { continue }
 
                 if ($isDir) {
                     $stack.Push($entryPath)
@@ -108,9 +123,9 @@ function New-BackendZip {
                 }
 
                 $relative = $relativeFs -replace '\\', '/'
-                $entry    = $zip.CreateEntry($relative, $level)
-                $out      = $entry.Open()
-                $in       = [System.IO.File]::OpenRead($entryPath)
+                $entry = $zip.CreateEntry($relative, $level)
+                $out   = $entry.Open()
+                $in    = [System.IO.File]::OpenRead($entryPath)
                 try {
                     while ($true) {
                         $n = $in.Read($copyBuf, 0, $copyBuf.Length)
@@ -516,8 +531,11 @@ function Test-BackendProject {
     if (-not (Test-Path $script:BackendDir)) {
         throw "Backend folder not found: $($script:BackendDir)"
     }
-    if (-not (Test-Path (Join-Path $script:BackendDir 'vendor'))) {
-        throw "vendor folder not found. Run composer install in zanburak-backend first."
+    if (-not (Test-Path (Join-Path $script:BackendDir 'composer.json'))) {
+        throw "composer.json not found in zanburak-backend."
+    }
+    if (-not (Test-Path (Join-Path $script:BackendDir 'composer.lock'))) {
+        throw "composer.lock not found in zanburak-backend."
     }
     if (-not (Test-Path (Join-Path $script:BackendDir 'production-env.txt'))) {
         throw "production-env.txt not found in zanburak-backend."
@@ -526,6 +544,10 @@ function Test-BackendProject {
 
 function Get-LocalZipPath {
     return Join-Path $env:TEMP $script:Config.ZipName
+}
+
+function Get-LocalVendorZipPath {
+    return Join-Path $env:TEMP $script:Config.VendorZipName
 }
 
 function Get-BackendDeployExtraFiles {
@@ -542,11 +564,25 @@ function Get-BackendDeployExtraFiles {
         }
     }
 
-    # Prevent PowerShell from unrolling / merging PSCustomObject arrays
     Write-Output -NoEnumerate @($extras.ToArray())
 }
 
+function Test-RemoteExtraNeedsUpload {
+    param(
+        [string]$RemoteRelative,
+        [long]$LocalSize
+    )
+
+    $c = $script:Config
+    $remotePath = "$($c.RemoteDir)/$RemoteRelative"
+    $remoteSize = Get-RemoteFileSizeBytes -RemotePath $remotePath
+    if ($remoteSize -lt 0) { return $true }
+    return ($remoteSize -ne $LocalSize)
+}
+
 function Invoke-BackendExtrasUpload {
+    param([switch]$Force)
+
     $extras = Get-BackendDeployExtraFiles
     if ($null -eq $extras) { $extras = @() }
     $extras = @($extras)
@@ -556,15 +592,30 @@ function Invoke-BackendExtrasUpload {
     }
 
     $c = $script:Config
-    $totalBytes = 0L
+    $pending = New-Object System.Collections.Generic.List[object]
     foreach ($extra in $extras) {
+        $fileSize = [int64](Get-Item -LiteralPath $extra.LocalPath).Length
+        if (-not $Force -and -not (Test-RemoteExtraNeedsUpload -RemoteRelative $extra.RemoteRelative -LocalSize $fileSize)) {
+            Write-Host "   skip $($extra.Label) — already on server ($(Format-DeployBytes $fileSize))" -ForegroundColor DarkGray
+            continue
+        }
+        [void]$pending.Add($extra)
+    }
+
+    if ($pending.Count -eq 0) {
+        Write-DeploySuccess "Large extras already on server — skipped upload."
+        return
+    }
+
+    $totalBytes = 0L
+    foreach ($extra in $pending) {
         $totalBytes += [int64](Get-Item -LiteralPath $extra.LocalPath).Length
     }
 
-    Write-Host "   extras: $($extras.Count) files / $(Format-DeployBytes $totalBytes)" -ForegroundColor DarkGray
+    Write-Host "   extras: $($pending.Count)/$($extras.Count) files / $(Format-DeployBytes $totalBytes)" -ForegroundColor DarkGray
 
     $i = 0
-    foreach ($extra in $extras) {
+    foreach ($extra in $pending) {
         $i++
         $remotePath = "$($c.RemoteDir)/$($extra.RemoteRelative)"
         $remoteDir  = ($remotePath -replace '/[^/]+$', '')
@@ -572,7 +623,7 @@ function Invoke-BackendExtrasUpload {
         $sizeMb     = [math]::Round($fileSize / 1MB, 2)
 
         Write-Host ""
-        Write-Host "   ==== extra $i/$($extras.Count): $($extra.Label) ($sizeMb MB) ====" -ForegroundColor Yellow
+        Write-Host "   ==== extra $i/$($pending.Count): $($extra.Label) ($sizeMb MB) ====" -ForegroundColor Yellow
 
         [void](Invoke-RemoteCommand "mkdir -p '$remoteDir'")
         Send-RemoteFile `
@@ -580,7 +631,7 @@ function Invoke-BackendExtrasUpload {
             -RemotePath $remotePath `
             -ChunkThresholdMb 48 `
             -ChunkSizeMb 32 `
-            -ProgressLabel "extra $i/$($extras.Count)"
+            -ProgressLabel "extra $i/$($pending.Count)"
     }
 
     $u = $c.WebUser
@@ -590,28 +641,40 @@ function Invoke-BackendExtrasUpload {
 }
 
 function Invoke-BackendZip {
+    param(
+        [ValidateSet('app', 'full')]
+        [string]$Mode = 'app'
+    )
+
     Test-BackendProject
-    Write-DeployStep "Creating backend zip (core package — large BIN/extras excluded)"
+    if ($Mode -eq 'full' -and -not (Test-Path (Join-Path $script:BackendDir 'vendor\autoload.php'))) {
+        throw "vendor/autoload.php not found. Run composer install locally first."
+    }
+
+    $label = if ($Mode -eq 'full') { 'app + vendor' } else { 'app only' }
+    Write-DeployStep "Creating backend zip ($label)"
 
     $zipPath   = Get-LocalZipPath
-    $fileCount = New-BackendZip -SourceDir $script:BackendDir -ZipPath $zipPath
+    $fileCount = New-BackendZip -SourceDir $script:BackendDir -ZipPath $zipPath -Mode $Mode
     $zipSizeMb = [math]::Round((Get-Item $zipPath).Length / 1MB, 2)
-    $extras = Get-BackendDeployExtraFiles
-    if ($null -eq $extras) { $extras = @() }
-    $extrasMb = 0
-    if (@($extras).Count -gt 0) {
-        $sum = 0L
-        foreach ($extra in @($extras)) {
-            $sum += [int64](Get-Item -LiteralPath $extra.LocalPath).Length
-        }
-        $extrasMb = [math]::Round($sum / 1MB, 2)
-    }
 
     Write-Host "   files in zip: $fileCount"
     Write-Host "   zip path: $zipPath ($zipSizeMb MB)"
-    if (@($extras).Count -gt 0) {
-        Write-Host "   extras later: $(@($extras).Count) files ($extrasMb MB) — uploaded after extract" -ForegroundColor DarkGray
+    return $zipPath
+}
+
+function Invoke-VendorZip {
+    Test-BackendProject
+    if (-not (Test-Path (Join-Path $script:BackendDir 'vendor\autoload.php'))) {
+        throw "vendor/autoload.php not found. Run composer install locally first."
     }
+
+    Write-DeployStep "Creating vendor zip"
+    $zipPath   = Get-LocalVendorZipPath
+    $fileCount = New-BackendZip -SourceDir $script:BackendDir -ZipPath $zipPath -Mode 'vendor'
+    $zipSizeMb = [math]::Round((Get-Item $zipPath).Length / 1MB, 2)
+    Write-Host "   files in zip: $fileCount"
+    Write-Host "   zip path: $zipPath ($zipSizeMb MB)"
     return $zipPath
 }
 
@@ -619,16 +682,20 @@ function Invoke-BackendUpload {
     param([string]$ZipPath)
 
     if (-not $ZipPath) { $ZipPath = Get-LocalZipPath }
-    if (-not (Test-Path $ZipPath)) { throw "Zip file not found. Run 'Create zip' first." }
+    if (-not (Test-Path $ZipPath)) { throw "Zip file not found. Run create zip first." }
 
     $c = $script:Config
-    Write-DeployStep "1/3 Uploading core package ($($c.SshHost):$($c.SshPort))"
-    # Prefer one-shot upload; only split when zip is huge (fewer SSH round-trips = much faster).
+    Write-DeployStep "Uploading package ($($c.SshHost):$($c.SshPort))"
     Send-RemoteFile -LocalPath $ZipPath -RemotePath $c.RemoteZip -ChunkThresholdMb 96 -ChunkSizeMb 32 -ProgressLabel 'core'
 }
 
 function Invoke-BackendExtract {
-    Write-DeployStep "2/3 Extracting + installing core on server ($($script:Config.RemoteDir))"
+    param(
+        [ValidateSet('app', 'full')]
+        [string]$Mode = 'app'
+    )
+
+    Write-DeployStep "Extracting on server ($Mode) → $($script:Config.RemoteDir)"
 
     $unixExtractScript = Get-UnixLineEndingFile -Path $script:ExtractScript
     try {
@@ -638,26 +705,53 @@ function Invoke-BackendExtract {
         Remove-Item $unixExtractScript -Force -ErrorAction SilentlyContinue
     }
 
-    [void](Invoke-RemoteCommand "chmod +x /tmp/backend-extract.sh && bash /tmp/backend-extract.sh && rm -f /tmp/backend-extract.sh")
-    Write-DeploySuccess "Core package extracted on server."
+    $result = Invoke-RemoteCommandText "bash /tmp/backend-extract.sh $Mode"
+    if ($result.Text) {
+        Write-Host $result.Text
+    }
+    [void](Invoke-RemoteCommand 'rm -f /tmp/backend-extract.sh' -AllowFailure)
+    if ($result.ExitCode -ne 0) {
+        throw "Extract failed (exit $($result.ExitCode)). See remote output above."
+    }
+    Write-DeploySuccess "Package extracted on server ($Mode)."
 }
 
-function Invoke-FullBackendDeploy {
+function Invoke-VendorExtract {
+    Write-DeployStep "Extracting vendor on server ($($script:Config.RemoteDir)/vendor)"
+
+    $vendorScript = Join-Path $script:DeployRoot 'extract-vendor.sh'
+    $unix = Get-UnixLineEndingFile -Path $vendorScript
+    try {
+        Send-RemoteFile -LocalPath $unix -RemotePath '/tmp/backend-extract-vendor.sh' -ProgressLabel 'vendor-extract-script'
+    }
+    finally {
+        Remove-Item $unix -Force -ErrorAction SilentlyContinue
+    }
+
+    $result = Invoke-RemoteCommandText 'bash /tmp/backend-extract-vendor.sh'
+    if ($result.Text) {
+        Write-Host $result.Text
+    }
+    [void](Invoke-RemoteCommand 'rm -f /tmp/backend-extract-vendor.sh' -AllowFailure)
+    if ($result.ExitCode -ne 0) {
+        throw "Vendor extract failed (exit $($result.ExitCode)). See remote output above."
+    }
+    Write-DeploySuccess "Vendor extracted on server."
+}
+
+function Invoke-AppBackendDeploy {
+    # Fast daily deploy: app code only, keep vendor/storage on server
     Test-BackendProject
-    $zipPath = Invoke-BackendZip
+    $zipPath = Invoke-BackendZip -Mode 'app'
     $completed = $false
     try {
-        # Order: core upload → extract/install → large extras into place
         Invoke-BackendUpload -ZipPath $zipPath
-        Invoke-BackendExtract
-        Write-DeployStep "3/3 Uploading large extras into place"
-        Invoke-BackendExtrasUpload
+        Invoke-BackendExtract -Mode 'app'
         $completed = $true
     }
     catch {
         if (Test-Path $zipPath) {
             Write-DeployWarn "Local zip kept for retry: $zipPath"
-            Write-DeployWarn "Use menu [3] upload → [4] extract → [5] extras"
         }
         throw
     }
@@ -668,10 +762,68 @@ function Invoke-FullBackendDeploy {
         }
     }
 
-    Write-DeploySuccess "Backend deploy completed successfully."
+    Write-DeploySuccess "App deploy completed."
     Write-DeploySuccess "Remote path: $($script:Config.RemoteDir)"
-    Write-DeployWarn "Next (from deploy menu): [21] install services → [22] start → [6] migrate → [14] rebuild cache"
-    Write-DeployWarn "Required running: redis-server, laravel-reverb, laravel-scheduler, laravel-queue"
+}
+
+function Invoke-FullBackendDeploy {
+    # Everything: app + vendor zip, then heavy BIN extras
+    Test-BackendProject
+    $zipPath = Invoke-BackendZip -Mode 'full'
+    $completed = $false
+    try {
+        Invoke-BackendUpload -ZipPath $zipPath
+        Invoke-BackendExtract -Mode 'full'
+        Write-DeployStep "Uploading heavy extras (ip2location BIN)"
+        Invoke-BackendExtrasUpload
+        $completed = $true
+    }
+    catch {
+        if (Test-Path $zipPath) {
+            Write-DeployWarn "Local zip kept for retry: $zipPath"
+        }
+        throw
+    }
+    finally {
+        if ($completed) {
+            Write-DeployStep "Cleaning up local zip"
+            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    Write-DeploySuccess "Full deploy completed."
+    Write-DeploySuccess "Remote path: $($script:Config.RemoteDir)"
+    Write-DeployWarn "Next: [21] install services → [22] start → [6] migrate → [14] rebuild cache"
+}
+
+function Invoke-VendorHeavyDeploy {
+    # Vendor package + ip2location BIN files (no app wipe)
+    Test-BackendProject
+    $zipPath = Invoke-VendorZip
+    $completed = $false
+    try {
+        $c = $script:Config
+        Write-DeployStep "Uploading vendor package"
+        Send-RemoteFile -LocalPath $zipPath -RemotePath $c.RemoteVendorZip -ChunkThresholdMb 96 -ChunkSizeMb 32 -ProgressLabel 'vendor'
+        Invoke-VendorExtract
+        Write-DeployStep "Uploading heavy extras (ip2location BIN)"
+        Invoke-BackendExtrasUpload -Force
+        $completed = $true
+    }
+    catch {
+        if (Test-Path $zipPath) {
+            Write-DeployWarn "Local vendor zip kept for retry: $zipPath"
+        }
+        throw
+    }
+    finally {
+        if ($completed) {
+            Write-DeployStep "Cleaning up local vendor zip"
+            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    Write-DeploySuccess "Vendor + heavy files uploaded."
 }
 
 function Repair-RemotePermissions {

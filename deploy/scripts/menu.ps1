@@ -149,11 +149,11 @@ function Show-MainMenu {
         Write-Banner
 
         Write-Section 'DEPLOY'
-        Write-MenuItem '1' 'Full deploy (core zip -> extract -> large extras)'
-        Write-MenuItem '2' 'Create zip only'
-        Write-MenuItem '3' 'Upload zip to server only'
-        Write-MenuItem '4' 'Extract on server only'
-        Write-MenuItem '5' 'Upload large extras only (ip2location BIN)'
+        Write-MenuItem '1' 'Full deploy (app + vendor + heavy BIN)'
+        Write-MenuItem '2' 'App deploy only (fast — without vendor)'
+        Write-MenuItem '3' 'Upload vendor + heavy files (vendor zip + BIN)'
+        Write-MenuItem '4' 'Create zip only'
+        Write-MenuItem '5' 'Extract on server only'
         Write-Host ''
 
         Write-Section 'LARAVEL ARTISAN (remote)'
@@ -198,19 +198,36 @@ function Show-MainMenu {
                 Invoke-SafeAction -Action { Invoke-FullBackendDeploy }
             }
             '2' {
+                Invoke-SafeAction -Action { Invoke-AppBackendDeploy }
+            }
+            '3' {
+                Invoke-SafeAction -Action { Invoke-VendorHeavyDeploy }
+            }
+            '4' {
                 Invoke-SafeAction -Action {
-                    $zip = Invoke-BackendZip
+                    Write-Host ''
+                    Write-Host '  Zip type: [1] app  [2] full (app+vendor)  [3] vendor only' -ForegroundColor DarkGray
+                    $zt = (Read-Host '  Choice').Trim()
+                    switch ($zt) {
+                        '2' { $zip = Invoke-BackendZip -Mode 'full' }
+                        '3' { $zip = Invoke-VendorZip }
+                        default { $zip = Invoke-BackendZip -Mode 'app' }
+                    }
                     Write-DeploySuccess "Zip ready: $zip"
                 }
             }
-            '3' {
-                Invoke-SafeAction -Action { Invoke-BackendUpload }
-            }
-            '4' {
-                Invoke-SafeAction -Action { Invoke-BackendExtract }
-            }
             '5' {
-                Invoke-SafeAction -Action { Invoke-BackendExtrasUpload }
+                Invoke-SafeAction -Action {
+                    Write-Host ''
+                    Write-Host '  Extract mode: [1] app (keep vendor)  [2] full (vendor from zip)' -ForegroundColor DarkGray
+                    $em = (Read-Host '  Choice').Trim()
+                    if ($em -eq '2') {
+                        Invoke-BackendExtract -Mode 'full'
+                    }
+                    else {
+                        Invoke-BackendExtract -Mode 'app'
+                    }
+                }
             }
 
             '6' {

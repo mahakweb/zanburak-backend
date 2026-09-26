@@ -14,6 +14,8 @@
     RemoteDir     = '/var/www/zanburak-backend'
     RemoteZip     = '/tmp/zanburak-backend-deploy.zip'
     ZipName       = 'zanburak-backend-deploy.zip'
+    VendorZipName = 'zanburak-backend-vendor.zip'
+    RemoteVendorZip = '/tmp/zanburak-backend-vendor.zip'
     PhpPath       = '/usr/bin/php'
     WebUser       = 'www-data'
     WebGroup      = 'www-data'

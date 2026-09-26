@@ -2,4 +2,4 @@
 $ErrorActionPreference = 'Stop'
 
 . (Join-Path $PSScriptRoot 'lib.ps1')
-Invoke-FullBackendDeploy
+Invoke-AppBackendDeploy
