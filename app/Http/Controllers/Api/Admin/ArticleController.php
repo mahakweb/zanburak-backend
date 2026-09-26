@@ -12,6 +12,7 @@ use App\Models\Rating;
 use App\Models\User;
 use App\Models\View;
 use App\Services\UploadTokenService;
+use App\Services\ImageWebpService;
 use App\Support\SqlDialect;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
@@ -778,10 +779,7 @@ class ArticleController extends Controller
     public function removeCover(Article $article)
     {
         if ($article->cover_image) {
-            $details = $this->urlDetails($article->cover_image);
-            if ($details && $details['disk'] && $details['path'] && Storage::disk($details['disk'])->exists($details['path'])) {
-                Storage::disk($details['disk'])->delete($details['path']);
-            }
+            app(ImageWebpService::class)->safeDeleteStoredMedia($article->cover_image);
             $article->cover_image = null;
             $article->save();
         }
@@ -800,10 +798,7 @@ class ArticleController extends Controller
         }
 
         if ($article->cover_image) {
-            $details = $this->urlDetails($article->cover_image);
-            if ($details && $details['disk'] && $details['path'] && Storage::disk($details['disk'])->exists($details['path'])) {
-                Storage::disk($details['disk'])->delete($details['path']);
-            }
+            app(ImageWebpService::class)->safeDeleteStoredMedia($article->cover_image);
         }
 
         $disk = 'static';
@@ -814,6 +809,8 @@ class ArticleController extends Controller
 
         Storage::disk($disk)->putFileAs($folder, $file, basename($filePath));
 
+        $webp = app(ImageWebpService::class)->ensureSibling($disk, $filePath, $file->getRealPath());
+
         $diskUrl = rtrim(config("filesystems.disks.{$disk}.url"), '/');
         $url = "{$diskUrl}/{$filePath}";
 
@@ -823,6 +820,8 @@ class ArticleController extends Controller
         return response()->json([
             'message' => 'Cover uploaded successfully',
             'cover_image' => $url,
+            'webp_created' => (bool) ($webp['ok'] ?? false) && empty($webp['skipped']),
+            'webp_status' => $webp,
         ], 200);
     }
 

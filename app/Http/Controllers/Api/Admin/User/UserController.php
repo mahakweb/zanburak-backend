@@ -26,6 +26,8 @@ use Illuminate\Validation\Rule;
 use Ip2location\IP2LocationLaravel\Facade\IP2LocationLaravel;
 use Morilog\Jalali\Jalalian;
 use Illuminate\Support\Facades\Validator;
+use App\Services\ImageWebpService;
+use Illuminate\Support\Str;
 
 class UserController extends Controller
 {
@@ -706,23 +708,34 @@ class UserController extends Controller
             $file = $request->file('file');
             $type = $validatedData['type']; // profile_pic or cover_pic
 
-            // ساخت مسیر ذخیره‌سازی بر اساس نوع عکس
+            $disk = 'static';
             $folder = $type === 'profile_pic' ? 'users/profile' : 'users/cover';
             $folderPath = $folder . '/' . date('Y/m/d');
-            $path = Storage::disk('static')->put($folderPath, $file);
-            
-            // ساخت URL کامل از config
-            $storageBaseUrl = config('filesystems.disks.static.url', 'https://static.zanburak.ir');
-            $storageUrl = rtrim($storageBaseUrl, '/') . '/' . ltrim($path, '/');
+            $ext = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+            if ($ext === 'jpeg') {
+                $ext = 'jpg';
+            }
+            $filePath = $folderPath . '/' . Str::uuid()->toString() . '.' . $ext;
 
-            // ذخیره URL در user
+            if (!empty($user->{$type})) {
+                app(ImageWebpService::class)->safeDeleteStoredMedia($user->{$type});
+            }
+
+            Storage::disk($disk)->putFileAs($folderPath, $file, basename($filePath));
+            $webp = app(ImageWebpService::class)->ensureSibling($disk, $filePath, $file->getRealPath());
+
+            $storageBaseUrl = rtrim((string) config('filesystems.disks.static.url', 'https://static.zanburak.ir'), '/');
+            $storageUrl = $storageBaseUrl . '/' . ltrim($filePath, '/');
+
             $user->update([$type => $storageUrl]);
 
             return response()->json([
                 'message' => 'تصویر با موفقیت آپلود شد.',
                 'fileUrl' => $storageUrl,
-                'path' => $path,
+                'path' => $filePath,
                 'type' => $type,
+                'webp_created' => (bool) ($webp['ok'] ?? false) && empty($webp['skipped']),
+                'webp_status' => $webp,
             ], 200);
 
         } catch (\Illuminate\Database\Eloquent\ModelNotFoundException $e) {

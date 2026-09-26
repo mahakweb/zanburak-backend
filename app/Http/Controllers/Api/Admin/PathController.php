@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use App\Services\ImageWebpService;
 
 class PathController extends Controller
 {
@@ -468,11 +469,15 @@ class PathController extends Controller
                 $path->trailer = null;
                 break;
             case 'poster':
-                if (!empty($path->poster)) $this->removeUrl($path->poster);
+                if (!empty($path->poster)) {
+                    app(ImageWebpService::class)->safeDeleteStoredMedia($path->poster);
+                }
                 $path->poster = null;
                 break;
             case 'icon':
-                if (!empty($path->icon)) $this->removeUrl($path->icon);
+                if (!empty($path->icon)) {
+                    app(ImageWebpService::class)->safeDeleteStoredMedia($path->icon);
+                }
                 $path->icon = null;
                 break;
         }
@@ -686,90 +691,90 @@ class PathController extends Controller
     }
 
     /**
-     * Initialize poster upload (similar to course uploadPoster)
+     * Direct poster upload on main API + one-time WebP sibling (no worker).
      */
     public function uploadPoster(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'path_id' => ['required', 'exists:paths,id'],
-            'filename' => ['required', 'string'],
-            'mime' => ['required', 'string'],
-            'size' => ['required', 'integer', 'min:1'],
+            'file' => ['required', 'file', 'mimes:jpeg,jpg,png,webp', 'max:10240'],
         ]);
         if (!$validator->passes()) {
             return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
         }
-        $valid = $validator->validated();
+
         $path = Path::findOrFail($request->path_id);
+        $file = $request->file('file');
         $disk = 'static';
-        $folder = "poster/path/" . date('Y/m/d');
-        $ext = pathinfo($valid['filename'], PATHINFO_EXTENSION);
-        $generated = Str::uuid()->toString();
-        $filePath = "{$folder}/{$generated}.{$ext}";
+        $folder = 'poster/path/' . date('Y/m/d');
+        $ext = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+        if ($ext === 'jpeg') {
+            $ext = 'jpg';
+        }
+        $filePath = $folder . '/' . Str::uuid()->toString() . '.' . $ext;
 
-        $claims = [
-            'sub' => 'upload',
-            'type' => 'poster',
-            'disk' => $disk,
-            'path' => $filePath,
-            'mime' => $valid['mime'],
-            'size' => (int) $valid['size'],
-            'pathId' => $path->id,
-            'userId' => optional(auth('api')->user())->id,
-        ];
+        if ($path->poster) {
+            app(ImageWebpService::class)->safeDeleteStoredMedia($path->poster);
+        }
 
-        $tokenData = \App\Services\UploadTokenService::generate($claims);
+        Storage::disk($disk)->putFileAs($folder, $file, basename($filePath));
+        $webp = app(ImageWebpService::class)->ensureSibling($disk, $filePath, $file->getRealPath());
+
+        $diskUrl = rtrim((string) config("filesystems.disks.{$disk}.url"), '/');
+        $url = "{$diskUrl}/{$filePath}";
+        $path->poster = $url;
+        $path->save();
 
         return response()->json([
-            'message' => 'Upload initialized. Use worker to upload the file.',
-            'uploadPath' => $filePath,
-            'uploadToken' => $tokenData['token'],
-            'workerUploadUrl' => rtrim(config('upload.worker_base_url'), '/') . '/api/upload/attachment',
-            'expiresAt' => $tokenData['expires_at'],
+            'message' => 'Poster uploaded successfully.',
+            'path' => $url,
+            'poster' => $url,
+            'webp_created' => (bool) ($webp['ok'] ?? false) && empty($webp['skipped']),
+            'webp_status' => $webp,
         ], 200);
     }
 
     /**
-     * Direct upload for icon file (like category icon)
+     * Direct icon upload on main API + one-time WebP sibling (no worker).
      */
     public function uploadIcon(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'path_id' => ['required', 'exists:paths,id'],
-            'filename' => ['required', 'string'],
-            'mime' => ['required', 'string'],
-            'size' => ['required', 'integer', 'min:1'],
+            'file' => ['required', 'file', 'mimes:jpeg,jpg,png,webp,svg', 'max:5120'],
         ]);
         if (!$validator->passes()) {
             return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
         }
-        $valid = $validator->validated();
+
         $path = Path::findOrFail($request->path_id);
+        $file = $request->file('file');
         $disk = 'static';
-        $folder = "images/icon/path/" . date('Y/m/d');
-        $ext = pathinfo($valid['filename'], PATHINFO_EXTENSION);
-        $generated = Str::uuid()->toString();
-        $filePath = "{$folder}/{$generated}.{$ext}";
+        $folder = 'images/icon/path/' . date('Y/m/d');
+        $ext = strtolower($file->getClientOriginalExtension() ?: 'png');
+        if ($ext === 'jpeg') {
+            $ext = 'jpg';
+        }
+        $filePath = $folder . '/' . Str::uuid()->toString() . '.' . $ext;
 
-        $claims = [
-            'sub' => 'upload',
-            'type' => 'attachment',
-            'disk' => $disk,
-            'path' => $filePath,
-            'mime' => $valid['mime'],
-            'size' => (int) $valid['size'],
-            'pathId' => $path->id,
-            'userId' => optional(auth('api')->user())->id,
-        ];
+        if ($path->icon) {
+            app(ImageWebpService::class)->safeDeleteStoredMedia($path->icon);
+        }
 
-        $tokenData = \App\Services\UploadTokenService::generate($claims);
+        Storage::disk($disk)->putFileAs($folder, $file, basename($filePath));
+        $webp = app(ImageWebpService::class)->ensureSibling($disk, $filePath, $file->getRealPath());
+
+        $diskUrl = rtrim((string) config("filesystems.disks.{$disk}.url"), '/');
+        $url = "{$diskUrl}/{$filePath}";
+        $path->icon = $url;
+        $path->save();
 
         return response()->json([
-            'message' => 'Upload initialized. Use worker to upload the file.',
-            'uploadPath' => $filePath,
-            'uploadToken' => $tokenData['token'],
-            'workerUploadUrl' => rtrim(config('upload.worker_base_url'), '/') . '/api/upload/attachment',
-            'expiresAt' => $tokenData['expires_at'],
+            'message' => 'Icon uploaded successfully.',
+            'path' => $url,
+            'icon' => $url,
+            'webp_created' => (bool) ($webp['ok'] ?? false) && empty($webp['skipped']),
+            'webp_status' => $webp,
         ], 200);
     }
 

@@ -27,6 +27,7 @@ use Ip2location\IP2LocationLaravel\Facade\IP2LocationLaravel;
 use Morilog\Jalali\Jalalian;
 use App\Rules\JalalianBirthDateParts;
 use App\Models\Invite;
+use App\Services\ImageWebpService;
 
 class ProfileController extends Controller
 {
@@ -408,10 +409,7 @@ class ProfileController extends Controller
         $prevPic = $user->{$userColumn};
 
         if ($prevPic && $prevPic !== $defaultPic) {
-            $relativePath = $this->staticRelativePathFromUrl($prevPic);
-            if ($relativePath && Storage::disk('static')->exists($relativePath)) {
-                Storage::disk('static')->delete($relativePath);
-            }
+            app(ImageWebpService::class)->safeDeleteStoredMedia($prevPic);
         }
 
         $user->update([$userColumn => $defaultPic]);
@@ -454,8 +452,10 @@ class ProfileController extends Controller
         }
 
         try {
+            $disk = 'static';
             $directory = trim($folder, '/') . '/' . now()->year . '/' . now()->month . '/' . now()->day;
-            $path = Storage::disk('static')->putFile($directory, $request->file($field));
+            $file = $request->file($field);
+            $path = Storage::disk($disk)->putFile($directory, $file);
 
             if (!$path || !is_string($path)) {
                 return response()->json([
@@ -463,14 +463,13 @@ class ProfileController extends Controller
                 ], 500);
             }
 
+            $webp = app(ImageWebpService::class)->ensureSibling($disk, $path, $file->getRealPath());
+
             $newPic = $this->staticPublicUrl($path);
             $prevPic = $user->{$userColumn};
 
             if ($prevPic && $prevPic !== $defaultPic) {
-                $relativePath = $this->staticRelativePathFromUrl($prevPic);
-                if ($relativePath && Storage::disk('static')->exists($relativePath)) {
-                    Storage::disk('static')->delete($relativePath);
-                }
+                app(ImageWebpService::class)->safeDeleteStoredMedia($prevPic);
             }
 
             $user->update([$userColumn => $newPic]);
@@ -487,6 +486,8 @@ class ProfileController extends Controller
             return response()->json([
                 'message' => $successMessage,
                 $responseKey => $newPic,
+                'webp_created' => (bool) ($webp['ok'] ?? false) && empty($webp['skipped']),
+                'webp_status' => $webp,
             ], 200);
         } catch (\Throwable $e) {
             report($e);

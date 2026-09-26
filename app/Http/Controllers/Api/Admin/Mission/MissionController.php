@@ -7,6 +7,7 @@ use App\Models\Mission;
 use App\Models\MissionCategory;
 use App\Models\UserMission;
 use App\Services\Mission\MissionAdminService;
+use App\Services\ImageWebpService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -161,11 +162,13 @@ class MissionController extends Controller
         try {
             $disk = 'static';
             $folder = 'images/icon/missions/' . date('Y/m/d');
-            $filePath = $request->file('icon')->store($folder, $disk);
+            $file = $request->file('icon');
+            $filePath = $file->store($folder, $disk);
+            app(ImageWebpService::class)->ensureSibling($disk, $filePath, $file->getRealPath());
             $url = Storage::disk($disk)->url($filePath);
 
             if ($request->filled('old_icon')) {
-                $this->deleteIconFile($request->input('old_icon'));
+                app(ImageWebpService::class)->safeDeleteStoredMedia($request->input('old_icon'));
             }
 
             return response()->json(['message' => 'تصویر با موفقیت آپلود شد.', 'icon' => $url], 200);
@@ -181,26 +184,7 @@ class MissionController extends Controller
 
     protected function deleteIconFile(?string $url): void
     {
-        if (!$url || !Str::is('http*://*', $url)) {
-            return;
-        }
-
-        $disk = 'static';
-        $base = rtrim((string) config("filesystems.disks.$disk.url"), '/');
-
-        if ($base === '' || !str_starts_with($url, $base)) {
-            return;
-        }
-
-        $path = ltrim(substr($url, strlen($base)), '/');
-
-        try {
-            if ($path !== '' && Storage::disk($disk)->exists($path)) {
-                Storage::disk($disk)->delete($path);
-            }
-        } catch (\Throwable $e) {
-            // ignore deletion errors so the main operation isn't blocked
-        }
+        app(ImageWebpService::class)->safeDeleteStoredMedia($url);
     }
 
     public function store(Request $request)

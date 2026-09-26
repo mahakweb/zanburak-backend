@@ -327,6 +327,9 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::delete('/article/{article}/cover', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'removeCover'])->name('article.remove-cover');
     Route::post('/articles/bulk', [\App\Http\Controllers\Api\Admin\ArticleController::class, 'bulkAction'])->name('articles.bulk');
 
+    // Media helpers (WebP sibling fallback when worker did not create one)
+    Route::post('/media/ensure-webp', [\App\Http\Controllers\Api\Admin\MediaWebpController::class, 'ensure'])->name('media.ensure-webp');
+
     // Article Categories
     Route::post('/article-categories', [\App\Http\Controllers\Api\Admin\ArticleCategoryController::class, 'index'])->name('article-categories.index');
     Route::get('/article-category/{category}/articles', [\App\Http\Controllers\Api\Admin\ArticleCategoryController::class, 'articles'])->name('article-category.articles');

@@ -16,6 +16,7 @@ use App\Models\Answer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
 class SeoController extends Controller
@@ -53,6 +54,9 @@ class SeoController extends Controller
         // Articles List
         $xml .= $this->generateUrl($siteUrl . '/articles', '0.9', 'daily', now());
 
+        // Tags List
+        $xml .= $this->generateUrl($siteUrl . '/tags', '0.8', 'weekly', now());
+
         // Static Pages
         $xml .= $this->generateUrl($siteUrl . '/about', '0.8', 'monthly', now());
         $xml .= $this->generateUrl($siteUrl . '/contact', '0.8', 'monthly', now());
@@ -83,20 +87,21 @@ class SeoController extends Controller
             );
         }
 
-        // Episodes
+        // Episodes (must select `order` — public URLs use /episode/{order})
         $episodes = Episode::where('publish', 1)
             ->with(['section' => function($query) {
                 $query->with(['course' => function($q) {
                     $q->where('publish', 1)->select('id', 'slug');
                 }]);
             }])
-            ->select('slug', 'section_id', 'updated_at')
+            ->select('slug', 'section_id', 'updated_at', 'order')
+            ->whereNotNull('order')
             ->orderBy('updated_at', 'desc')
             ->limit(500) // Limit episodes to prevent sitemap from being too large
             ->get();
 
         foreach ($episodes as $episode) {
-            if ($episode->section && $episode->section->course) {
+            if ($episode->section && $episode->section->course && $episode->order !== null) {
                 $xml .= $this->generateUrl(
                     $siteUrl . '/course/' . $episode->section->course->slug . '/episode/' . $episode->order,
                     '0.7',
@@ -157,6 +162,29 @@ class SeoController extends Controller
             );
         }
 
+        // Tags (topic pages)
+        try {
+            $tags = \App\Models\Tag::query()
+                ->select('normalized', 'updated_at')
+                ->whereNotNull('normalized')
+                ->where('normalized', '!=', '')
+                ->orderBy('updated_at', 'desc')
+                ->limit(500)
+                ->get();
+
+            foreach ($tags as $tag) {
+                $xml .= $this->generateUrl(
+                    $siteUrl . '/tag/' . $tag->normalized,
+                    '0.6',
+                    'weekly',
+                    $tag->updated_at ?? now()
+                );
+            }
+        } catch (\Throwable $e) {
+            // Tag table/package may differ in some environments — don't break sitemap
+            Log::warning('Sitemap tags skipped: ' . $e->getMessage());
+        }
+
         // User Profiles - Only include active users with public profiles
         $users = User::where('active', 1)
             ->whereNotNull('username')
@@ -206,6 +234,7 @@ class SeoController extends Controller
         $robots .= "Disallow: /auth/\n";
         $robots .= "Disallow: /cart\n";
         $robots .= "Disallow: /payment/\n";
+        $robots .= "Disallow: /messenger/\n";
         $robots .= "Disallow: /*?*\n"; // Disallow URLs with query parameters (except allowed ones)
         $robots .= "Disallow: /*.json$\n";
         $robots .= "\n";
@@ -217,6 +246,7 @@ class SeoController extends Controller
         $robots .= "Disallow: /admin/\n";
         $robots .= "Disallow: /panel/\n";
         $robots .= "Disallow: /auth/\n";
+        $robots .= "Disallow: /messenger/\n";
         $robots .= "\n";
         $robots .= "User-agent: Bingbot\n";
         $robots .= "Allow: /\n";
@@ -226,6 +256,7 @@ class SeoController extends Controller
         $robots .= "Disallow: /admin/\n";
         $robots .= "Disallow: /panel/\n";
         $robots .= "Disallow: /auth/\n";
+        $robots .= "Disallow: /messenger/\n";
         $robots .= "\n";
         $robots .= "Sitemap: " . $siteUrl . "/sitemap.xml\n";
         $robots .= "Sitemap: " . $siteUrl . "/sitemap-index.xml\n";

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Admin\Course;
 use App\Http\Controllers\Controller;
 use App\Models\Category;
 use App\Services\Course\CategoryAssignmentService;
+use App\Services\ImageWebpService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
@@ -382,6 +383,7 @@ class CategoryController extends Controller
             $disk = 'static';
             $folder = "images/icon/category/" . date('Y/m/d');
             $filePath = $file->store($folder, $disk);
+            app(ImageWebpService::class)->ensureSibling($disk, $filePath, $file->getRealPath());
             $category->icon = Storage::disk($disk)->url($filePath);
             $category->save();
             return response()->json(['message' => "Icon uploaded successfully", 'icon' => $category->icon], 200);
@@ -392,13 +394,9 @@ class CategoryController extends Controller
     public function removeIcon($category)
     {
         if ($category->icon) {
-            $disk = $this->urlDetails($category->icon)['disk'];
-            $path = $this->urlDetails($category->icon)['path'];
-            if ($category->icon && Storage::disk($disk)->exists($path)) {
-                Storage::disk($disk)->delete($path);
-                $category->icon = null;
-                $category->save();
-            }
+            app(ImageWebpService::class)->safeDeleteStoredMedia($category->icon);
+            $category->icon = null;
+            $category->save();
         }
     }
     public function urlDetails($url)

@@ -22,6 +22,7 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use App\Services\UploadTokenService;
+use App\Services\ImageWebpService;
 use App\Services\Course\CategoryAssignmentService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -1037,52 +1038,52 @@ class CourseController extends Controller
     }
 
 
+    /**
+     * Direct poster upload on main API + one-time WebP sibling (no worker).
+     */
     public function uploadPoster(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'course_id' => ['required', 'exists:courses,id'],
-            'filename' => ['required', 'string'],
-            'mime' => ['required', 'string'],
-            'size' => ['required', 'integer', 'min:1'],
+            'file' => ['required', 'file', 'mimes:jpeg,jpg,png,webp', 'max:10240'],
         ]);
         if (!$validator->passes()) {
             return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
-        } else {
-            $user = auth('api')->user();
-            $validData = $validator->validated();
-            $course = Course::findOrFail($request->course_id);
-            $this->authorizeCourse($course, 'update');
-            if (!$course) {
-                return response()->json(['message' => 'Error! course not found'], 404);
-            }
-            $disk = 'static';
-            $folder = "poster/course/" . date('Y/m/d');
-            $ext = pathinfo($validData['filename'], PATHINFO_EXTENSION);
-            $generated = Str::uuid()->toString();
-            $filePath = "{$folder}/{$generated}.{$ext}";
-
-            $claims = [
-                'sub' => 'upload',
-                'type' => 'poster',
-                'disk' => $disk,
-                'path' => $filePath,
-                'mime' => $validData['mime'],
-                'size' => (int) $validData['size'],
-                'courseId' => $course->id,
-                'userId' => optional($user)->id,
-            ];
-
-            $tokenData = UploadTokenService::generate($claims);
-
-            return response()->json([
-                'message' => 'Upload initialized. Use worker to upload the file.',
-                'uploadPath' => $filePath,
-                'uploadToken' => $tokenData['token'],
-                'workerUploadUrl' => rtrim(config('upload.worker_base_url'), '/') . '/api/upload/attachment',
-                'expiresAt' => $tokenData['expires_at'],
-            ], 200);
-
         }
+
+        $course = Course::findOrFail($request->course_id);
+        $this->authorizeCourse($course, 'update');
+
+        $file = $request->file('file');
+        $disk = 'static';
+        $folder = 'poster/course/' . date('Y/m/d');
+        $ext = strtolower($file->getClientOriginalExtension() ?: 'jpg');
+        if ($ext === 'jpeg') {
+            $ext = 'jpg';
+        }
+        $filePath = $folder . '/' . Str::uuid()->toString() . '.' . $ext;
+
+        // Remove previous poster + webp sibling (never delete shared placeholders like no-image.png)
+        if ($course->poster) {
+            app(ImageWebpService::class)->safeDeleteStoredMedia($course->poster);
+        }
+
+        Storage::disk($disk)->putFileAs($folder, $file, basename($filePath));
+
+        $webp = app(ImageWebpService::class)->ensureSibling($disk, $filePath, $file->getRealPath());
+
+        $diskUrl = rtrim((string) config("filesystems.disks.{$disk}.url"), '/');
+        $url = "{$diskUrl}/{$filePath}";
+        $course->poster = $url;
+        $course->save();
+
+        return response()->json([
+            'message' => 'Poster uploaded successfully.',
+            'path' => $url,
+            'poster' => $url,
+            'webp_created' => (bool) ($webp['ok'] ?? false) && empty($webp['skipped']),
+            'webp_status' => $webp,
+        ], 200);
     }
 
     public function removePoster($course)
@@ -1090,14 +1091,12 @@ class CourseController extends Controller
         $this->authorizeCourse($course, 'update');
 
         if ($course->poster) {
-            $disk = $this->urlDetails($course->poster)['disk'];
-            $path = $this->urlDetails($course->poster)['path'];
-            if ($course->poster && Storage::disk($disk)->exists($path)) {
-                Storage::disk($disk)->delete($path);
-                $course->poster = null;
-                $course->save();
-            }
+            app(ImageWebpService::class)->safeDeleteStoredMedia($course->poster);
+            $course->poster = null;
+            $course->save();
         }
+
+        return response()->json(['message' => 'Poster removed successfully.'], 200);
     }
 
     public function uploadAttachedFile(Request $request)
