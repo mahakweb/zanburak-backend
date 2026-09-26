@@ -384,6 +384,14 @@ class UnifiedAuthController extends Controller
 
         $user = $this->create($data, $isEmailIdentifier, $isMobileIdentifier);
 
+        // OTP during signup already verified the identifier channel — grant score events once.
+        if ($isEmailIdentifier) {
+            event(new \App\Events\Score\User\EmailVerified($user));
+        }
+        if ($isMobileIdentifier) {
+            event(new \App\Events\Score\User\MobileVerified($user));
+        }
+
         // Handle referral code if provided
         $inviter = null;
         if (!empty($data['referral_code'])) {

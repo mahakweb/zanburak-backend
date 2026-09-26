@@ -384,7 +384,12 @@ class User extends Authenticatable implements MustVerifyEmail
 
     public function hasVerifiedEmail()
     {
-        return !!$this->mobile_verified_at;
+        return ! is_null($this->email_verified_at);
+    }
+
+    public function hasVerifiedMobile()
+    {
+        return ! is_null($this->mobile_verified_at);
     }
 
     public function addCourse()
