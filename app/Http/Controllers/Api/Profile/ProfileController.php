@@ -21,12 +21,25 @@ class ProfileController extends Controller
 
         $loginUser = auth('api')->user();
         $user = $username->only('id', 'first_name', 'last_name', 'username', 'username', 'email', 'profile_pic', 'cover_pic', 'created_at', 'last_seen');
-        $user['info'] = $username->info->only('about', 'job', 'birth_date', 'website', 'github', 'twitter', 'linkedin', 'telegram', 'instagram');
-        
-        if (!empty($username->info->birth_date)) {
-            $user['info']['birth_date'] = Jalalian::fromCarbon(new \Carbon\Carbon($username->info->birth_date))->format('Y-m-d');
+        $info = $username->info;
+        $user['info'] = $info
+            ? $info->only('about', 'job', 'birth_date', 'website', 'github', 'twitter', 'linkedin', 'telegram', 'instagram')
+            : [
+                'about' => null,
+                'job' => null,
+                'birth_date' => null,
+                'website' => null,
+                'github' => null,
+                'twitter' => null,
+                'linkedin' => null,
+                'telegram' => null,
+                'instagram' => null,
+            ];
+
+        if (!empty($info?->birth_date)) {
+            $user['info']['birth_date'] = Jalalian::fromCarbon(new \Carbon\Carbon($info->birth_date))->format('Y-m-d');
         } else {
-            $user['info']['birth_date'] = null; 
+            $user['info']['birth_date'] = null;
         }
 
         $user['follow'] = [
@@ -149,7 +162,20 @@ class ProfileController extends Controller
             return response()->json(['message' => 'Error: Not found'], 404);
         }
         $user = $username->only('id', 'first_name', 'last_name', 'username', 'username', 'email', 'profile_pic', 'cover_pic', 'created_at', 'last_seen');
-        $user['info'] = $username->info->only('about', 'job', 'birth_date', 'website', 'github', 'twitter', 'linkedin', 'telegram', 'instagram');
+        $info = $username->info;
+        $user['info'] = $info
+            ? $info->only('about', 'job', 'birth_date', 'website', 'github', 'twitter', 'linkedin', 'telegram', 'instagram')
+            : [
+                'about' => null,
+                'job' => null,
+                'birth_date' => null,
+                'website' => null,
+                'github' => null,
+                'twitter' => null,
+                'linkedin' => null,
+                'telegram' => null,
+                'instagram' => null,
+            ];
 
         return response()->json(['message' => 'Success', 'user' => $user]);
     }

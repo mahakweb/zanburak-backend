@@ -306,7 +306,9 @@ class ProfileController extends Controller
     {
         $current_user = auth('api')->user();
         $user = $current_user->only(['first_name', 'last_name', 'username', 'email', 'profile_pic', 'cover_pic']);
-        $userInfo = $current_user->info->only(['birth_date', 'job', 'about', 'website', 'github', 'linkedin', 'telegram', 'instagram', 'twitter']);
+        $userInfo = $current_user->info
+            ? $current_user->info->only(['birth_date', 'job', 'about', 'website', 'github', 'linkedin', 'telegram', 'instagram', 'twitter'])
+            : array_fill_keys(['birth_date', 'job', 'about', 'website', 'github', 'linkedin', 'telegram', 'instagram', 'twitter'], null);
         // $userData['info'] = $userInfo;
         if (!empty($userInfo['birth_date'])) {
             $userInfo['birth_date'] = Jalalian::fromCarbon(new \Carbon\Carbon($userInfo['birth_date']))->format('Y/m/d');

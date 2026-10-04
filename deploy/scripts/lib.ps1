@@ -187,12 +187,20 @@ function Get-PlinkCommonArgs {
     return @('-batch', '-hostkey', $c.SshHostKey, '-ssh', "$($c.SshUser)@$($c.SshHost)", '-P', $c.SshPort, '-pw', $c.SshPass)
 }
 
+function ConvertTo-UnixRemoteCommand {
+    param([string]$Command)
+
+    # PowerShell here-strings on Windows are CRLF; bash then treats `set -e\r` / `fi\r` as syntax errors.
+    return (($Command + '') -replace "`r`n", "`n" -replace "`r", "`n").TrimEnd()
+}
+
 function Invoke-RemoteCommand {
     param(
         [string]$Command,
         [switch]$AllowFailure
     )
 
+    $Command = ConvertTo-UnixRemoteCommand $Command
     $c = $script:Config
     if (Test-UseSshKey) {
         & ssh -p $c.SshPort -i $c.SshKeyPath -o StrictHostKeyChecking=accept-new "$($c.SshUser)@$($c.SshHost)" $Command
@@ -212,6 +220,7 @@ function Invoke-RemoteCommand {
 function Invoke-RemoteCommandText {
     param([string]$Command)
 
+    $Command = ConvertTo-UnixRemoteCommand $Command
     $c = $script:Config
     $prev = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'

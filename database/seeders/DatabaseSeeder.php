@@ -53,6 +53,9 @@ class DatabaseSeeder extends Seeder
 
             // مرحله 8: داده‌های نمونه برای تست content scoping (چند مدرس / پرداخت / آمار)
             ContentScopeDemoSeeder::class,
+
+            // مرحله 9: مخاطبین پیام‌رسان (بعد از ساخته شدن همه کاربران)
+            MessengerContactsSeeder::class,
         ]);
     }
 }

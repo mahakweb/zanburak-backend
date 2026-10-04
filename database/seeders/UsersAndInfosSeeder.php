@@ -190,6 +190,103 @@ class UsersAndInfosSeeder extends Seeder
                 'updated_at' => $now,
             ]);
         }
+
+        $this->seedBulkUsers($now, $studentRole?->id);
+    }
+
+    /**
+     * کاربران عادی تا مجموع حداقل ۷۰ نفر (بیش از کف ۶۰).
+     */
+    private function seedBulkUsers($now, ?int $studentRoleId): void
+    {
+        $target = 70;
+        $existing = User::query()->count();
+        $toCreate = max(0, $target - $existing);
+        if ($toCreate === 0) {
+            return;
+        }
+
+        $password = Hash::make('password');
+        $firstNames = [
+            'نگار', 'امیر', 'زهرا', 'حسین', 'مریم', 'رضا', 'سارا', 'مهدی', 'نرگس', 'کیان',
+            'الهام', 'پویا', 'هستی', 'آرمین', 'شیرین', 'بهزاد', 'لیلا', 'کامران', 'نازنین', 'فرهاد',
+            'یاسمن', 'سینا', 'پریسا', 'امید', 'رؤیا', 'مجید', 'آتنا', 'بهنام',
+        ];
+        $lastNames = [
+            'محمدی', 'حسینی', 'کریمی', 'موسوی', 'جعفری', 'نوری', 'صادقی', 'اکبری', 'رحمانی', 'قاسمی',
+            'مرادی', 'یوسفی', 'حیدری', 'کاظمی', 'شریفی', 'باقری', 'طاهری', 'نجفی', 'ملکی', 'اسدی',
+            'رستمی', 'عباسی', 'فتحی', 'سلطانی', 'غلامی', 'میرزایی', 'دهقانی', 'صالحی',
+        ];
+        $jobs = [
+            'دانشجوی برنامه‌نویسی',
+            'توسعه‌دهنده فرانت‌اند',
+            'توسعه‌دهنده بک‌اند',
+            'طراح رابط کاربری',
+            'تحلیل‌گر داده',
+            'تست نرم‌افزار',
+            'مدیر محصول',
+            'برنامه‌نویس موبایل',
+        ];
+
+        $infos = [];
+        $roles = [];
+
+        for ($i = 1; $i <= $toCreate; $i++) {
+            $first = $firstNames[($i - 1) % count($firstNames)];
+            $last = $lastNames[intdiv($i - 1, count($firstNames)) % count($lastNames)];
+            $username = sprintf('user%03d', $i);
+
+            $user = User::create([
+                'first_name' => $first,
+                'last_name' => $last,
+                'email' => $username.'@zanburak.ir',
+                'email_verified_at' => $now,
+                'mobile' => '+98915'.str_pad((string) $i, 7, '0', STR_PAD_LEFT),
+                'mobile_verified_at' => $now,
+                'password' => $password,
+                'username' => $username,
+                'is_superuser' => false,
+                'is_staff' => false,
+                'active' => true,
+                'wallet_balance' => $i % 5 === 0 ? 50000 * (($i % 4) + 1) : 0,
+                'notifications_enabled' => true,
+                'profile_pic' => 'https://static.zanburak.ir/images/avatar/default.png',
+                'cover_pic' => 'https://static.zanburak.ir/images/cover/default.png',
+            ]);
+
+            $year = 1988 + ($i % 14);
+            $month = str_pad((string) (($i % 12) + 1), 2, '0', STR_PAD_LEFT);
+            $day = str_pad((string) (($i % 27) + 1), 2, '0', STR_PAD_LEFT);
+
+            $infos[] = [
+                'user_id' => $user->id,
+                'birth_date' => "{$year}-{$month}-{$day}",
+                'job' => $jobs[$i % count($jobs)],
+                'about' => "کاربر نمونه {$first} {$last} برای تست پیام‌رسان و دوره‌ها.",
+                'github' => 'https://github.com/'.$username,
+                'telegram' => '@'.$username,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+
+            if ($studentRoleId) {
+                $roles[] = [
+                    'role_id' => $studentRoleId,
+                    'user_id' => $user->id,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+        }
+
+        foreach (array_chunk($infos, 50) as $chunk) {
+            DB::table('infos')->insert($chunk);
+        }
+        if ($roles !== []) {
+            foreach (array_chunk($roles, 50) as $chunk) {
+                DB::table('role_user')->insert($chunk);
+            }
+        }
     }
 }
 

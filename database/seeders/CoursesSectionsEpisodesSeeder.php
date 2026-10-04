@@ -583,6 +583,183 @@ class CoursesSectionsEpisodesSeeder extends Seeder
             $episode['updated_at'] = $now;
             DB::table('episodes')->insert($episode);
         }
+
+        $this->seedFeaturedCatalogs($now, [
+            'beginner' => $beginnerLevelId,
+            'intermediate' => $intermediateLevelId,
+            'advanced' => $advancedLevelId,
+        ], [
+            'ongoing' => $ongoingStatusId,
+            'completed' => $completedStatusId,
+            'presale' => $presaleStatusId,
+            'upcoming' => $upcomingStatusId,
+            'archive' => $archiveStatusId,
+        ]);
+    }
+
+    /**
+     * کاتالوگ متنوع فقط برای ادمین، مدرس اصلی و مدیر محتوا.
+     */
+    private function seedFeaturedCatalogs($now, array $levels, array $statuses): void
+    {
+        $owners = [
+            'admin' => DB::table('users')->where('username', 'admin')->value('id'),
+            'teacher' => DB::table('users')->where('username', 'teacher')->value('id'),
+            'content_admin' => DB::table('users')->where('username', 'content_admin')->value('id'),
+        ];
+
+        $categoryIds = DB::table('categories')->pluck('id', 'slug');
+
+        $blueprints = [
+            ['title' => 'آموزش Next.js از صفر تا پروژه واقعی', 'slug' => 'nextjs-zero-to-project', 'status' => 'ongoing', 'type' => 'cash', 'level' => 'intermediate', 'categories' => ['react', 'frontend'], 'price' => 589000, 'installment' => true],
+            ['title' => 'مبانی رایگان HTML و CSS', 'slug' => 'free-html-css-basics', 'status' => 'ongoing', 'type' => 'free', 'level' => 'beginner', 'categories' => ['frontend'], 'price' => 0, 'installment' => false],
+            ['title' => 'لاراول پیشرفته: صف، رویداد و کش', 'slug' => 'laravel-queues-events-cache', 'status' => 'ongoing', 'type' => 'cash-vip', 'level' => 'advanced', 'categories' => ['laravel', 'backend'], 'price' => 890000, 'installment' => true],
+            ['title' => 'پیش‌فروش جنگو برای ساخت API', 'slug' => 'django-api-presale', 'status' => 'presale', 'type' => 'cash', 'level' => 'intermediate', 'categories' => ['python', 'backend'], 'price' => 469000, 'installment' => true],
+            ['title' => 'پیش‌فروش یادگیری ماشین کاربردی', 'slug' => 'applied-machine-learning-presale', 'status' => 'presale', 'type' => 'cash-vip', 'level' => 'advanced', 'categories' => ['machine-learning', 'data-science-ai'], 'price' => 1290000, 'installment' => true],
+            ['title' => 'به‌زودی: فلاتر و ساخت اپ موبایل', 'slug' => 'flutter-mobile-upcoming', 'status' => 'upcoming', 'type' => 'cash', 'level' => 'beginner', 'categories' => ['flutter', 'mobile-programming'], 'price' => 549000, 'installment' => false],
+            ['title' => 'به‌زودی: اندروید با کاتلین', 'slug' => 'android-kotlin-upcoming', 'status' => 'upcoming', 'type' => 'cash', 'level' => 'intermediate', 'categories' => ['android', 'mobile-programming'], 'price' => 629000, 'installment' => true],
+            ['title' => 'پایتون کامل برای بازار کار', 'slug' => 'python-job-ready', 'status' => 'completed', 'type' => 'cash', 'level' => 'beginner', 'categories' => ['python'], 'price' => 419000, 'installment' => false],
+            ['title' => 'دوره رایگان گیت و همکاری تیمی', 'slug' => 'free-git-teamwork', 'status' => 'completed', 'type' => 'free', 'level' => 'beginner', 'categories' => ['web-programming'], 'price' => 0, 'installment' => false],
+            ['title' => 'دیپ‌لرنینگ با پروژه‌های تصویری', 'slug' => 'deep-learning-vision-projects', 'status' => 'completed', 'type' => 'cash-vip', 'level' => 'advanced', 'categories' => ['deep-learning', 'data-science-ai'], 'price' => 1490000, 'installment' => true],
+            ['title' => 'آرشیو بوت‌استرپ و صفحه‌آرایی کلاسیک', 'slug' => 'bootstrap-classic-archive', 'status' => 'archive', 'type' => 'cash', 'level' => 'beginner', 'categories' => ['frontend'], 'price' => 149000, 'installment' => false],
+            ['title' => 'آرشیو ری‌اکت نیتیو نسخه قدیمی', 'slug' => 'react-native-legacy-archive', 'status' => 'archive', 'type' => 'free', 'level' => 'intermediate', 'categories' => ['react-native', 'mobile-programming'], 'price' => 0, 'installment' => false],
+        ];
+
+        foreach ($owners as $ownerKey => $teacherId) {
+            if (! $teacherId) {
+                continue;
+            }
+
+            foreach ($blueprints as $blueprint) {
+                $this->insertCatalogCourse($now, (int) $teacherId, $ownerKey, $blueprint, $levels, $statuses, $categoryIds);
+            }
+        }
+    }
+
+    private function insertCatalogCourse($now, int $teacherId, string $ownerKey, array $blueprint, array $levels, array $statuses, $categoryIds): void
+    {
+        $status = $blueprint['status'];
+        $dates = $this->datesForStatus($now, $status);
+        $slug = $ownerKey.'-'.$blueprint['slug'];
+
+        $courseId = DB::table('courses')->insertGetId([
+            'teacher_id' => $teacherId,
+            'title' => $blueprint['title'],
+            'english_title' => $slug,
+            'slug' => $slug,
+            'short_description' => $blueprint['title'].' — نمونه '.$this->statusLabel($status),
+            'description' => 'دوره نمونه با وضعیت «'.$this->statusLabel($status).'» و نوع '.$blueprint['type'].'. برای تست فهرست دوره‌ها، پیش‌فروش، در حال برگزاری و آرشیو.',
+            'total_time' => '720',
+            'start_date' => $dates['start'],
+            'end_date' => $dates['end'],
+            'price' => $blueprint['price'],
+            'allows_installment' => $blueprint['installment'],
+            'has_money_back_guarantee' => $status !== 'archive',
+            'publish' => true,
+            'status_id' => $statuses[$status] ?? null,
+            'level_id' => $levels[$blueprint['level']] ?? null,
+            'type' => $blueprint['type'],
+            'poster' => 'https://static.zanburak.ir/poster/no-image.png',
+            'trailer' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        foreach ($blueprint['categories'] as $categorySlug) {
+            $categoryId = $categoryIds[$categorySlug] ?? null;
+            if ($categoryId) {
+                DB::table('category_course')->insert([
+                    'category_id' => $categoryId,
+                    'course_id' => $courseId,
+                ]);
+            }
+        }
+
+        $sectionStarts = [
+            $dates['start'],
+            $dates['start'] ? $dates['start']->copy()->addDays(7) : null,
+        ];
+
+        foreach (['فصل اول', 'فصل دوم'] as $index => $sectionTitle) {
+            $sectionSlug = $slug.'-section-'.($index + 1);
+            $sectionId = DB::table('sections')->insertGetId([
+                'course_id' => $courseId,
+                'title' => $sectionTitle,
+                'english_title' => $sectionSlug,
+                'slug' => $sectionSlug,
+                'description' => $sectionTitle.' از '.$blueprint['title'],
+                'total_time' => '180',
+                'start_date' => $sectionStarts[$index],
+                'publish' => true,
+                'status' => true,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+
+            for ($episodeOrder = 1; $episodeOrder <= 2; $episodeOrder++) {
+                $episodeSlug = $sectionSlug.'-episode-'.$episodeOrder;
+                $publishDate = $sectionStarts[$index]
+                    ? $sectionStarts[$index]->copy()->addDays($episodeOrder - 1)
+                    : $now;
+
+                DB::table('episodes')->insert([
+                    'section_id' => $sectionId,
+                    'order' => $episodeOrder,
+                    'title' => 'جلسه '.$episodeOrder.' — '.$sectionTitle,
+                    'english_title' => $episodeSlug,
+                    'slug' => $episodeSlug,
+                    'description' => 'جلسه نمونه برای '.$blueprint['title'],
+                    'total_time' => '25',
+                    'publish' => true,
+                    'lock' => false,
+                    'publish_date' => $publishDate,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
+            }
+        }
+    }
+
+    private function datesForStatus($now, string $status): array
+    {
+        return match ($status) {
+            'ongoing' => [
+                'start' => $now->copy()->subDays(18),
+                'end' => $now->copy()->addMonths(2),
+            ],
+            'completed' => [
+                'start' => $now->copy()->subMonths(5),
+                'end' => $now->copy()->subDays(12),
+            ],
+            'presale' => [
+                'start' => $now->copy()->addDays(14),
+                'end' => null,
+            ],
+            'upcoming' => [
+                'start' => $now->copy()->addDays(40),
+                'end' => null,
+            ],
+            'archive' => [
+                'start' => $now->copy()->subMonths(11),
+                'end' => $now->copy()->subMonths(2),
+            ],
+            default => [
+                'start' => $now->copy(),
+                'end' => null,
+            ],
+        };
+    }
+
+    private function statusLabel(string $status): string
+    {
+        return match ($status) {
+            'ongoing' => 'در حال برگزاری',
+            'completed' => 'تکمیل ضبط',
+            'presale' => 'پیش‌فروش',
+            'upcoming' => 'به‌زودی',
+            'archive' => 'آرشیو',
+            default => $status,
+        };
     }
 }
 

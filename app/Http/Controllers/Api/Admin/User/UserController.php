@@ -164,7 +164,7 @@ class UserController extends Controller
         $loginUser = auth('api')->user();
         $activePlan = $username->activeVipPlan();
         $user = $username->only('id', 'first_name', 'last_name', 'username', 'profile_pic', 'cover_pic', 'last_seen', 'email', 'email_verified_at', 'mobile', 'mobile_verified_at', 'active', 'deactivated_until', 'created_at', 'is_superuser', 'is_staff');
-        $user['info'] = $username->info->only('job', 'about', 'website', 'github', 'twitter', 'linkedin', 'telegram', 'instagram');
+        $user['info'] = $this->infoPayload($username, ['job', 'about', 'website', 'github', 'twitter', 'linkedin', 'telegram', 'instagram']);
         $user['subscription'] = $activePlan ? 'vip' : 'normal';
         $user['active_plan'] = $activePlan ? [
             'title' => $activePlan->title,
@@ -189,8 +189,11 @@ class UserController extends Controller
         }
         $loginUser = auth('api')->user();
         $user = $username->only('id', 'first_name', 'last_name', 'username', 'email', 'email_verified_at', 'profile_pic', 'mobile', 'mobile_verified_at', 'cover_pic', 'active', 'deactivation_reason', 'deactivated_until', 'deactivated_by', 'created_at', 'last_seen');
-        $user['deactivated_by'] = $user['deactivated_by'] ? $username->deactivatedBy->only('id', 'first_name', 'last_name', 'username', 'profile_pic') : null;
-        $user['info'] = $username->info->only('about', 'job', 'birth_date', 'website', 'github', 'twitter', 'linkedin', 'telegram', 'instagram');
+        $deactivatedBy = $user['deactivated_by'] ? $username->deactivatedBy : null;
+        $user['deactivated_by'] = $deactivatedBy
+            ? $deactivatedBy->only('id', 'first_name', 'last_name', 'username', 'profile_pic')
+            : null;
+        $user['info'] = $this->infoPayload($username, ['about', 'job', 'birth_date', 'website', 'github', 'twitter', 'linkedin', 'telegram', 'instagram']);
         $user['last_login'] = $username->logins()->latest()->first();
         $user['providers'] = $username->providers;
         return response()->json(['message' => 'Success', 'user' => $user]);
@@ -287,8 +290,8 @@ class UserController extends Controller
             return response()->json(['message' => 'Validation error!', 'errors' => $validator->errors()->toArray()], 422);
         } else {
             $validatedData = $validator->validated();
-            $updatedSocial = $username->info()->update($validatedData);
-            return response()->json(['message' => 'Success', 'social' => $username->info]);
+            $social = $username->info()->updateOrCreate([], $validatedData);
+            return response()->json(['message' => 'Success', 'social' => $social]);
         }
 
     }
@@ -380,7 +383,7 @@ class UserController extends Controller
                 'first_name' => $validatedData['first_name'],
                 'last_name' => $validatedData['last_name'],
             ]);
-            $updateUserInfo = $username->info()->update([
+            $username->info()->updateOrCreate([], [
                 'job' => $validatedData['job'],
                 'about' => $validatedData['about'],
                 'birth_date' => $validatedData['birth_date'],
@@ -1596,5 +1599,21 @@ class UserController extends Controller
             'deleted_ids' => $deletedIds,
             'skipped' => $skipped,
         ], 200);
+    }
+
+    /**
+     * Users created outside the normal signup flow may have no infos row.
+     * Return a stable shape so the admin profile page can still render.
+     */
+    private function infoPayload($user, array $columns): array
+    {
+        $empty = array_fill_keys($columns, null);
+        $info = $user->info;
+
+        if (!$info) {
+            return $empty;
+        }
+
+        return array_merge($empty, $info->only($columns));
     }
 }
