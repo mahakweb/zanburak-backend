@@ -582,17 +582,34 @@ class MessengerOutbox
         $conversationId = (int) $item['conversation_id'];
         $readerId = (int) $item['reader_id'];
         $readAt = $item['read_at'] ?? now();
+        $messageIds = array_values(array_filter(array_map('intval', $item['message_ids'] ?? [])));
 
-        Message::query()
+        $query = Message::query()
             ->where('conversation_id', $conversationId)
             ->where('user_id', '!=', $readerId)
-            ->whereNull('read_at')
-            ->update(['read_at' => $readAt]);
+            ->whereNull('read_at');
+
+        if ($messageIds !== []) {
+            $query->whereIn('id', $messageIds);
+        }
+
+        $query->update(['read_at' => $readAt]);
+
+        $lastReadMessageId = $messageIds !== []
+            ? max($messageIds)
+            : (int) (Message::query()
+                ->where('conversation_id', $conversationId)
+                ->where('user_id', '!=', $readerId)
+                ->max('id') ?? 0);
 
         DB::table('conversation_user')
             ->where('conversation_id', $conversationId)
             ->where('user_id', $readerId)
-            ->update(['last_read_at' => $readAt, 'updated_at' => now()]);
+            ->update([
+                'last_read_at' => $readAt,
+                'last_read_message_id' => $lastReadMessageId > 0 ? $lastReadMessageId : null,
+                'updated_at' => now(),
+            ]);
     }
 
     protected function flushMessageDelivered(array $item): void

@@ -14,11 +14,14 @@ use App\Models\MessengerUserIdentity;
 use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 
 /**
  * Server-side E2E helpers: device registry + opaque key-package relay.
- * The server never sees private keys or plaintext message bodies.
+ * Message bodies stay client-encrypted. Authenticated multi-device unlock may
+ * store an APP_KEY-encrypted MDS envelope so a new login can restore history
+ * without a typed passphrase or an online sibling.
  */
 class MessengerCryptoService
 {
@@ -541,10 +544,14 @@ class MessengerCryptoService
 
         $out = $row->toPublicMaterial();
 
-        // Encrypted backup is only returned to the identity owner.
+        // Encrypted backup + seamless unlock are only returned to the identity owner.
         if ($targetId === (int) $viewer->id) {
             $out['encrypted_backup'] = $row->encrypted_backup;
             $out['backup_salt'] = $row->backup_salt;
+            $mds = $this->decryptSeamlessUnlock($row->seamless_unlock);
+            if ($mds !== null) {
+                $out['seamless_unlock'] = $mds;
+            }
         }
 
         return $out;
@@ -564,6 +571,44 @@ class MessengerCryptoService
         ])->save();
 
         return $row->fresh();
+    }
+
+    /**
+     * Store / refresh the authenticated multi-device unlock secret (MDS).
+     * Value is encrypted at rest; plaintext MDS is never logged.
+     */
+    public function putSeamlessUnlock(User $user, string $mds): MessengerUserIdentity
+    {
+        $mds = trim($mds);
+        if (strlen($mds) < 16 || strlen($mds) > 512) {
+            throw new \InvalidArgumentException('Invalid seamless unlock secret');
+        }
+
+        $row = MessengerUserIdentity::query()->find($user->id);
+        if (! $row) {
+            throw new \InvalidArgumentException('Publish user identity before uploading seamless unlock');
+        }
+
+        $row->forceFill([
+            'seamless_unlock' => Crypt::encryptString($mds),
+        ])->save();
+
+        return $row->fresh();
+    }
+
+    protected function decryptSeamlessUnlock(?string $cipher): ?string
+    {
+        if (! is_string($cipher) || $cipher === '') {
+            return null;
+        }
+        try {
+            $plain = Crypt::decryptString($cipher);
+            $plain = is_string($plain) ? trim($plain) : '';
+
+            return $plain !== '' ? $plain : null;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**

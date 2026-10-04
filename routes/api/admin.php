@@ -451,7 +451,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
         Route::get('/{account}/folders', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'folders'])->name('folders');
         Route::get('/{account}/stats', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'stats'])->name('stats');
         Route::post('/{account}/messages', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'index'])->name('messages.index');
-        Route::get('/{account}/messages/{uid}', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'show'])->name('messages.show');
+        Route::match(['get', 'post'], '/{account}/messages/{uid}', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'show'])->name('messages.show');
         Route::get('/{account}/messages/{uid}/attachments/{part}', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'downloadAttachment'])->name('messages.attachments.download');
         Route::post('/{account}/messages/{uid}/mark-read', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'markRead'])->name('messages.mark-read');
         Route::post('/{account}/messages/{uid}/mark-unread', [\App\Http\Controllers\Api\Admin\MailInboxController::class, 'markUnread'])->name('messages.mark-unread');

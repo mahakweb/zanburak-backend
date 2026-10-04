@@ -235,6 +235,24 @@ class MessengerCryptoController extends Controller
         ]);
     }
 
+    public function putSeamlessUnlock(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'mds' => 'required|string|min:16|max:512',
+        ]);
+
+        try {
+            $row = $this->crypto->putSeamlessUnlock($request->user(), (string) $data['mds']);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'identity' => $row->toPublicMaterial(),
+            'has_seamless_unlock' => true,
+        ]);
+    }
+
     public function distributeIdentity(Request $request): JsonResponse
     {
         $data = $request->validate([

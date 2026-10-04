@@ -32,6 +32,7 @@ Route::prefix('messenger')->as('api.messenger.')->group(function () {
         Route::get('/crypto/identity', [MessengerCryptoController::class, 'getUserIdentity'])->name('crypto.identity.show');
         Route::post('/crypto/identity', [MessengerCryptoController::class, 'publishUserIdentity'])->name('crypto.identity.publish');
         Route::put('/crypto/identity/backup', [MessengerCryptoController::class, 'updateIdentityBackup'])->name('crypto.identity.backup');
+        Route::put('/crypto/identity/seamless-unlock', [MessengerCryptoController::class, 'putSeamlessUnlock'])->name('crypto.identity.seamless');
         Route::post('/crypto/identity/distribute', [MessengerCryptoController::class, 'distributeIdentity'])->name('crypto.identity.distribute');
         Route::get('/crypto/identity/packages', [MessengerCryptoController::class, 'identityPackages'])->name('crypto.identity.packages');
         Route::post('/crypto/identity/packages/ack', [MessengerCryptoController::class, 'ackIdentityPackages'])->name('crypto.identity.ack');

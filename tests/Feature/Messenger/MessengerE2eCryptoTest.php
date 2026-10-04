@@ -5,6 +5,7 @@ namespace Tests\Feature\Messenger;
 use App\Models\Conversation;
 use App\Models\MessengerCryptoDevice;
 use App\Models\MessengerOneTimePrekey;
+use App\Models\MessengerUserIdentity;
 use App\Models\User;
 use App\Services\Messenger\MessengerCryptoService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -265,5 +266,37 @@ class MessengerE2eCryptoTest extends TestCase
         // Should not throw for a participant (realtime emit is best-effort).
         $crypto->requestConversationKey($alice, $conversation);
         $this->assertTrue(true);
+    }
+
+    public function test_seamless_unlock_returned_only_to_owner(): void
+    {
+        if (! \Schema::hasColumn('messenger_user_identities', 'seamless_unlock')) {
+            $this->markTestSkipped('seamless_unlock column missing');
+        }
+
+        $alice = User::factory()->create();
+        $bob = User::factory()->create();
+
+        MessengerUserIdentity::query()->create([
+            'user_id' => $alice->id,
+            'signing_public' => 'alice-sign',
+            'agreement_public' => 'alice-agree',
+            'encrypted_backup' => '{"v":1}',
+            'backup_salt' => 'c2FsdA==',
+            'backup_version' => 1,
+        ]);
+
+        /** @var MessengerCryptoService $crypto */
+        $crypto = app(MessengerCryptoService::class);
+        $mds = str_repeat('A', 32);
+        $crypto->putSeamlessUnlock($alice, $mds);
+
+        $owner = $crypto->getUserIdentity($alice);
+        $this->assertSame($mds, $owner['seamless_unlock'] ?? null);
+        $this->assertTrue((bool) ($owner['has_seamless_unlock'] ?? false));
+
+        $peer = $crypto->getUserIdentity($bob, (int) $alice->id);
+        $this->assertArrayNotHasKey('seamless_unlock', $peer ?? []);
+        $this->assertArrayNotHasKey('encrypted_backup', $peer ?? []);
     }
 }

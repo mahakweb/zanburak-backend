@@ -182,16 +182,30 @@ class ImapMailboxService
     {
         return $this->withClient($account, function (Client $client) use ($account, $folderPath, $uid, $markRead) {
             $folder = $client->getFolderByPath($folderPath);
-            $message = $folder->query()
-                ->setFetchBody(true)
-                ->setFetchFlags(true)
-                ->getMessageByUid($uid);
-
-            if ($markRead && ! $message->hasFlag('seen')) {
-                $message->setFlag('Seen');
+            try {
+                $message = $folder->query()
+                    ->setFetchBody(true)
+                    ->setFetchFlags(true)
+                    ->getMessageByUid($uid);
+            } catch (\Webklex\PHPIMAP\Exceptions\MessageNotFoundException $e) {
+                throw new \RuntimeException('این ایمیل پیدا نشد؛ ممکن است جابه‌جا یا حذف شده باشد. لیست را تازه کنید.');
             }
 
-            $detail = $this->serializeDetailMessage($message, $folderPath, $account);
+            try {
+                if ($markRead && ! $message->hasFlag('seen')) {
+                    $message->setFlag('Seen');
+                }
+            } catch (\Throwable $e) {
+                Log::warning('IMAP mark-read failed', ['uid' => $uid, 'error' => $e->getMessage()]);
+            }
+
+            try {
+                $detail = $this->serializeDetailMessage($message, $folderPath, $account);
+            } catch (\Throwable $e) {
+                Log::error('IMAP serialize detail failed', ['uid' => $uid, 'error' => $e->getMessage()]);
+                throw new \RuntimeException('خواندن محتوای ایمیل ناموفق بود: '.$e->getMessage());
+            }
+
             if ($markRead) {
                 $detail['is_read'] = true;
             }

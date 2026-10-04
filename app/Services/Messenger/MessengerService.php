@@ -117,6 +117,49 @@ class MessengerService
 
         $recentLimit = (int) config('messenger.recent_messages_in_list', 50);
 
+        // Collect hot unread ids once, then exclude any already persisted in DB
+        // so the same message_id cannot double-count during flush races.
+        $hotUnreadByConversation = [];
+        $hotUnreadIdSet = [];
+        if ($this->outbox->isActive()) {
+            foreach ($conversationIds as $cid) {
+                foreach ($this->outbox->hotMessagesForConversation((int) $cid) as $row) {
+                    if ((int) ($row['user_id'] ?? 0) === (int) $user->id) {
+                        continue;
+                    }
+                    if (! empty($row['read_at'])) {
+                        continue;
+                    }
+                    $hid = (int) ($row['id'] ?? 0);
+                    if ($hid <= 0) {
+                        continue;
+                    }
+                    $hotUnreadByConversation[(int) $cid][] = $hid;
+                    $hotUnreadIdSet[$hid] = true;
+                }
+            }
+        }
+        $hotIdsAlreadyInDb = [];
+        if ($hotUnreadIdSet !== []) {
+            $hotIdsAlreadyInDb = array_fill_keys(
+                Message::query()
+                    ->whereIn('id', array_keys($hotUnreadIdSet))
+                    ->pluck('id')
+                    ->map(fn ($id) => (int) $id)
+                    ->all(),
+                true
+            );
+        }
+
+        $peerLastReadByConversation = DB::table('conversation_user')
+            ->select('conversation_id', DB::raw('MAX(last_read_at) as peer_last_read_at'))
+            ->whereIn('conversation_id', $conversationIds)
+            ->where('user_id', '!=', $user->id)
+            ->whereNull('deleted_at')
+            ->whereNotNull('last_read_at')
+            ->groupBy('conversation_id')
+            ->pluck('peer_last_read_at', 'conversation_id');
+
         foreach ($paginator->getCollection() as $conversation) {
             // Warm Redis membership for WS auth + DB-free sends.
             if ($conversation->relationLoaded('users')) {
@@ -158,22 +201,30 @@ class MessengerService
             }
 
             $unread = (int) ($unreadByConversation[$conversation->id] ?? 0);
+            foreach ($hotUnreadByConversation[(int) $conversation->id] ?? [] as $hid) {
+                if (isset($hotIdsAlreadyInDb[$hid])) {
+                    continue;
+                }
+                $unread++;
+            }
 
-            // Hot incoming not yet flushed: count only rows not stamped read.
-            if ($this->outbox->isActive()) {
-                foreach ($this->rejectClearedHotRows(
+            // Apply peer last_read receipts to list seed / last_message ticks.
+            $peerReadAt = $peerLastReadByConversation[$conversation->id] ?? null;
+            if ($recent['messages']->isNotEmpty()) {
+                $recent['messages'] = $this->applyPeerReadReceipts(
                     $user,
                     $conversation,
-                    $this->outbox->hotMessagesForConversation((int) $conversation->id)
-                ) as $row) {
-                    if ((int) ($row['user_id'] ?? 0) === (int) $user->id) {
-                        continue;
-                    }
-                    if (! empty($row['read_at'])) {
-                        continue;
-                    }
-                    $unread++;
-                }
+                    $recent['messages'],
+                    $peerReadAt
+                );
+            }
+            if ($latest instanceof Message) {
+                $latest = $this->applyPeerReadReceipts(
+                    $user,
+                    $conversation,
+                    collect([$latest]),
+                    $peerReadAt
+                )->first();
             }
 
             $conversation->setResponseAttribute('unread_count', $unread);
@@ -707,16 +758,78 @@ class MessengerService
         );
 
         // Chronological for chat UI: created_at (precise), then id tiebreaker.
-        $paginator->setCollection(
-            $paginator->getCollection()
-                ->sortBy([
-                    ['created_at', 'asc'],
-                    ['id', 'asc'],
-                ])
-                ->values()
-        );
+        $collection = $paginator->getCollection()
+            ->sortBy([
+                ['created_at', 'asc'],
+                ['id', 'asc'],
+            ])
+            ->values();
+
+        // Derive effective receipts from peer last_read_at so write-behind
+        // delays cannot demote already-read ticks after refresh / re-entry.
+        if ($isMember) {
+            $collection = $this->applyPeerReadReceipts($user, $conversation, $collection);
+        }
+
+        $paginator->setCollection($collection);
 
         return $paginator;
+    }
+
+    /**
+     * When message.read_at is still null (outbox write-behind), expose an
+     * effective read_at from any other participant's last_read_at cursor.
+     * Never demotes an already-stamped read_at / delivered_at.
+     *
+     * @param  \Illuminate\Support\Collection<int, Message>  $messages
+     * @param  mixed  $peerReadAt  Optional preloaded cursor (string|Carbon|null)
+     * @return \Illuminate\Support\Collection<int, Message>
+     */
+    protected function applyPeerReadReceipts(User $viewer, Conversation $conversation, $messages, $peerReadAt = null)
+    {
+        if ($messages->isEmpty()) {
+            return $messages;
+        }
+
+        if ($peerReadAt === null) {
+            $peerReadAt = DB::table('conversation_user')
+                ->where('conversation_id', $conversation->id)
+                ->where('user_id', '!=', $viewer->id)
+                ->whereNull('deleted_at')
+                ->whereNotNull('last_read_at')
+                ->max('last_read_at');
+        }
+
+        if (! $peerReadAt) {
+            return $messages;
+        }
+
+        try {
+            $peerReadCarbon = $peerReadAt instanceof Carbon
+                ? $peerReadAt
+                : Carbon::parse($peerReadAt);
+        } catch (\Throwable) {
+            return $messages;
+        }
+
+        return $messages->map(function (Message $message) use ($viewer, $peerReadCarbon) {
+            if ((int) $message->user_id !== (int) $viewer->id) {
+                return $message;
+            }
+            if ($message->read_at) {
+                return $message;
+            }
+            $created = $message->created_at;
+            if (! $created || $created->gt($peerReadCarbon)) {
+                return $message;
+            }
+            $message->setAttribute('read_at', $peerReadCarbon);
+            if (! $message->delivered_at) {
+                $message->setAttribute('delivered_at', $peerReadCarbon);
+            }
+
+            return $message;
+        });
     }
 
     /**
@@ -2182,24 +2295,58 @@ class MessengerService
         // Always stamp pivot immediately (cheap). Unread APIs key off last_read_at
         // so badges clear before the write-behind message.read_at flush finishes.
         $readAt = now();
+
+        $latestIncomingId = (int) (Message::query()
+            ->visibleTo($user)
+            ->where('conversation_id', $conversation->id)
+            ->where('user_id', '!=', $user->id)
+            ->max('id') ?? 0);
+
+        if ($this->outbox->isActive()) {
+            foreach ($this->outbox->hotMessagesForConversation($conversation->id) as $row) {
+                if ((int) ($row['user_id'] ?? 0) === (int) $user->id) {
+                    continue;
+                }
+                $hid = (int) ($row['id'] ?? 0);
+                if ($hid > $latestIncomingId) {
+                    $latestIncomingId = $hid;
+                }
+            }
+        }
+
         $conversation->users()->updateExistingPivot($user->id, [
             'last_read_at' => $readAt,
+            'last_read_message_id' => $latestIncomingId > 0 ? $latestIncomingId : null,
         ]);
 
         if ($this->outbox->isActive()) {
-            // Count unread from DB + treat any hot incoming messages as unread.
-            $updated = Message::query()
+            // Unique unread message ids from DB + hot cache (no double-count).
+            $unreadIds = Message::query()
                 ->visibleTo($user)
                 ->where('conversation_id', $conversation->id)
                 ->where('user_id', '!=', $user->id)
                 ->whereNull('read_at')
-                ->count();
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+            $seen = array_fill_keys($unreadIds, true);
 
-            $hotIncoming = collect($this->outbox->hotMessagesForConversation($conversation->id))
-                ->filter(fn (array $row) => (int) $row['user_id'] !== (int) $user->id && empty($row['read_at']))
-                ->count();
+            foreach ($this->outbox->hotMessagesForConversation($conversation->id) as $row) {
+                if ((int) ($row['user_id'] ?? 0) === (int) $user->id) {
+                    continue;
+                }
+                if (! empty($row['read_at'])) {
+                    continue;
+                }
+                $hid = (int) ($row['id'] ?? 0);
+                if ($hid <= 0 || isset($seen[$hid])) {
+                    continue;
+                }
+                $seen[$hid] = true;
+                $unreadIds[] = $hid;
+            }
 
-            $updated += $hotIncoming;
+            $updated = count($unreadIds);
 
             if ($updated > 0) {
                 $readAtStr = $readAt->toDateTimeString();
@@ -2208,6 +2355,7 @@ class MessengerService
                     'conversation_id' => $conversation->id,
                     'reader_id' => $user->id,
                     'read_at' => $readAtStr,
+                    'message_ids' => $unreadIds,
                 ]);
 
                 // Stamp hot-cache rows so a subsequent merge does not resurrect unread.
@@ -2226,6 +2374,8 @@ class MessengerService
                         'conversation_id' => $conversation->id,
                         'reader_id' => $user->id,
                         'count' => $updated,
+                        'message_ids' => $unreadIds,
+                        'read_at' => $readAt->toIso8601String(),
                     ]
                 );
 
@@ -2234,6 +2384,15 @@ class MessengerService
 
             return $updated;
         }
+
+        $unreadIds = Message::query()
+            ->visibleTo($user)
+            ->where('conversation_id', $conversation->id)
+            ->where('user_id', '!=', $user->id)
+            ->whereNull('read_at')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
 
         $updated = Message::query()
             ->visibleTo($user)
@@ -2252,6 +2411,8 @@ class MessengerService
                     'conversation_id' => $conversation->id,
                     'reader_id' => $user->id,
                     'count' => $updated,
+                    'message_ids' => $unreadIds,
+                    'read_at' => $readAt->toIso8601String(),
                 ]
             );
         }
