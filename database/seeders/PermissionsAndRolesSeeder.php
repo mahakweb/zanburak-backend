@@ -375,6 +375,20 @@ class PermissionsAndRolesSeeder extends Seeder
             ['name' => 'payments.update_status.own', 'label' => 'بروزرسانی وضعیت پرداخت‌های مرتبط با خود', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'payments.update_status.any', 'label' => 'بروزرسانی وضعیت هر پرداختی', 'created_at' => $now, 'updated_at' => $now],
 
+            ['name' => 'settlements.view', 'label' => 'مشاهده تسویه‌ها', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'settlements.view.any', 'label' => 'مشاهده همه تسویه‌ها', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'settlements.view.own', 'label' => 'مشاهده تسویه‌های خود', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'settlements.create', 'label' => 'ایجاد تسویه', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'settlements.update', 'label' => 'ویرایش اطلاعات تسویه', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'settlements.change_status', 'label' => 'تغییر وضعیت تسویه', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'settlements.upload_receipt', 'label' => 'آپلود و جایگزینی رسید تسویه', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'settlements.view_receipt', 'label' => 'مشاهده رسید تسویه', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'settlements.view_receipt.any', 'label' => 'مشاهده رسید همه تسویه‌ها', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'settlements.view_receipt.own', 'label' => 'مشاهده رسید تسویه‌های خود', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'settlements.delete_receipt', 'label' => 'حذف رسید تسویه', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'settlements.view_all_teachers', 'label' => 'مشاهده وضعیت مالی همه مدرسین', 'created_at' => $now, 'updated_at' => $now],
+            ['name' => 'bank_accounts.manage', 'label' => 'مدیریت حساب، شبا و کارت بانکی خود', 'created_at' => $now, 'updated_at' => $now],
+
             // Discounts
             ['name' => 'discounts.view', 'label' => 'مشاهده کدتخفیف‌ها', 'created_at' => $now, 'updated_at' => $now],
             ['name' => 'discounts.show', 'label' => 'نمایش کدتخفیف', 'created_at' => $now, 'updated_at' => $now],
@@ -615,9 +629,9 @@ class PermissionsAndRolesSeeder extends Seeder
 
             'user_admin' => [
                 'dashboard.view',
-                'users.*',              
-                'users.sessions.*',    
-                'admin.search_user',    
+                'users.*',
+                'users.sessions.*',
+                'admin.search_user', 
             ],
 
             'user_manager' => [
@@ -944,6 +958,9 @@ class PermissionsAndRolesSeeder extends Seeder
                 'payments.details.own',
                 'payments.export.own',
                 'payments.search',
+                'settlements.view.own',
+                'settlements.view_receipt.own',
+                'bank_accounts.manage',
             ],
 
             'teacher_assistant' => [
@@ -971,6 +988,9 @@ class PermissionsAndRolesSeeder extends Seeder
                 'payments.details.own',
                 'payments.export.own',
                 'payments.search',
+                'settlements.view.own',
+                'settlements.view_receipt.own',
+                'bank_accounts.manage',
             ],
 
             'student' => [
@@ -1104,6 +1124,9 @@ class PermissionsAndRolesSeeder extends Seeder
                 'payments.details.any',
                 'payments.stats.any',
                 'payments.search',
+                'settlements.view',
+                'settlements.view.any',
+                'bank_accounts.manage',
                 'chat.messages.view',
                 'chat.messages.send',
             ],
@@ -1126,6 +1149,17 @@ class PermissionsAndRolesSeeder extends Seeder
                 'payments.update_status.any',
                 'payments.delete.any',
                 'payments.search',
+                'settlements.view',
+                'settlements.view.any',
+                'settlements.create',
+                'settlements.update',
+                'settlements.change_status',
+                'settlements.upload_receipt',
+                'settlements.view_receipt',
+                'settlements.view_receipt.any',
+                'settlements.delete_receipt',
+                'settlements.view_all_teachers',
+                'bank_accounts.manage',
             ],
 
             'payments_auditor' => [
@@ -1137,6 +1171,12 @@ class PermissionsAndRolesSeeder extends Seeder
                 'payments.details.any',
                 'payments.export.any',
                 'payments.search',
+                'settlements.view',
+                'settlements.view.any',
+                'settlements.view_receipt',
+                'settlements.view_receipt.any',
+                'settlements.view_all_teachers',
+                'bank_accounts.manage',
             ],
 
             'payments_operator' => [
@@ -1147,6 +1187,16 @@ class PermissionsAndRolesSeeder extends Seeder
                 'payments.update_status.any',
                 'payments.delete.any',
                 'payments.search',
+                'settlements.view',
+                'settlements.view.any',
+                'settlements.create',
+                'settlements.update',
+                'settlements.change_status',
+                'settlements.upload_receipt',
+                'settlements.view_receipt',
+                'settlements.view_receipt.any',
+                'settlements.view_all_teachers',
+                'bank_accounts.manage',
             ],
 
             'category_manager' => [
@@ -1456,6 +1506,9 @@ class PermissionsAndRolesSeeder extends Seeder
             'courses.create.any',
             'articles.create.own',
             'articles.create.any',
+            'bank_accounts.view_users',
+            'bank_accounts.update_users',
+            'bank_accounts.delete_users',
         ]);
 
         $this->exportPermissionsCatalog();

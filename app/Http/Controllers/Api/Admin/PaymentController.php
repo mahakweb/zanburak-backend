@@ -7,6 +7,7 @@ use App\Http\Controllers\Concerns\AppliesContentScope;
 use App\Models\Payment;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentItem;
+use App\Models\SettlementItem;
 use App\Services\PaymentService;
 use App\Services\PaymentGateway;
 use Illuminate\Http\Request;
@@ -345,6 +346,18 @@ class PaymentController extends Controller
 
         $oldStatus = (bool) $payment->status;
 
+        if ($oldStatus && ! $request->boolean('status')) {
+            $hasActiveSettlement = SettlementItem::query()
+                ->where('payment_id', $payment->id)
+                ->whereNull('released_at')
+                ->exists();
+            if ($hasActiveSettlement) {
+                return response()->json([
+                    'message' => 'این پرداخت در یک تسویه فعال است. ابتدا تسویه را لغو یا برگشت بزنید.',
+                ], 422);
+            }
+        }
+
         $payment->update([
             'status' => $request->status,
             'verified_by_admin' => $request->verified_by_admin,
@@ -429,6 +442,19 @@ class PaymentController extends Controller
             'total_amount' => $scoped()
                 ->where('status', 1)
                 ->whereNotNull('paid_at')
+                ->sum('amount'),
+            'gross_amount' => $scoped()->sum('amount'),
+            'pending_amount' => $scoped()
+                ->where('status', 0)
+                ->whereNull('paid_at')
+                ->where(function ($q) {
+                    $q->whereNull('expired_at')
+                        ->orWhere('expired_at', '>=', now());
+                })
+                ->sum('amount'),
+            'expired_amount' => $scoped()
+                ->where('status', 0)
+                ->where('expired_at', '<', now())
                 ->sum('amount'),
             'total_discount' => $scoped()
                 ->where('status', 1)

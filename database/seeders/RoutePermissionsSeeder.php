@@ -192,6 +192,7 @@ class RoutePermissionsSeeder extends Seeder
 
         // Payments
         $assign('api.admin.payments.index', $paymentsView);
+        $assign('api.admin.payments.chart', $paymentsView);
         $assign('api.admin.payments.stats', array_merge($paymentsView, $paymentsStats));
         $assign('api.admin.payments.export', array_merge($paymentsView, $paymentsExport));
         $assign('api.admin.payments.details', array_merge($paymentsView, $paymentsDetails));
@@ -204,6 +205,41 @@ class RoutePermissionsSeeder extends Seeder
         $assign('api.admin.payments.courses', ['payments.search.courses']);
         $assign('api.admin.payments.plans', ['payments.search.plans']);
         $assign('api.admin.payments.paths', ['payments.search.paths']);
+
+        $settlementsView = ['settlements.view', 'settlements.view.own', 'settlements.view.any', 'payments.view', 'payments.view.own', 'payments.view.any'];
+        $settlementPage = ['settlements.view', 'settlements.view.own', 'settlements.view.any'];
+        $assign([
+            'api.admin.settlements.summary',
+            'api.admin.settlements.index',
+            'api.admin.settlements.teachers',
+            'api.admin.settlements.teachers.show',
+            'api.admin.settlements.show',
+            'api.admin.settlements.audits',
+        ], $settlementsView);
+        $assign([
+            'api.admin.settlements.ledger',
+            'api.admin.settlements.chart',
+            'api.admin.settlements.payments.show',
+        ], $settlementPage);
+        $assign('api.admin.settlements.payments.mark', ['settlements.change_status']);
+        $assign('api.admin.settlements.payments.payout-options', ['settlements.change_status']);
+        $assign('api.admin.settlements.preview', ['settlements.create']);
+        $assign('api.admin.settlements.create', ['settlements.create']);
+        $assign('api.admin.settlements.update', ['settlements.update']);
+        $assign('api.admin.settlements.status', ['settlements.change_status']);
+        $assign('api.admin.settlements.receipt.upload', ['settlements.upload_receipt']);
+        $assign('api.admin.settlements.receipt.delete', ['settlements.delete_receipt']);
+        $assign('api.admin.settlements.receipt.show', ['settlements.view_receipt', 'settlements.view_receipt.any', 'settlements.view_receipt.own']);
+
+        $assign([
+            'api.admin.bank-accounts.index',
+            'api.admin.bank-accounts.inspect',
+            'api.admin.bank-accounts.store',
+            'api.admin.bank-accounts.default',
+            'api.admin.bank-accounts.update',
+            'api.admin.bank-accounts.destroy',
+        ], ['bank_accounts.manage']);
+        $assign('api.admin.bank-accounts.inspect', ['users.update']);
 
         // Certificates
         $assign([
@@ -275,6 +311,7 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.users.stats',
             'api.admin.user.search',
             'api.admin.user.base',
+            'api.admin.user.bank-accounts',
             'api.admin.user.details',
             'api.admin.user.security',
             'api.admin.user.comments',
@@ -288,6 +325,8 @@ class RoutePermissionsSeeder extends Seeder
             'api.admin.user.update-social',
             'api.admin.user.update-communications',
             'api.admin.user.update-info',
+            'api.admin.user.bank-accounts.update',
+            'api.admin.user.bank-accounts.destroy',
         ], ['users.update']);
         $assign('api.admin.user.update-password', ['users.reset_password']);
         $assign('api.admin.user.toggle-active', ['users.deactivate', 'users.reactivate']);

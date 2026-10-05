@@ -12,6 +12,7 @@ use App\Models\Permission;
 use App\Models\Plan;
 use App\Models\Role;
 use App\Models\User;
+use App\Models\UserBankAccount;
 use App\Models\UserLogin;
 use App\Models\Wallet;
 use Carbon\Carbon;
@@ -178,6 +179,7 @@ class UserController extends Controller
             'permissions_count' => $username->permissions()->count(),
             'wallet_balance' => (int) $username->wallet_balance,
             'payments_count' => $username->payments()->where('status', 1)->count(),
+            'bank_accounts_count' => UserBankAccount::query()->where('user_id', $username->id)->count(),
         ];
         return response()->json(['message' => 'Success', 'user' => $user]);
     }

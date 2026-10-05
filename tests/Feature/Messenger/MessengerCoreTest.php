@@ -285,6 +285,102 @@ class MessengerCoreTest extends TestCase
         $this->assertSame(0, $trashedMedia->liveReferenceCount());
     }
 
+    public function test_blocked_send_is_stored_for_the_sender_and_never_replayed_after_unblock(): void
+    {
+        config([
+            'messenger.hot_path' => false,
+            'messenger.e2e.enabled' => false,
+        ]);
+
+        [$sender, $peer, $conversation] = $this->conversation();
+        Contact::create([
+            'user_id' => $sender->id,
+            'contact_user_id' => $peer->id,
+            'name' => 'Peer',
+            'is_blocked' => true,
+        ]);
+
+        $send = fn (string $body, string $clientId) => $this->actingAs($sender)
+            ->postJson("/api/messenger/conversations/{$conversation->id}/messages", [
+                'body' => $body,
+                'client_id' => $clientId,
+            ]);
+
+        $send('while blocked', 'c-block-1')->assertCreated();
+        $send('while blocked', 'c-block-1')->assertCreated();
+
+        $this->assertSame(1, Message::query()->where('client_id', 'c-block-1')->count());
+
+        $hidden = Message::query()->where('client_id', 'c-block-1')->first();
+        $this->assertNotNull($hidden);
+        $this->assertTrue(Message::query()->visibleTo($sender)->whereKey($hidden->id)->exists());
+        $this->assertFalse(Message::query()->visibleTo($peer)->whereKey($hidden->id)->exists());
+
+        Event::assertNotDispatched(MessengerBroadcast::class, function (MessengerBroadcast $event) use ($peer) {
+            return (int) $event->userId === (int) $peer->id && $event->eventType === 'message.new';
+        });
+
+        app(MessengerService::class)->unblockUser($sender, (int) $peer->id);
+
+        $this->assertFalse(Message::query()->visibleTo($peer)->whereKey($hidden->id)->exists());
+
+        $send('after unblock', 'c-block-2')->assertCreated();
+
+        $visible = Message::query()->where('client_id', 'c-block-2')->first();
+        $this->assertNotNull($visible);
+        $this->assertTrue(Message::query()->visibleTo($peer)->whereKey($visible->id)->exists());
+
+        Event::assertDispatched(MessengerBroadcast::class, function (MessengerBroadcast $event) use ($peer) {
+            return (int) $event->userId === (int) $peer->id
+                && $event->eventType === 'message.new'
+                && ($event->payload['message']['body'] ?? null) === 'after unblock';
+        });
+    }
+
+    public function test_message_is_withheld_when_the_recipient_blocked_the_sender(): void
+    {
+        config([
+            'messenger.hot_path' => false,
+            'messenger.e2e.enabled' => false,
+        ]);
+
+        [$sender, $peer, $conversation] = $this->conversation();
+        Contact::create([
+            'user_id' => $peer->id,
+            'contact_user_id' => $sender->id,
+            'name' => 'Sender',
+            'is_blocked' => true,
+        ]);
+
+        $this->actingAs($sender)
+            ->postJson("/api/messenger/conversations/{$conversation->id}/messages", [
+                'body' => 'they blocked me',
+                'client_id' => 'c-blocked-by-them',
+            ])
+            ->assertCreated();
+
+        $message = Message::query()->where('client_id', 'c-blocked-by-them')->first();
+        $this->assertNotNull($message);
+        $this->assertTrue(Message::query()->visibleTo($sender)->whereKey($message->id)->exists());
+        $this->assertFalse(Message::query()->visibleTo($peer)->whereKey($message->id)->exists());
+    }
+
+    public function test_profile_update_is_broadcast_to_conversation_peers(): void
+    {
+        [$user, $peer] = $this->conversation();
+
+        $this->actingAs($user)
+            ->putJson('/api/messenger/me', ['first_name' => 'Nima'])
+            ->assertOk()
+            ->assertJsonPath('first_name', 'Nima');
+
+        Event::assertDispatched(MessengerBroadcast::class, function (MessengerBroadcast $event) use ($peer) {
+            return (int) $event->userId === (int) $peer->id
+                && $event->eventType === 'user.updated'
+                && ($event->payload['first_name'] ?? null) === 'Nima';
+        });
+    }
+
     /**
      * @return array{User, User, Conversation}
      */

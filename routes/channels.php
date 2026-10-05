@@ -50,3 +50,16 @@ Broadcast::channel('conversation.{conversationId}', function ($user, $conversati
 
     return $ok;
 });
+
+Broadcast::channel('settlements', function ($user) {
+    return $user->isSuperUser() || $user->hasAnyPermissionName([
+        'settlements.view',
+        'settlements.view.any',
+        'settlements.view_all_teachers',
+        'payments.view.any',
+    ]);
+});
+
+Broadcast::channel('settlement.user.{userId}', function ($user, $userId) {
+    return (int) $user->id === (int) $userId;
+});

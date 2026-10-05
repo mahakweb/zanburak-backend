@@ -30,4 +30,14 @@ class PaymentItem extends Model
     {
         return $this->morphTo();
     }
+
+    public function settlementItems()
+    {
+        return $this->hasMany(SettlementItem::class);
+    }
+
+    public function activeSettlementItem()
+    {
+        return $this->hasOne(SettlementItem::class)->whereNull('released_at');
+    }
 }

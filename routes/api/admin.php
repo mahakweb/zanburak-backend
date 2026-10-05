@@ -14,6 +14,7 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::prefix('payments')->as('payments.')->group(function () {
         Route::post('/', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'payments'])->name('index');
         Route::get('/stats', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'paymentStats'])->name('stats');
+        Route::post('/chart', [\App\Http\Controllers\Api\Admin\FinanceChartController::class, 'payments'])->name('chart');
         Route::get('/export', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'exportPayments'])->name('export');
         Route::get('/{uuid}/details', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'paymentDetails'])->name('details');
         Route::post('/{uuid}/update-status', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'updatePaymentStatus'])->name('update-status');
@@ -25,6 +26,36 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
         Route::get('/courses', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'getCourses'])->name('courses');
         Route::get('/plans', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'getPlans'])->name('plans');
         Route::get('/paths', [\App\Http\Controllers\Api\Admin\PaymentController::class, 'getPaths'])->name('paths');
+    });
+
+    Route::prefix('settlements')->as('settlements.')->group(function () {
+        Route::get('/summary', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'summary'])->name('summary');
+        Route::post('/ledger', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'ledger'])->name('ledger');
+        Route::post('/chart', [\App\Http\Controllers\Api\Admin\FinanceChartController::class, 'settlements'])->name('chart');
+        Route::post('/payments/mark', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'mark'])->name('payments.mark');
+        Route::post('/payments/payout-options', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'payoutOptions'])->name('payments.payout-options');
+        Route::get('/payments/{payment}', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'payment'])->name('payments.show');
+        Route::post('/', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'index'])->name('index');
+        Route::post('/preview', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'preview'])->name('preview');
+        Route::post('/create', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'store'])->name('create');
+        Route::get('/teachers', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'teachers'])->name('teachers');
+        Route::get('/teachers/{teacher}', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'teacher'])->name('teachers.show')->whereNumber('teacher');
+        Route::get('/{settlement}/receipt', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'receipt'])->name('receipt.show');
+        Route::post('/{settlement}/receipt', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'uploadReceipt'])->name('receipt.upload');
+        Route::delete('/{settlement}/receipt', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'deleteReceipt'])->name('receipt.delete');
+        Route::get('/{settlement}/audits', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'audits'])->name('audits');
+        Route::post('/{settlement}/status', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'changeStatus'])->name('status');
+        Route::post('/{settlement}/update', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'update'])->name('update');
+        Route::get('/{settlement}', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'show'])->name('show');
+    });
+
+    Route::prefix('bank-accounts')->as('bank-accounts.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\Api\Admin\BankAccountController::class, 'index'])->name('index');
+        Route::post('/inspect', [\App\Http\Controllers\Api\Admin\BankAccountController::class, 'inspect'])->name('inspect');
+        Route::post('/', [\App\Http\Controllers\Api\Admin\BankAccountController::class, 'store'])->name('store');
+        Route::post('/{bankAccount}/default', [\App\Http\Controllers\Api\Admin\BankAccountController::class, 'makeDefault'])->name('default');
+        Route::post('/{bankAccount}/update', [\App\Http\Controllers\Api\Admin\BankAccountController::class, 'update'])->name('update');
+        Route::delete('/{bankAccount}', [\App\Http\Controllers\Api\Admin\BankAccountController::class, 'destroy'])->name('destroy');
     });
 
     // Certificates
@@ -129,7 +160,10 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     Route::post('/user/create', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'create'])->name('user.create');
     Route::post('/user/delete', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'deleteUsers'])->name('user.delete');
     Route::post('/user/{userId}/upload-image', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'uploadImage'])->name('user.upload-image');
-    Route::post('/user/{username}/base', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'base'])->name('user.base');
+        Route::post('/user/{username}/base', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'base'])->name('user.base');
+        Route::get('/user/{username}/bank-accounts', [\App\Http\Controllers\Api\Admin\BankAccountController::class, 'forUser'])->name('user.bank-accounts');
+        Route::post('/user/{username}/bank-accounts/{bankAccount}/update', [\App\Http\Controllers\Api\Admin\BankAccountController::class, 'updateForUser'])->name('user.bank-accounts.update')->whereNumber('bankAccount');
+        Route::delete('/user/{username}/bank-accounts/{bankAccount}', [\App\Http\Controllers\Api\Admin\BankAccountController::class, 'destroyForUser'])->name('user.bank-accounts.destroy')->whereNumber('bankAccount');
     Route::post('/user/{username}/details', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'details'])->name('user.details');
     Route::post('/user/{username}/toggleActive', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'toggleActive'])->name('user.toggle-active');
     Route::post('/user/{username}/removeProvider', [\App\Http\Controllers\Api\Admin\User\UserController::class, 'removeProvider'])->name('user.remove-provider');

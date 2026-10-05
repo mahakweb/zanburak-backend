@@ -111,6 +111,8 @@ class MessageResource extends JsonResource
 
         $out = $meta;
 
+        unset($out['_withheld']);
+
         // Strip absolute storage locations from the client payload.
         unset($out['path'], $out['thumb_path'], $out['cover_path'], $out['hls_path'], $out['disk']);
 

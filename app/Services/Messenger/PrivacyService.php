@@ -95,6 +95,10 @@ class PrivacyService
             return $this->canSee($owner, $viewer, 'last_seen');
         }
 
+        if ($this->blockedEitherWay((int) $owner->id, (int) $viewer->id)) {
+            return false;
+        }
+
         return $this->canSee($owner, $viewer, 'last_seen')
             && $this->canSee($viewer, $owner, 'last_seen');
     }
@@ -103,6 +107,10 @@ class PrivacyService
     {
         if (! $viewer || (int) $owner->id === (int) $viewer->id) {
             return $this->canSee($owner, $viewer, 'online');
+        }
+
+        if ($this->blockedEitherWay((int) $owner->id, (int) $viewer->id)) {
+            return false;
         }
 
         // Online follows both online rule and mutual last-seen reciprocity.
@@ -142,6 +150,11 @@ class PrivacyService
 
     public function visibleBio(User $owner, ?User $viewer): ?string
     {
+        if ($viewer && (int) $owner->id !== (int) $viewer->id
+            && $this->blockedEitherWay((int) $owner->id, (int) $viewer->id)) {
+            return null;
+        }
+
         if (! $this->canSee($owner, $viewer, 'bio')) {
             return null;
         }
@@ -151,6 +164,11 @@ class PrivacyService
 
     public function visiblePhone(User $owner, ?User $viewer): ?string
     {
+        if ($viewer && (int) $owner->id !== (int) $viewer->id
+            && $this->blockedEitherWay((int) $owner->id, (int) $viewer->id)) {
+            return null;
+        }
+
         if (! $this->canSee($owner, $viewer, 'phone')) {
             return null;
         }
@@ -182,10 +200,64 @@ class PrivacyService
     public function invalidateUser(int $userId): void
     {
         Cache::forget($this->contactsCacheKey($userId));
+        Cache::forget($this->blockedCacheKey($userId));
         foreach (self::KEYS as $key) {
             Cache::forget($this->exceptionsCacheKey($userId, $key));
         }
         $this->memo = [];
+    }
+
+    /**
+     * Either user has blocked the other. Name and avatar stay visible so the
+     * chat remains identifiable; presence, phone, and bio do not.
+     */
+    public function blockedEitherWay(int $userA, int $userB): bool
+    {
+        if ($userA <= 0 || $userB <= 0 || $userA === $userB) {
+            return false;
+        }
+
+        $memoKey = 'block:'.min($userA, $userB).':'.max($userA, $userB);
+        if (isset($this->memo[$memoKey])) {
+            return $this->memo[$memoKey];
+        }
+
+        $blocked = isset($this->blockedIdsOf($userA)[$userB])
+            || isset($this->blockedIdsOf($userB)[$userA]);
+
+        return $this->memo[$memoKey] = $blocked;
+    }
+
+    /**
+     * @return array<int, true>
+     */
+    protected function blockedIdsOf(int $ownerId): array
+    {
+        $memoKey = 'blocked:'.$ownerId;
+        if (isset($this->memo[$memoKey])) {
+            return $this->memo[$memoKey];
+        }
+
+        $ids = Cache::remember($this->blockedCacheKey($ownerId), self::TTL_SECONDS, function () use ($ownerId) {
+            return Contact::query()
+                ->where('user_id', $ownerId)
+                ->where('is_blocked', true)
+                ->pluck('contact_user_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+        });
+
+        $map = [];
+        foreach ($ids as $id) {
+            $map[(int) $id] = true;
+        }
+
+        return $this->memo[$memoKey] = $map;
+    }
+
+    protected function blockedCacheKey(int $userId): string
+    {
+        return "messenger:privacy:blocked:{$userId}";
     }
 
     /**

@@ -323,6 +323,11 @@ class SalesReportController extends Controller
                     'net_sales' => (int) $this->scopedPaidPaymentsQuery()->whereDate('paid_at', today())->sum('amount'),
                     'transactions' => $this->scopedPaidPaymentsQuery()->whereDate('paid_at', today())->count(),
                 ],
+                'settlement' => app(\App\Services\Settlement\SettlementSummary::class)->snapshot(
+                    $request->user(),
+                    Carbon::parse($dateFrom)->startOfDay(),
+                    Carbon::parse($dateTo)->endOfDay()
+                ),
             ],
         ], 200);
     }

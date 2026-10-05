@@ -16,6 +16,8 @@ use App\Events\Course\NewCourseInCategory;
 use App\Events\Discount\DiscountApplied;
 use App\Events\Discuss\Mentioned;
 use App\Events\Payment\CoursePurchased;
+use App\Events\Settlement\SettlementChanged;
+use App\Listeners\Settlement\BroadcastSettlementChanged;
 use App\Events\Payment\PaymentFailed;
 use App\Events\Payment\VipUpgraded;
 use App\Events\Post\PostLiked;
@@ -385,6 +387,10 @@ class EventServiceProvider extends ServiceProvider
 
         NotificationSending::class => [
             BlockDisabledNotificationChannels::class,
+        ],
+
+        SettlementChanged::class => [
+            BroadcastSettlementChanged::class,
         ],
 
         UserRegistered::class => [

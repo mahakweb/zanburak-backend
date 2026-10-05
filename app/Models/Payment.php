@@ -84,6 +84,16 @@ class Payment extends Model
         return $this->hasMany(PaymentAttempt::class);
     }
 
+    public function settlementItems()
+    {
+        return $this->hasMany(SettlementItem::class);
+    }
+
+    public function coveredSettlement()
+    {
+        return $this->hasOne(Settlement::class, 'active_covered_payment_id');
+    }
+
     public function isPaid(): bool
     {
         return $this->paid_at && $this->status;

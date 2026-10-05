@@ -123,7 +123,7 @@ class MessengerService
         $hotUnreadIdSet = [];
         if ($this->outbox->isActive()) {
             foreach ($conversationIds as $cid) {
-                foreach ($this->outbox->hotMessagesForConversation((int) $cid) as $row) {
+                foreach ($this->hotMessagesVisibleTo($user, (int) $cid) as $row) {
                     if ((int) ($row['user_id'] ?? 0) === (int) $user->id) {
                         continue;
                     }
@@ -178,7 +178,7 @@ class MessengerService
                 $hot = $this->rejectClearedHotRows(
                     $user,
                     $conversation,
-                    collect($this->outbox->hotMessagesForConversation($conversation->id))
+                    collect($this->hotMessagesVisibleTo($user, (int) $conversation->id))
                         ->map(fn (array $row) => $this->hydrateMessageRow($user, $row))
                 );
                 if ($hot->isNotEmpty()) {
@@ -345,27 +345,10 @@ class MessengerService
             throw new \InvalidArgumentException('Cannot create conversation with yourself');
         }
 
-        $other = User::findOrFail($otherUserId);
+        User::findOrFail($otherUserId);
 
-        // Check block status
-        $blocked = Contact::where('user_id', $me->id)
-            ->where('contact_user_id', $otherUserId)
-            ->where('is_blocked', true)
-            ->exists();
-
-        if ($blocked) {
-            throw new \RuntimeException('You have blocked this user');
-        }
-
-        $blockedBy = Contact::where('user_id', $otherUserId)
-            ->where('contact_user_id', $me->id)
-            ->where('is_blocked', true)
-            ->exists();
-
-        if ($blockedBy) {
-            throw new \RuntimeException('This user has blocked you');
-        }
-
+        // Blocking does not prevent opening the chat. Sends are persisted for
+        // the sender and withheld from the blocked peer (see withheldRecipientIds).
         $existing = Conversation::where('type', 'private')
             ->whereHas('users', fn ($q) => $q->where('users.id', $me->id))
             ->whereHas('users', fn ($q) => $q->where('users.id', $otherUserId))
@@ -403,44 +386,37 @@ class MessengerService
      */
     public function getOrCreateSavedConversation(User $me): Conversation
     {
-        return DB::transaction(function () use ($me) {
-            // Serialize concurrent opens so we never create duplicate saved rows.
-            User::query()->whereKey($me->id)->lockForUpdate()->first();
+        $existing = Conversation::query()
+            ->where('type', Conversation::TYPE_SAVED)
+            ->where('owner_id', $me->id)
+            ->orderBy('id')
+            ->first();
 
-            $existing = Conversation::query()
+        if ($existing) {
+            // Unhide only when it was actually hidden. Never clear history.
+            $hidden = DB::table('conversation_user')
+                ->where('conversation_id', $existing->id)
+                ->where('user_id', $me->id)
+                ->whereNotNull('deleted_at')
+                ->exists();
+            if ($hidden) {
+                DB::table('conversation_user')
+                    ->where('conversation_id', $existing->id)
+                    ->where('user_id', $me->id)
+                    ->update(['deleted_at' => null, 'updated_at' => now()]);
+            }
+
+            return $existing;
+        }
+
+        return DB::transaction(function () use ($me) {
+            $again = Conversation::query()
                 ->where('type', Conversation::TYPE_SAVED)
-                ->where(function ($q) use ($me) {
-                    $q->where('owner_id', $me->id)
-                        ->orWhereHas('users', fn ($uq) => $uq->where('users.id', $me->id));
-                })
-                ->orderByRaw('case when owner_id = ? then 0 else 1 end', [$me->id])
+                ->where('owner_id', $me->id)
                 ->orderBy('id')
                 ->first();
-
-            if ($existing) {
-                if ((int) ($existing->owner_id ?? 0) !== (int) $me->id) {
-                    $existing->forceFill(['owner_id' => $me->id])->saveQuietly();
-                }
-
-                // Restore list visibility only. Never wipe cleared_at — intentional
-                // Clear history must survive swipe-hide + reopen / forward.
-                $pivot = $existing->users()->where('users.id', $me->id)->first()?->pivot;
-                if (! $pivot) {
-                    $existing->users()->attach([$me->id]);
-                } else {
-                    $existing->users()->updateExistingPivot($me->id, [
-                        'deleted_at' => null,
-                    ]);
-                }
-
-                $existing->load([
-                    'users:id,first_name,last_name,username,profile_pic,last_seen',
-                    'users.messengerSettings',
-                ]);
-                $existing->setRelation('lastMessage', $this->lastVisibleMessageFor($me, $existing));
-                $this->warmParticipantCache($existing);
-
-                return $existing;
+            if ($again) {
+                return $again;
             }
 
             $conversation = Conversation::create([
@@ -448,11 +424,6 @@ class MessengerService
                 'owner_id' => $me->id,
             ]);
             $conversation->users()->attach([$me->id]);
-
-            $conversation->load([
-                'users:id,first_name,last_name,username,profile_pic,last_seen',
-                'users.messengerSettings',
-            ]);
             $this->warmParticipantCache($conversation);
 
             return $conversation;
@@ -736,7 +707,7 @@ class MessengerService
             $hot = $this->rejectClearedHotRows(
                 $user,
                 $conversation,
-                collect($this->outbox->hotMessagesForConversation($conversation->id))
+                collect($this->hotMessagesVisibleTo($user, (int) $conversation->id))
                     ->map(fn (array $row) => $this->hydrateMessageRow($user, $row))
             );
             $byId = $rows->keyBy('id');
@@ -814,6 +785,12 @@ class MessengerService
 
         return $messages->map(function (Message $message) use ($viewer, $peerReadCarbon) {
             if ((int) $message->user_id !== (int) $viewer->id) {
+                return $message;
+            }
+            $meta = is_array($message->meta) ? $message->meta : [];
+            // Sent while blocked: stored for the sender, never delivered, so a
+            // later peer read cursor must not paint delivered/read ticks.
+            if (! empty($meta['_withheld'])) {
                 return $message;
             }
             if ($message->read_at) {
@@ -940,7 +917,10 @@ class MessengerService
     public function sendMessage(User $user, Conversation $conversation, string $body, ?string $clientId = null, array $options = []): Message
     {
         $this->assertParticipant($user, $conversation);
-        $this->assertNotBlocked($user, $conversation);
+        // Private block: persist for the sender, never deliver to the peer.
+        // Forwarding still rejects up front (assertNotBlocked) so a block cannot
+        // be used as an oracle for hidden source ids.
+        $withheldUserIds = $this->withheldRecipientIds($user, $conversation);
 
         $isEncrypted = ! empty($options['is_encrypted']);
         $crypto = app(MessengerCryptoService::class);
@@ -1074,16 +1054,29 @@ class MessengerService
             $attributes['meta'] = $meta;
         }
 
+        if ($withheldUserIds !== []) {
+            $meta = is_array($attributes['meta']) ? $attributes['meta'] : [];
+            $meta['_withheld'] = true;
+            $attributes['meta'] = $meta;
+        }
+
         if ($isEncrypted && ! $conversation->is_encrypted) {
             $conversation->forceFill(['is_encrypted' => true])->save();
         }
 
+        // Client click-time (with a microsecond tie-break) so overlapping
+        // requests from a burst stay in send order. Ignored when the clock
+        // is too far from the server.
+        $orderedAt = $this->orderedCreatedAt($options['client_sent_at'] ?? null);
+        $attributes['created_at'] = $orderedAt;
+        $attributes['updated_at'] = $orderedAt;
+
         // Hot Redis path for text (including E2E ciphertext). Media/location stay
         // durable so file meta is written with the row. Outbox flush persists e2e.
         if ($this->outbox->isActive() && $msgType === 'text') {
-            $message = $this->sendMessageHot($user, $conversation, $attributes);
+            $message = $this->sendMessageHot($user, $conversation, $attributes, $withheldUserIds);
         } else {
-            $message = $this->sendMessageDurable($user, $conversation, $attributes);
+            $message = $this->sendMessageDurable($user, $conversation, $attributes, $withheldUserIds);
         }
 
         // Community counters / slow-mode must not sit on the live delivery path.
@@ -1592,16 +1585,40 @@ class MessengerService
     }
 
     /**
+     * Click-order timestamp when the client clock is close to the server.
+     * A burst can overlap on the wire; this stamp is what history sorts on.
+     */
+    protected function orderedCreatedAt(mixed $clientSentAt): string
+    {
+        $now = now();
+        $fallback = $now->format('Y-m-d H:i:s.u');
+        if (! is_string($clientSentAt) || trim($clientSentAt) === '') {
+            return $fallback;
+        }
+
+        try {
+            $clientAt = Carbon::parse($clientSentAt);
+        } catch (\Throwable $e) {
+            return $fallback;
+        }
+
+        if ($clientAt->diffInSeconds($now) > 120) {
+            return $fallback;
+        }
+
+        return $clientAt->timezone($now->timezone)->format('Y-m-d H:i:s.u');
+    }
+
+    /**
      * Redis-first send: allocate id in RAM, fan-out over Reverb immediately,
      * enqueue durable writes for the outbox flusher.
      */
-    protected function sendMessageHot(User $user, Conversation $conversation, array $attributes): Message
+    protected function sendMessageHot(User $user, Conversation $conversation, array $attributes, array $withheldUserIds = []): Message
     {
         $now = now();
         $id = $this->outbox->allocateMessageId();
-        // Microsecond-precision string keeps rapid sends strictly ordered even
-        // when several land in the same whole second.
-        $stamp = $now->format('Y-m-d H:i:s.u');
+        // Prefer the click-order stamp already chosen in sendMessage.
+        $stamp = $attributes['created_at'] ?? $now->format('Y-m-d H:i:s.u');
         $row = array_merge($attributes, [
             'id' => $id,
             'read_at' => null,
@@ -1614,11 +1631,16 @@ class MessengerService
 
         $message = $this->hydrateMessageRow($user, $row);
 
+        $withheldUserIds = array_values(array_unique(array_map('intval', $withheldUserIds)));
+        $row['withheld_user_ids'] = $withheldUserIds;
+
         $this->outbox->enqueue([
             'op' => 'message.create',
             'message' => $row,
             'conversation_id' => $conversation->id,
             'restore_deleted' => true,
+            'withheld_user_ids' => $withheldUserIds,
+            'skip_restore_user_ids' => $withheldUserIds,
         ]);
         $this->outbox->cacheHotMessage($row);
         $this->outbox->rememberClientId(
@@ -1629,7 +1651,7 @@ class MessengerService
         );
 
         // Live fan-out + durable event enqueue (broadcast uses ephemeral id=0).
-        $this->notifyMessageToAllParticipants($conversation, $message, 'message.new');
+        $this->notifyMessageToAllParticipants($conversation, $message, 'message.new', $withheldUserIds);
 
         $this->maybeFlushOutboxAfterResponse();
 
@@ -1641,7 +1663,7 @@ class MessengerService
      * When the hot-path Redis sequence is active, allocate the same id space as
      * text so photo→text never collides or reorders after refresh.
      */
-    protected function sendMessageDurable(User $user, Conversation $conversation, array $attributes): Message
+    protected function sendMessageDurable(User $user, Conversation $conversation, array $attributes, array $withheldUserIds = []): Message
     {
         $now = now();
         $stamp = $now->format('Y-m-d H:i:s.u');
@@ -1656,19 +1678,27 @@ class MessengerService
         $attributes['created_at'] = $attributes['created_at'] ?? $stamp;
         $attributes['updated_at'] = $attributes['updated_at'] ?? $stamp;
 
-        $message = DB::transaction(function () use ($attributes, $conversation, $now) {
+        $withheldUserIds = array_values(array_unique(array_map('intval', $withheldUserIds)));
+
+        $message = DB::transaction(function () use ($attributes, $conversation, $now, $withheldUserIds) {
             $message = Message::create($attributes);
 
             $conversation->update([
                 'last_message_id' => $message->id,
-                'last_message_at' => $now,
+                'last_message_at' => $message->created_at ?? $now,
             ]);
 
-            // Restore conversation for all participants who had deleted it
-            DB::table('conversation_user')
+            // Restore the chat for participants who should actually see this send.
+            // A withheld (blocked) peer keeps their own deleted_at.
+            $restore = DB::table('conversation_user')
                 ->where('conversation_id', $conversation->id)
-                ->whereNotNull('deleted_at')
-                ->update(['deleted_at' => null, 'updated_at' => now()]);
+                ->whereNotNull('deleted_at');
+            if ($withheldUserIds !== []) {
+                $restore->whereNotIn('user_id', $withheldUserIds);
+            }
+            $restore->update(['deleted_at' => null, 'updated_at' => now()]);
+
+            $this->hideMessageFromUsers((int) $message->id, $withheldUserIds);
 
             return $message;
         });
@@ -1701,7 +1731,7 @@ class MessengerService
 
         // Notify outside the write transaction so live delivery is not blocked
         // by messenger_events inserts.
-        $this->notifyMessageToAllParticipants($conversation, $message, 'message.new');
+        $this->notifyMessageToAllParticipants($conversation, $message, 'message.new', $withheldUserIds);
 
         return $message;
     }
@@ -1721,12 +1751,26 @@ class MessengerService
         $this->assertNotBlocked($user, $target);
 
         $uniqueIds = collect($messageIds)->map(fn ($id) => (int) $id)->unique()->values();
-        $sources = Message::query()
-            ->visibleTo($user)
-            ->whereIn('id', $uniqueIds)
-            ->with(['conversation', 'media'])
-            ->get()
-            ->keyBy('id');
+        $sources = collect();
+        $missingIds = [];
+        foreach ($uniqueIds as $id) {
+            $hot = $this->outbox->isActive() ? $this->outbox->getHotMessage((int) $id) : null;
+            if (is_array($hot) && (int) ($hot['id'] ?? 0) === (int) $id) {
+                $sources->put((int) $id, $this->hydrateMessageRow($user, $hot));
+                continue;
+            }
+            $missingIds[] = (int) $id;
+        }
+        if ($missingIds !== []) {
+            $fromDb = Message::query()
+                ->visibleTo($user)
+                ->whereIn('id', $missingIds)
+                ->get()
+                ->keyBy('id');
+            foreach ($fromDb as $id => $row) {
+                $sources->put((int) $id, $row);
+            }
+        }
 
         if ($sources->count() !== $uniqueIds->count()) {
             Log::warning('messenger.forward.invisible_source', [
@@ -1739,10 +1783,9 @@ class MessengerService
             throw (new ModelNotFoundException)->setModel(Message::class, $uniqueIds->all());
         }
 
-        return DB::transaction(function () use ($user, $messageIds, $target, $dropAuthor, $sources) {
-            $created = [];
-            $crypto = app(MessengerCryptoService::class);
-            foreach ($messageIds as $messageId) {
+        $created = [];
+        $crypto = app(MessengerCryptoService::class);
+        foreach ($messageIds as $messageId) {
                 $source = $sources->get((int) $messageId);
 
                 if (! empty($source->is_encrypted) || ! empty(($source->meta['encrypted'] ?? false))) {
@@ -1841,16 +1884,15 @@ class MessengerService
                 $created[] = $this->sendMessage($user, $target, $source->body ?? '', null, $options);
             }
 
-            Log::info('messenger.forward.ok', [
-                'user_id' => $user->id,
-                'target_id' => $target->id,
-                'target_type' => $target->type,
-                'count' => count($created),
-                'source_ids' => array_values(array_map('intval', $messageIds)),
-            ]);
+        Log::info('messenger.forward.ok', [
+            'user_id' => $user->id,
+            'target_id' => $target->id,
+            'target_type' => $target->type,
+            'count' => count($created),
+            'source_ids' => array_values(array_map('intval', $messageIds)),
+        ]);
 
-            return $created;
-        });
+        return $created;
     }
 
     /**
@@ -1869,11 +1911,19 @@ class MessengerService
         $this->assertParticipant($user, $target);
         $this->assertNotBlocked($user, $target);
 
-        $source = Message::query()
-            ->visibleTo($user)
-            ->whereKey($sourceMessageId)
-            ->with('conversation')
-            ->firstOrFail();
+        $source = null;
+        if ($this->outbox->isActive()) {
+            $hot = $this->outbox->getHotMessage($sourceMessageId);
+            if (is_array($hot) && (int) ($hot['id'] ?? 0) === $sourceMessageId) {
+                $source = $this->hydrateMessageRow($user, $hot);
+            }
+        }
+        if (! $source) {
+            $source = Message::query()
+                ->visibleTo($user)
+                ->whereKey($sourceMessageId)
+                ->firstOrFail();
+        }
 
         $sourceType = $source->type ?: 'text';
         if (! in_array($sourceType, Message::MEDIA_TYPES, true)) {
@@ -2303,7 +2353,7 @@ class MessengerService
             ->max('id') ?? 0);
 
         if ($this->outbox->isActive()) {
-            foreach ($this->outbox->hotMessagesForConversation($conversation->id) as $row) {
+            foreach ($this->hotMessagesVisibleTo($user, (int) $conversation->id) as $row) {
                 if ((int) ($row['user_id'] ?? 0) === (int) $user->id) {
                     continue;
                 }
@@ -2331,7 +2381,7 @@ class MessengerService
                 ->all();
             $seen = array_fill_keys($unreadIds, true);
 
-            foreach ($this->outbox->hotMessagesForConversation($conversation->id) as $row) {
+            foreach ($this->hotMessagesVisibleTo($user, (int) $conversation->id) as $row) {
                 if ((int) ($row['user_id'] ?? 0) === (int) $user->id) {
                     continue;
                 }
@@ -2359,7 +2409,7 @@ class MessengerService
                 ]);
 
                 // Stamp hot-cache rows so a subsequent merge does not resurrect unread.
-                foreach ($this->outbox->hotMessagesForConversation($conversation->id) as $row) {
+                foreach ($this->hotMessagesVisibleTo($user, (int) $conversation->id) as $row) {
                     if ((int) $row['user_id'] === (int) $user->id) {
                         continue;
                     }
@@ -2450,6 +2500,10 @@ class MessengerService
                 if ((int) $hot['user_id'] === (int) $user->id) {
                     continue;
                 }
+                $hiddenFrom = $hot['withheld_user_ids'] ?? [];
+                if (is_array($hiddenFrom) && in_array((int) $user->id, array_map('intval', $hiddenFrom), true)) {
+                    continue;
+                }
                 if (! empty($hot['delivered_at'])) {
                     continue;
                 }
@@ -2533,7 +2587,8 @@ class MessengerService
                     'username' => $user->username,
                 ],
             ],
-            false
+            false,
+            $this->withheldRecipientIds($user, $conversation)
         );
     }
 
@@ -3256,7 +3311,10 @@ class MessengerService
             'first_name', 'last_name', 'username', 'bio',
         ])));
 
-        return $user->refresh();
+        $user = $user->refresh();
+        $this->broadcastUserProfileUpdated($user);
+
+        return $user;
     }
 
     /**
@@ -3363,9 +3421,14 @@ class MessengerService
         int $excludeUserId,
         string $type,
         array $payload,
-        bool $persist = true
+        bool $persist = true,
+        array $alsoExclude = []
     ): void {
-        $participants = $conversation->users()->where('users.id', '!=', $excludeUserId)->get();
+        $skip = [$excludeUserId => true];
+        foreach ($alsoExclude as $id) {
+            $skip[(int) $id] = true;
+        }
+        $participants = $conversation->users()->whereNotIn('users.id', array_keys($skip))->get();
         foreach ($participants as $recipient) {
             $this->emitEvent($recipient->id, $conversation->id, $type, $payload, $persist);
         }
@@ -3393,28 +3456,42 @@ class MessengerService
      */
     public function broadcastUserProfileUpdated(User $user): void
     {
-        $payload = [
-            'user_id' => (int) $user->id,
-            'id' => (int) $user->id,
-            'profile_pic' => $user->profile_pic,
-            'first_name' => $user->first_name,
-            'last_name' => $user->last_name,
-            'username' => $user->username,
-            'last_seen' => $user->last_seen?->toIso8601String(),
-            'is_online' => true,
-        ];
+        $user->loadMissing('messengerSettings');
 
-        $peerIds = Conversation::query()
-            ->whereHas('users', fn ($q) => $q->where('users.id', $user->id))
-            ->with(['users:id'])
-            ->get()
-            ->flatMap(fn (Conversation $c) => $c->users->pluck('id'))
+        $peerIds = collect($this->presenceAudience($user))
+            ->push((int) $user->id)
             ->map(fn ($id) => (int) $id)
             ->unique()
             ->values();
 
+        $viewers = User::query()
+            ->whereIn('id', $peerIds->all())
+            ->with('messengerSettings')
+            ->get()
+            ->keyBy('id');
+
+        $this->privacy->warmForBroadcast($user, $peerIds->all());
+
         foreach ($peerIds as $peerId) {
-            $this->emitEvent($peerId, null, 'user.updated', $payload, false);
+            $viewer = $viewers->get($peerId);
+            $isSelf = (int) $peerId === (int) $user->id;
+            $payload = [
+                'user_id' => (int) $user->id,
+                'id' => (int) $user->id,
+                'profile_pic' => $isSelf ? $user->profile_pic : $this->privacy->visibleProfilePhoto($user, $viewer),
+                'first_name' => $user->first_name,
+                'last_name' => $user->last_name,
+                'username' => $user->username,
+                'bio' => $isSelf ? $user->bio : ($viewer ? $this->privacy->visibleBio($user, $viewer) : null),
+                'last_seen' => $isSelf
+                    ? $user->last_seen?->toIso8601String()
+                    : ($viewer ? $this->privacy->visibleLastSeen($user, $viewer) : null),
+                'is_online' => $isSelf
+                    ? $user->isOnline()
+                    : ($viewer ? $this->privacy->visibleOnline($user, $viewer) : false),
+            ];
+
+            $this->emitEvent((int) $peerId, null, 'user.updated', $payload, false);
         }
     }
 
@@ -3428,9 +3505,17 @@ class MessengerService
     protected function notifyMessageToAllParticipants(
         Conversation $conversation,
         Message $message,
-        string $type
+        string $type,
+        array $excludeUserIds = []
     ): void {
-        $recipientIds = $this->participantIds($conversation);
+        $exclude = [];
+        foreach ($excludeUserIds as $id) {
+            $exclude[(int) $id] = true;
+        }
+        $recipientIds = array_values(array_filter(
+            $this->participantIds($conversation),
+            fn ($id) => ! isset($exclude[(int) $id])
+        ));
         if ($recipientIds === []) {
             return;
         }
@@ -3618,7 +3703,9 @@ class MessengerService
     }
 
     /**
-     * Reject sending if either side has blocked the other.
+     * Reject forwarding into a private chat while either side has blocked the
+     * other. Checked before source visibility so blocking cannot probe hidden ids.
+     * Ordinary sends do not use this — they persist and withhold delivery.
      */
     protected function assertNotBlocked(User $user, Conversation $conversation): void
     {
@@ -3626,32 +3713,8 @@ class MessengerService
             return;
         }
 
-        $otherId = null;
-        $cachedIds = $this->outbox->getCachedParticipantIds((int) $conversation->id);
-        if ($cachedIds !== null) {
-            foreach ($cachedIds as $id) {
-                if ((int) $id !== (int) $user->id) {
-                    $otherId = (int) $id;
-                    break;
-                }
-            }
-        }
-
-        if ($otherId === null) {
-            $other = $conversation->otherUser($user)
-                ?? $conversation->users()->where('users.id', '!=', $user->id)->first();
-            $otherId = $other?->id ? (int) $other->id : null;
-        }
-
-        if (! $otherId) {
-            return;
-        }
-
-        $cached = $this->outbox->getCachedBlock((int) $user->id, $otherId);
-        if ($cached === true) {
-            throw new \RuntimeException('You have blocked this user');
-        }
-        if ($cached === false) {
+        $otherId = $this->otherPrivateUserId($user, $conversation);
+        if (! $otherId || ! $this->pairIsBlocked((int) $user->id, $otherId)) {
             return;
         }
 
@@ -3661,21 +3724,133 @@ class MessengerService
             ->exists();
 
         if ($iBlocked) {
-            $this->outbox->cacheBlock((int) $user->id, $otherId, true);
             throw new \RuntimeException('You have blocked this user');
         }
 
-        $blockedByThem = Contact::where('user_id', $otherId)
-            ->where('contact_user_id', $user->id)
-            ->where('is_blocked', true)
-            ->exists();
+        throw new \RuntimeException('This user has blocked you');
+    }
 
-        if ($blockedByThem) {
-            $this->outbox->cacheBlock((int) $user->id, $otherId, true);
-            throw new \RuntimeException('This user has blocked you');
+    /**
+     * Private-chat peer who must not receive this send, or null.
+     */
+    protected function otherPrivateUserId(User $user, Conversation $conversation): ?int
+    {
+        $cachedIds = $this->outbox->getCachedParticipantIds((int) $conversation->id);
+        if ($cachedIds !== null) {
+            foreach ($cachedIds as $id) {
+                if ((int) $id !== (int) $user->id) {
+                    return (int) $id;
+                }
+            }
         }
 
-        $this->outbox->cacheBlock((int) $user->id, $otherId, false);
+        $other = $conversation->otherUser($user)
+            ?? $conversation->users()->where('users.id', '!=', $user->id)->first();
+
+        return $other?->id ? (int) $other->id : null;
+    }
+
+    /**
+     * User ids that must not receive this message. The row is still stored and
+     * acknowledged to the sender. Hidden via message_deletions so unblock does
+     * not replay it.
+     *
+     * @return int[]
+     */
+    protected function withheldRecipientIds(User $sender, Conversation $conversation): array
+    {
+        if ($conversation->type !== Conversation::TYPE_PRIVATE) {
+            return [];
+        }
+
+        $otherId = $this->otherPrivateUserId($sender, $conversation);
+        if (! $otherId) {
+            return [];
+        }
+
+        return $this->pairIsBlocked((int) $sender->id, $otherId) ? [$otherId] : [];
+    }
+
+    protected function pairIsBlocked(int $userA, int $userB): bool
+    {
+        if ($userA <= 0 || $userB <= 0 || $userA === $userB) {
+            return false;
+        }
+
+        $cached = $this->outbox->getCachedBlock($userA, $userB);
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        $blocked = Contact::query()
+            ->where('is_blocked', true)
+            ->where(function ($q) use ($userA, $userB) {
+                $q->where(function ($w) use ($userA, $userB) {
+                    $w->where('user_id', $userA)->where('contact_user_id', $userB);
+                })->orWhere(function ($w) use ($userA, $userB) {
+                    $w->where('user_id', $userB)->where('contact_user_id', $userA);
+                });
+            })
+            ->exists();
+
+        $this->outbox->cacheBlock($userA, $userB, $blocked, 60);
+
+        return $blocked;
+    }
+
+    /**
+     * @param  int[]  $userIds
+     */
+    protected function hideMessageFromUsers(int $messageId, array $userIds): void
+    {
+        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds))));
+        if ($messageId <= 0 || $userIds === []) {
+            return;
+        }
+
+        $stamp = now();
+        $rows = [];
+        foreach ($userIds as $uid) {
+            if ($uid <= 0) {
+                continue;
+            }
+            $rows[] = [
+                'message_id' => $messageId,
+                'user_id' => $uid,
+                'created_at' => $stamp,
+                'updated_at' => $stamp,
+            ];
+        }
+
+        if ($rows !== []) {
+            DB::table('message_deletions')->insertOrIgnore($rows);
+        }
+    }
+
+    /**
+     * Hot Redis rows the viewer is allowed to see. Withheld (blocked) sends
+     * stay in Redis until flush but must not leak through history or unread.
+     *
+     * @return array<int, array>
+     */
+    protected function hotMessagesVisibleTo(User $user, int $conversationId): array
+    {
+        $rows = $this->outbox->hotMessagesForConversation($conversationId);
+        $uid = (int) $user->id;
+
+        return array_values(array_filter($rows, function (array $row) use ($uid) {
+            $hidden = $row['withheld_user_ids'] ?? [];
+            if (! is_array($hidden)) {
+                return true;
+            }
+            foreach ($hidden as $id) {
+                if ((int) $id === $uid) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
     }
 
     // -------------------------------------------------------------------------
@@ -3705,18 +3880,34 @@ class MessengerService
      * Heartbeat: refresh last_seen and broadcast that I'm online (respecting
      * my privacy preference).
      */
-    public function pingPresence(User $user): void
+    public function pingPresence(User $user, ?string $sessionId = null): void
     {
         $user->forceFill(['last_seen' => now()])->saveQuietly();
+
+        $sessionId = $sessionId !== null ? substr(trim($sessionId), 0, 64) : '';
+        if ($sessionId !== '') {
+            $this->outbox->touchPresenceSession((int) $user->id, $sessionId, 90);
+        }
 
         $this->broadcastPresence($user, true);
     }
 
     /**
-     * Mark me offline now (called when leaving the messenger).
+     * Mark this session offline. Other live sessions keep the user online.
      */
-    public function setOffline(User $user): void
+    public function setOffline(User $user, ?string $sessionId = null): void
     {
+        $sessionId = $sessionId !== null ? substr(trim($sessionId), 0, 64) : '';
+        if ($sessionId !== '') {
+            $remaining = $this->outbox->dropPresenceSession((int) $user->id, $sessionId);
+            if ($remaining > 0) {
+                $this->broadcastPresence($user, true);
+
+                return;
+            }
+        }
+
+        $user->forceFill(['last_seen' => now()])->saveQuietly();
         $this->broadcastPresence($user, false);
     }
 
@@ -3781,6 +3972,11 @@ class MessengerService
         $contact->update(['is_blocked' => true]);
         $this->outbox->cacheBlock((int) $user->id, $targetUserId, true);
         $this->privacy->invalidateUser($user->id);
+        $this->privacy->invalidateUser($targetUserId);
+
+        $this->broadcastPresence($user, true);
+        $freshTarget = $target->fresh() ?: $target;
+        $this->broadcastPresence($freshTarget, $freshTarget->isOnline());
 
         return $contact->load([
             'contactUser:id,first_name,last_name,username,profile_pic,last_seen',
@@ -3793,8 +3989,15 @@ class MessengerService
         Contact::where('user_id', $user->id)
             ->where('contact_user_id', $targetUserId)
             ->update(['is_blocked' => false]);
-        $this->outbox->cacheBlock((int) $user->id, $targetUserId, false);
+        $this->outbox->forgetCachedBlock((int) $user->id, $targetUserId);
         $this->privacy->invalidateUser($user->id);
+        $this->privacy->invalidateUser($targetUserId);
+
+        $this->broadcastPresence($user, true);
+        $target = User::query()->find($targetUserId);
+        if ($target) {
+            $this->broadcastPresence($target, $target->isOnline());
+        }
     }
 
     // -------------------------------------------------------------------------

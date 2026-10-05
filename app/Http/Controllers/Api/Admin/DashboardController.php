@@ -572,6 +572,7 @@ class DashboardController extends Controller
                 ],
             ],
             'capabilities' => $scope->dashboardCapabilities(),
+            'settlement' => app(\App\Services\Settlement\SettlementSummary::class)->snapshot($request->user(), $start, $end),
             'comparison' => $comparison,
             'platform' => $platform['stats'],
             'analytics' => [

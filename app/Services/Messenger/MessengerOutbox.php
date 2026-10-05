@@ -287,6 +287,68 @@ class MessengerOutbox
     }
 
     /**
+     * Drop the pairwise block cache so the next send re-reads Contacts.
+     * Required on unblock: the other direction may still be blocked.
+     */
+    public function forgetCachedBlock(int $userA, int $userB): void
+    {
+        if (! $this->bus->isAvailable()) {
+            return;
+        }
+
+        try {
+            $this->redis()->del($this->blockKey($userA, $userB));
+        } catch (\Throwable $e) {
+            // ignore
+        }
+    }
+
+    /**
+     * Register this device/tab as online. Returns nothing; callers broadcast
+     * presence separately. Expired members are pruned on every touch.
+     */
+    public function touchPresenceSession(int $userId, string $sessionId, int $ttlSeconds = 90): void
+    {
+        if (! $this->bus->isAvailable() || $userId <= 0 || $sessionId === '') {
+            return;
+        }
+
+        try {
+            $conn = $this->redis();
+            $key = $this->presenceKey($userId);
+            $now = time();
+            $conn->zremrangebyscore($key, '-inf', (string) $now);
+            $conn->zadd($key, $now + max(30, $ttlSeconds), $sessionId);
+            $conn->expire($key, max(120, $ttlSeconds * 3));
+        } catch (\Throwable $e) {
+            // Presence must never fail the request.
+        }
+    }
+
+    /**
+     * Remove one session. Remaining live sessions, or -1 when Redis is down
+     * (caller should treat that as "unknown" and fall back to single-session offline).
+     */
+    public function dropPresenceSession(int $userId, string $sessionId): int
+    {
+        if (! $this->bus->isAvailable() || $userId <= 0 || $sessionId === '') {
+            return -1;
+        }
+
+        try {
+            $conn = $this->redis();
+            $key = $this->presenceKey($userId);
+            $now = time();
+            $conn->zrem($key, $sessionId);
+            $conn->zremrangebyscore($key, '-inf', (string) $now);
+
+            return (int) $conn->zcard($key);
+        } catch (\Throwable $e) {
+            return -1;
+        }
+    }
+
+    /**
      * Pending (not-yet-flushed) messages for a conversation, oldest first.
      *
      * @return array<int, array>
@@ -556,11 +618,38 @@ class MessengerOutbox
             ]);
         }
 
+        $withheld = array_values(array_unique(array_filter(array_map(
+            'intval',
+            $item['withheld_user_ids'] ?? ($row['withheld_user_ids'] ?? [])
+        ))));
+
         if (! empty($item['restore_deleted'])) {
-            DB::table('conversation_user')
+            $restore = DB::table('conversation_user')
                 ->where('conversation_id', $conversationId)
-                ->whereNotNull('deleted_at')
-                ->update(['deleted_at' => null, 'updated_at' => now()]);
+                ->whereNotNull('deleted_at');
+            if ($withheld !== []) {
+                $restore->whereNotIn('user_id', $withheld);
+            }
+            $restore->update(['deleted_at' => null, 'updated_at' => now()]);
+        }
+
+        if ($withheld !== [] && (int) $payload['id'] > 0) {
+            $stamp = now();
+            $deletions = [];
+            foreach ($withheld as $uid) {
+                if ($uid <= 0) {
+                    continue;
+                }
+                $deletions[] = [
+                    'message_id' => (int) $payload['id'],
+                    'user_id' => $uid,
+                    'created_at' => $stamp,
+                    'updated_at' => $stamp,
+                ];
+            }
+            if ($deletions !== []) {
+                DB::table('message_deletions')->insertOrIgnore($deletions);
+            }
         }
 
         $this->forgetHotMessage($conversationId, (int) $payload['id']);
@@ -689,5 +778,10 @@ class MessengerOutbox
         $hi = max($userA, $userB);
 
         return $this->prefix().":block:{$lo}:{$hi}";
+    }
+
+    protected function presenceKey(int $userId): string
+    {
+        return $this->prefix().":presence:{$userId}";
     }
 }

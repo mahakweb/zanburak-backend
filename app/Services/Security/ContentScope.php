@@ -9,6 +9,7 @@ use App\Models\Course;
 use App\Models\Episode;
 use App\Models\Payment;
 use App\Models\Quiz\Quiz;
+use App\Models\Settlement;
 use App\Models\Section;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -61,6 +62,10 @@ class ContentScope
         'payments' => [
             'any' => ['payments.view.any', 'payments.view', 'payments.export', 'payments.export.any', 'payments.stats.any'],
             'own' => ['payments.view.own', 'payments.stats.own', 'payments.export.own'],
+        ],
+        'settlements' => [
+            'any' => ['settlements.view.any', 'settlements.view', 'settlements.view_all_teachers'],
+            'own' => ['settlements.view.own'],
         ],
         'certificates' => [
             'any' => ['certificates.view.any', 'certificates.view'],
@@ -224,6 +229,36 @@ class ContentScope
             'delete' => [
                 'any' => ['payments.delete.any', 'payments.delete'],
                 'own' => ['payments.delete.own'],
+            ],
+        ],
+        'settlements' => [
+            'view' => [
+                'any' => ['settlements.view.any', 'settlements.view', 'settlements.view_all_teachers'],
+                'own' => ['settlements.view.own'],
+            ],
+            'create' => [
+                'any' => ['settlements.create'],
+                'own' => ['settlements.create.own'],
+            ],
+            'update' => [
+                'any' => ['settlements.update'],
+                'own' => ['settlements.update.own'],
+            ],
+            'change_status' => [
+                'any' => ['settlements.change_status'],
+                'own' => ['settlements.change_status.own'],
+            ],
+            'upload_receipt' => [
+                'any' => ['settlements.upload_receipt'],
+                'own' => ['settlements.upload_receipt.own'],
+            ],
+            'view_receipt' => [
+                'any' => ['settlements.view_receipt.any', 'settlements.view_receipt'],
+                'own' => ['settlements.view_receipt.own'],
+            ],
+            'delete_receipt' => [
+                'any' => ['settlements.delete_receipt'],
+                'own' => ['settlements.delete_receipt.own'],
             ],
         ],
         'certificates' => [
@@ -485,6 +520,7 @@ class ContentScope
             'articles' => $model instanceof Article && (int) $model->user_id === (int) $this->user->id,
             'comments' => $model instanceof Comment && $this->ownsComment($model),
             'payments' => $model instanceof Payment && $this->ownsPayment($model),
+            'settlements' => $model instanceof Settlement && (int) $model->teacher_id === (int) $this->user->id,
             'certificates' => $model instanceof Certificate && $this->ownsCertificate($model),
             'episodes' => $model instanceof Episode && $this->ownsEpisode($model),
             default => false,

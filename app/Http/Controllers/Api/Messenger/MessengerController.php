@@ -300,6 +300,7 @@ class MessengerController extends Controller
         $request->validate([
             'body' => 'nullable|string|max:'.((int) config('messenger.e2e.max_ciphertext_length', 65536)),
             'client_id' => 'sometimes|string|max:64',
+            'client_sent_at' => 'sometimes|nullable|string|max:40',
             'reply_to_id' => 'sometimes|nullable|integer',
             'reply_show_title' => 'sometimes|boolean',
             'type' => 'sometimes|string|in:text,location,photo,video,voice,audio,file',
@@ -435,6 +436,7 @@ class MessengerController extends Controller
                     'forwarded_from_user_id' => $request->boolean('drop_author')
                         ? null
                         : $request->input('forwarded_from_user_id'),
+                    'client_sent_at' => $request->input('client_sent_at'),
                 ]
             );
             $elapsedMs = (int) round((microtime(true) - $t0) * 1000);
@@ -892,14 +894,22 @@ class MessengerController extends Controller
 
     public function presencePing(Request $request): JsonResponse
     {
-        $this->messenger->pingPresence($request->user());
+        $data = $request->validate([
+            'session_id' => 'sometimes|nullable|string|max:64',
+        ]);
+
+        $this->messenger->pingPresence($request->user(), $data['session_id'] ?? null);
 
         return response()->json(['ok' => true]);
     }
 
     public function presenceOffline(Request $request): JsonResponse
     {
-        $this->messenger->setOffline($request->user());
+        $data = $request->validate([
+            'session_id' => 'sometimes|nullable|string|max:64',
+        ]);
+
+        $this->messenger->setOffline($request->user(), $data['session_id'] ?? null);
 
         return response()->json(['ok' => true]);
     }
@@ -1246,6 +1256,8 @@ class MessengerController extends Controller
         $settings = $user->resolvedMessengerSettings();
         $viewer = $request->user();
         $isSelf = $viewer && (int) $viewer->id === (int) $user->id;
+        $blocked = ! $isSelf && $viewer
+            && app(\App\Services\Messenger\PrivacyService::class)->blockedEitherWay((int) $viewer->id, (int) $user->id);
 
         return response()->json([
             'id' => $user->id,
@@ -1253,12 +1265,13 @@ class MessengerController extends Controller
             'last_name' => $user->last_name,
             'username' => $user->username,
             'profile_pic' => $user->profilePhotoVisible($viewer),
-            'cover_pic' => $isSelf ? $user->cover_pic : $user->cover_pic,
+            'cover_pic' => $isSelf ? $user->cover_pic : ($blocked ? null : $user->cover_pic),
             'bio' => $user->bioVisible($viewer),
             'last_seen' => $user->lastSeenVisible($viewer),
             'is_online' => $user->isOnlineVisible($viewer),
             'mobile' => $isSelf ? $user->mobile : $user->phoneVisible($viewer),
-            'email' => ($isSelf || $settings->show_email) ? $user->email : null,
+            'email' => $isSelf ? $user->email : (($settings->show_email && ! $blocked) ? $user->email : null),
+            'is_blocked' => $blocked,
         ]);
     }
 
