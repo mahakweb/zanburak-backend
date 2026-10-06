@@ -86,7 +86,8 @@ class TeacherShare
 
         $safe = number_format($percent, 2, '.', '');
 
-        return "CAST(ROUND(({$gross}) * {$safe} / 100) AS SIGNED)";
+        // BIGINT works on both PostgreSQL and MySQL; SIGNED is MySQL-only.
+        return "CAST(ROUND(({$gross}) * {$safe} / 100.0) AS BIGINT)";
     }
 
     public static function chargedAmount(PaymentItem $item): int
