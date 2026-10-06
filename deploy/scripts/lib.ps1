@@ -182,9 +182,18 @@ function Test-UseSshKey {
     return $script:Config.SshKeyPath -and (Test-Path $script:Config.SshKeyPath)
 }
 
+function Get-PlinkHostKeyArgs {
+    $keys = @($script:Config.SshHostKey)
+    $args = @()
+    foreach ($key in $keys) {
+        if ($key) { $args += @('-hostkey', [string]$key) }
+    }
+    return $args
+}
+
 function Get-PlinkCommonArgs {
     $c = $script:Config
-    return @('-batch', '-hostkey', $c.SshHostKey, '-ssh', "$($c.SshUser)@$($c.SshHost)", '-P', $c.SshPort, '-pw', $c.SshPass)
+    return @('-batch') + @(Get-PlinkHostKeyArgs) + @('-ssh', "$($c.SshUser)@$($c.SshHost)", '-P', $c.SshPort, '-pw', $c.SshPass)
 }
 
 function ConvertTo-UnixRemoteCommand {
@@ -327,8 +336,8 @@ function Invoke-PscpOrScp {
     else {
         $exe = Get-PscpPath
         $argList = @(
-            '-batch',
-            '-hostkey', $c.SshHostKey,
+            '-batch'
+        ) + @(Get-PlinkHostKeyArgs) + @(
             '-P', "$($c.SshPort)",
             '-pw', $c.SshPass,
             $LocalPath,

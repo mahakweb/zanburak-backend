@@ -8,7 +8,12 @@
     SshUser    = 'root'
     SshPass    = 'Milad@4970'
     SshKeyPath = ''   # Optional: SSH private key path (password auth skipped if set)
-    SshHostKey = 'SHA256:4WVRbNgj03rsMUNIJ9hng7p+1idgQDedvgu6gbuyQ5k'
+    # PuTTY prefers RSA host key; include both so fingerprint format / algo preference won't break deploy.
+    SshHostKey = @(
+        'SHA256:7AnKcyOWmmrV4VnkAd9lcR7wjtbyD9hnW2Ksn0Mz3BI'   # RSA (what plink/pscp use)
+        'SHA256:4WVRbNgj03rsMUNIJ9hng7p+1idgQDedvgu6gbuyQ5k'   # ED25519
+        'SHA256:7+nQy5Fk0Y+ie8NJSFFx3cERSpkSD5VUU0+WmSL4ZD8'   # ECDSA
+    )
 
     # -- Server paths ---------------------------------------------------------
     RemoteDir     = '/var/www/zanburak-backend'
