@@ -22,7 +22,8 @@ class SettlementSummary
         }
 
         $teacherId = $this->teacherConstraint($user);
-        $share = TeacherShare::SQL;
+        $share = TeacherShare::sql();
+        $settledShare = 'COALESCE(si.amount, '.$share.')';
         $items = $this->courseItems($user->contentScope(), $teacherId)
             ->leftJoin('settlement_items as si', function ($join) {
                 $join->on('si.payment_item_id', '=', 'payment_items.id')
@@ -35,8 +36,8 @@ class SettlementSummary
         }
 
         $row = $items->selectRaw("
-            COALESCE(SUM({$share}), 0) as share,
-            COALESCE(SUM(CASE WHEN s.status = 'settled' THEN {$share} ELSE 0 END), 0) as settled_amount,
+            COALESCE(SUM(CASE WHEN s.status = 'settled' THEN {$settledShare} ELSE {$share} END), 0) as share,
+            COALESCE(SUM(CASE WHEN s.status = 'settled' THEN {$settledShare} ELSE 0 END), 0) as settled_amount,
             COALESCE(SUM(CASE WHEN s.status = 'settled' THEN 1 ELSE 0 END), 0) as settled_count,
             COALESCE(SUM(CASE WHEN s.id IS NULL OR s.status <> 'settled' THEN {$share} ELSE 0 END), 0) as unsettled_amount,
             COALESCE(SUM(CASE WHEN s.id IS NULL OR s.status <> 'settled' THEN 1 ELSE 0 END), 0) as unsettled_count
@@ -83,7 +84,7 @@ class SettlementSummary
             ],
             'sales_count' => (int) (clone $paid)->count(),
             'sales_amount' => (int) (clone $paid)->sum('amount'),
-            'teacher_share' => (int) (clone $share)->sum(DB::raw(TeacherShare::SQL)),
+            'teacher_share' => (int) (clone $share)->sum(DB::raw(TeacherShare::sql())),
             'gateway_fee' => (int) (clone $share)->sum(DB::raw('COALESCE(payment_items.gateway_fee_amount, 0)')),
             'settled_amount' => (int) (clone $settled)->sum('amount'),
             'settled_count' => (int) (clone $settled)->count(),
@@ -100,7 +101,7 @@ class SettlementSummary
     public function teachers(User $user, Request $request)
     {
         $teacherId = $this->teacherConstraint($user);
-        $share = TeacherShare::SQL;
+        $share = TeacherShare::sql();
 
         $query = $this->courseItems($user->contentScope(), $teacherId)
             ->leftJoin('settlement_items as si', function ($join) {
@@ -220,7 +221,7 @@ class SettlementSummary
 
     private function outstanding(ContentScope $scope, ?int $teacherId): array
     {
-        $share = TeacherShare::SQL;
+        $share = TeacherShare::sql();
         $row = $this->courseItems($scope, $teacherId)
             ->leftJoin('settlement_items as si', function ($join) {
                 $join->on('si.payment_item_id', '=', 'payment_items.id')
@@ -258,7 +259,7 @@ class SettlementSummary
             ->where('payments.status', true)
             ->whereNotNull('payments.paid_at')
             ->whereNotNull('courses.teacher_id')
-            ->whereRaw(TeacherShare::SQL.' > 0');
+            ->whereRaw(TeacherShare::sql().' > 0');
 
         $scope->constrainJoinedPayments($query, 'payments');
 

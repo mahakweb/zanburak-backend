@@ -122,7 +122,7 @@ class PaymentSettlementFilters
             })
             ->whereColumn('payment_items.payment_id', 'payments.id')
             ->whereNotNull('courses.teacher_id')
-            ->whereRaw(TeacherShare::SQL.' > 0');
+            ->whereRaw(TeacherShare::sql().' > 0');
 
         if ($teacherId) {
             $sub->where('courses.teacher_id', $teacherId);

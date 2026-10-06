@@ -13,6 +13,10 @@ class Settlement extends Model
         'uuid',
         'teacher_id',
         'amount',
+        'gross_amount',
+        'platform_amount',
+        'site_percent',
+        'teacher_percent',
         'payment_count',
         'status',
         'tracking_number',
@@ -34,6 +38,10 @@ class Settlement extends Model
     protected $casts = [
         'paid_at' => 'datetime',
         'amount' => 'integer',
+        'gross_amount' => 'integer',
+        'platform_amount' => 'integer',
+        'site_percent' => 'float',
+        'teacher_percent' => 'float',
         'payment_count' => 'integer',
     ];
 

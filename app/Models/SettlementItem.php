@@ -13,6 +13,10 @@ class SettlementItem extends Model
         'payment_item_id',
         'teacher_id',
         'amount',
+        'gross_amount',
+        'platform_amount',
+        'site_percent',
+        'teacher_percent',
         'charged_amount',
         'active_payment_item_id',
         'released_at',
@@ -20,6 +24,10 @@ class SettlementItem extends Model
 
     protected $casts = [
         'amount' => 'integer',
+        'gross_amount' => 'integer',
+        'platform_amount' => 'integer',
+        'site_percent' => 'float',
+        'teacher_percent' => 'float',
         'charged_amount' => 'integer',
         'released_at' => 'datetime',
     ];

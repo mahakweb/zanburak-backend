@@ -360,7 +360,11 @@ class SettlementService
 
     private function persistGroup(User $actor, ?int $teacherId, Collection $group, string $status, array $input, string $idempotencyKey): Settlement
     {
-        $amount = (int) $group->sum(fn (PaymentItem $item) => TeacherShare::amount($item));
+        $rates = app(SettlementCommission::class)->rates();
+        $rows = $group->map(fn (PaymentItem $item) => TeacherShare::breakdown($item, $rates));
+        $amount = (int) $rows->sum('teacher_amount');
+        $grossAmount = (int) $rows->sum('gross_amount');
+        $platformAmount = (int) $rows->sum('platform_amount');
         $paymentCount = $group->pluck('payment_id')->unique()->count();
         $paidAt = ! empty($input['paid_at']) ? now()->parse($input['paid_at']) : ($status === SettlementStatus::SETTLED ? now() : null);
 
@@ -368,6 +372,10 @@ class SettlementService
             $settlement = Settlement::create(array_merge([
                 'teacher_id' => $teacherId,
                 'amount' => $amount,
+                'gross_amount' => $grossAmount,
+                'platform_amount' => $platformAmount,
+                'site_percent' => $rates['site_percent'],
+                'teacher_percent' => $rates['teacher_percent'],
                 'payment_count' => $paymentCount,
                 'status' => $status,
                 'tracking_number' => $input['tracking_number'] ?? null,
@@ -387,14 +395,19 @@ class SettlementService
         }
 
         foreach ($group as $item) {
+            $split = TeacherShare::breakdown($item, $rates);
             try {
                 SettlementItem::create([
                     'settlement_id' => $settlement->id,
                     'payment_id' => $item->payment_id,
                     'payment_item_id' => $item->id,
                     'teacher_id' => $teacherId,
-                    'amount' => TeacherShare::amount($item),
-                    'charged_amount' => TeacherShare::chargedAmount($item),
+                    'amount' => $split['teacher_amount'],
+                    'gross_amount' => $split['gross_amount'],
+                    'platform_amount' => $split['platform_amount'],
+                    'site_percent' => $split['site_percent'],
+                    'teacher_percent' => $split['teacher_percent'],
+                    'charged_amount' => $split['charged_amount'],
                     'active_payment_item_id' => $item->id,
                 ]);
             } catch (QueryException $e) {
@@ -409,6 +422,10 @@ class SettlementService
             'payment_item_ids' => $group->pluck('id')->values()->all(),
             'payment_ids' => $group->pluck('payment_id')->unique()->values()->all(),
             'amount' => $amount,
+            'gross_amount' => $grossAmount,
+            'platform_amount' => $platformAmount,
+            'site_percent' => $rates['site_percent'],
+            'teacher_percent' => $rates['teacher_percent'],
         ]);
 
         return $settlement->fresh(['teacher', 'items', 'creator', 'payer', 'currentReceipt']);
@@ -509,6 +526,16 @@ class SettlementService
         $course = $group->first()->payable;
         $teacher = $course->teacher;
 
+        $rates = app(SettlementCommission::class)->rates();
+        $rows = $group->map(fn (PaymentItem $item) => TeacherShare::breakdown($item, $rates));
+        $share = [
+            'gross_amount' => (int) $rows->sum('gross_amount'),
+            'platform_amount' => (int) $rows->sum('platform_amount'),
+            'teacher_amount' => (int) $rows->sum('teacher_amount'),
+            'site_percent' => $rates['site_percent'],
+            'teacher_percent' => $rates['teacher_percent'],
+        ];
+
         return [
             'teacher' => [
                 'id' => $teacher->id,
@@ -517,10 +544,89 @@ class SettlementService
             'payment_count' => $group->pluck('payment_id')->unique()->count(),
             'item_count' => $group->count(),
             'sales_amount' => (int) $group->sum(fn (PaymentItem $item) => TeacherShare::chargedAmount($item)),
-            'teacher_share' => (int) $group->sum(fn (PaymentItem $item) => TeacherShare::amount($item)),
+            'teacher_share' => $share['teacher_amount'],
+            'share' => $share,
             'payment_ids' => $group->pluck('payment_id')->unique()->values()->all(),
             'payment_item_ids' => $group->pluck('id')->values()->all(),
         ];
+    }
+
+    public function sharePreview(User $actor, array $paymentIds, ?int $onlyTeacherId = null): array
+    {
+        $commission = app(SettlementCommission::class);
+        $rates = $commission->rates();
+        $payments = Payment::query()
+            ->with(['items.payable', 'items.activeSettlementItem.settlement', 'coveredSettlement'])
+            ->whereIn('id', array_values(array_unique(array_filter(array_map('intval', $paymentIds)))))
+            ->get();
+        $scope = $actor->contentScope();
+        $gross = 0;
+        $platform = 0;
+        $teacher = 0;
+        $count = 0;
+        $sitePercent = $rates['site_percent'];
+        $teacherPercent = $rates['teacher_percent'];
+        $fromSnapshot = false;
+
+        foreach ($payments as $payment) {
+            if (! $scope->canPayment($payment, 'view')) {
+                continue;
+            }
+            $items = $this->scopedItems($payment, $onlyTeacherId);
+            if ($items->isEmpty() && ! $onlyTeacherId) {
+                $covered = $payment->coveredSettlement;
+                if ($covered && $covered->status === SettlementStatus::SETTLED) {
+                    $gross += (int) ($covered->gross_amount ?: $covered->amount);
+                    $platform += (int) ($covered->platform_amount ?? 0);
+                    $teacher += (int) $covered->amount;
+                    $sitePercent = (float) ($covered->site_percent ?? $sitePercent);
+                    $teacherPercent = (float) ($covered->teacher_percent ?? $teacherPercent);
+                    $fromSnapshot = true;
+                    $count += 1;
+                    continue;
+                }
+                $split = $commission->split((int) ($payment->base_amount ?: $payment->amount), $rates);
+                $gross += $split['gross_amount'];
+                $platform += $split['platform_amount'];
+                $teacher += $split['teacher_amount'];
+                $count += 1;
+                continue;
+            }
+            foreach ($items as $item) {
+                if ($this->itemSettled($item)) {
+                    $settledItem = $item->activeSettlementItem;
+                    if ($settledItem) {
+                        $gross += (int) ($settledItem->gross_amount ?: $settledItem->amount);
+                        $platform += (int) ($settledItem->platform_amount ?? 0);
+                        $teacher += (int) $settledItem->amount;
+                        $sitePercent = (float) ($settledItem->site_percent ?? $sitePercent);
+                        $teacherPercent = (float) ($settledItem->teacher_percent ?? $teacherPercent);
+                        $fromSnapshot = true;
+                        $count += 1;
+                    }
+                    continue;
+                }
+                $split = TeacherShare::breakdown($item, $rates);
+                $gross += $split['gross_amount'];
+                $platform += $split['platform_amount'];
+                $teacher += $split['teacher_amount'];
+                $count += 1;
+            }
+        }
+
+        $share = [
+            'gross_amount' => $gross,
+            'platform_amount' => $platform,
+            'teacher_amount' => $teacher,
+            'site_percent' => $fromSnapshot ? $sitePercent : $rates['site_percent'],
+            'teacher_percent' => $fromSnapshot ? $teacherPercent : $rates['teacher_percent'],
+            'item_count' => $count,
+            'from_snapshot' => $fromSnapshot,
+        ];
+
+        return array_merge($share, [
+            'explain' => $commission->explain($share),
+        ]);
     }
 
     private function findIdempotent(User $actor, string $key): Collection
@@ -719,9 +825,14 @@ class SettlementService
             ]);
         }
 
+        $split = app(SettlementCommission::class)->split((int) ($payment->base_amount ?: $payment->amount));
         $settlement = Settlement::create(array_merge([
             'teacher_id' => null,
-            'amount' => (int) ($payment->base_amount ?: $payment->amount),
+            'amount' => $split['teacher_amount'],
+            'gross_amount' => $split['gross_amount'],
+            'platform_amount' => $split['platform_amount'],
+            'site_percent' => $split['site_percent'],
+            'teacher_percent' => $split['teacher_percent'],
             'payment_count' => 1,
             'status' => SettlementStatus::SETTLED,
             'tracking_number' => $input['tracking_number'] ?? null,
@@ -735,6 +846,10 @@ class SettlementService
         $this->audit($settlement, $actor, 'created', null, SettlementStatus::SETTLED, [
             'payment_ids' => [$payment->id],
             'covered_payment' => true,
+            'gross_amount' => $split['gross_amount'],
+            'platform_amount' => $split['platform_amount'],
+            'site_percent' => $split['site_percent'],
+            'teacher_percent' => $split['teacher_percent'],
         ]);
         $created->push($settlement);
     }

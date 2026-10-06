@@ -36,6 +36,12 @@
 | `articles.update` | ویرایش مقاله | ✓ | ✓ |
 | `articles.view` | مشاهده مقالات | ✓ | ✓ |
 
+## bank_accounts
+
+| پرمیشن | برچسب | own | any |
+|--------|-------|-----|-----|
+| `bank_accounts.manage` | مدیریت حساب، شبا و کارت بانکی خود | — | — |
+
 ## bookmark
 
 | پرمیشن | برچسب | own | any |
@@ -349,6 +355,19 @@
 | `seo.manage` | مدیریت SEO | — | — |
 | `seo.update` | ویرایش SEO | — | — |
 | `seo.view` | مشاهده SEO | — | — |
+
+## settlements
+
+| پرمیشن | برچسب | own | any |
+|--------|-------|-----|-----|
+| `settlements.change_status` | تغییر وضعیت تسویه | — | — |
+| `settlements.create` | ایجاد تسویه | — | — |
+| `settlements.delete_receipt` | حذف رسید تسویه | — | — |
+| `settlements.update` | ویرایش اطلاعات تسویه | — | — |
+| `settlements.upload_receipt` | آپلود و جایگزینی رسید تسویه | — | — |
+| `settlements.view` | مشاهده تسویه‌ها | ✓ | ✓ |
+| `settlements.view_all_teachers` | مشاهده وضعیت مالی همه مدرسین | — | — |
+| `settlements.view_receipt` | مشاهده رسید تسویه | ✓ | ✓ |
 
 ## statuses
 

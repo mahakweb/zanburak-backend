@@ -29,6 +29,8 @@ Route::middleware(['auth:sanctum'])->prefix('admin')->as('api.admin.')->group(fu
     });
 
     Route::prefix('settlements')->as('settlements.')->group(function () {
+        Route::get('/settings', [\App\Http\Controllers\Api\Admin\SettlementSettingsController::class, 'show'])->name('settings.show');
+        Route::post('/settings', [\App\Http\Controllers\Api\Admin\SettlementSettingsController::class, 'update'])->name('settings.update');
         Route::get('/summary', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'summary'])->name('summary');
         Route::post('/ledger', [\App\Http\Controllers\Api\Admin\SettlementController::class, 'ledger'])->name('ledger');
         Route::post('/chart', [\App\Http\Controllers\Api\Admin\FinanceChartController::class, 'settlements'])->name('chart');

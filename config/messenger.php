@@ -90,7 +90,8 @@ return [
     'conversations_per_page' => (int) env('MESSENGER_CONVERSATIONS_PER_PAGE', 30),
 
     // Recent messages bundled with each conversation row on list/load-more.
-    'recent_messages_in_list' => (int) env('MESSENGER_RECENT_MESSAGES_IN_LIST', 50),
+    // Keep this small — the list payload dominates cold-start TTFB/JSON parse.
+    'recent_messages_in_list' => (int) env('MESSENGER_RECENT_MESSAGES_IN_LIST', 12),
 
     /*
     |--------------------------------------------------------------------------

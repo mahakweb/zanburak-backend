@@ -119,6 +119,44 @@ class SettlementFlowTest extends TestCase
         $this->assertGreaterThanOrEqual(2, $settlement->audits()->where('action', 'status_changed')->count());
     }
 
+    public function test_platform_share_is_applied_and_snapshotted(): void
+    {
+        [$teacher, $buyer, $course] = $this->courseSale();
+        $payment = $this->paidPayment($buyer, $course, 1000000, now());
+        $finance = $this->financeUser();
+
+        app(\App\Services\Settlement\SettlementCommission::class)->update(20, 80, $finance->id);
+
+        $created = app(SettlementService::class)->create($finance, [
+            'payment_ids' => [$payment->id],
+            'status' => SettlementStatus::SETTLED,
+            'idempotency_key' => 'share-batch',
+        ]);
+        $settlement = $created['settlements']->first();
+
+        $this->assertSame(800000, (int) $settlement->amount);
+        $this->assertSame(1000000, (int) $settlement->gross_amount);
+        $this->assertSame(200000, (int) $settlement->platform_amount);
+        $this->assertSame(20.0, (float) $settlement->site_percent);
+        $this->assertSame(80.0, (float) $settlement->teacher_percent);
+
+        $item = $settlement->items()->first();
+        $this->assertSame(800000, (int) $item->amount);
+        $this->assertSame(200000, (int) $item->platform_amount);
+
+        $settings = $this->actingAs($finance, 'sanctum')
+            ->getJson('/api/admin/settlements/settings')
+            ->assertOk()
+            ->json('settings');
+        $this->assertSame(20.0, (float) $settings['site_percent']);
+        $this->assertSame(80.0, (float) $settings['teacher_percent']);
+
+        $teacherUser = User::factory()->create(['is_superuser' => false]);
+        $this->actingAs($teacherUser, 'sanctum')
+            ->postJson('/api/admin/settlements/settings', ['site_percent' => 50])
+            ->assertForbidden();
+    }
+
     public function test_unpaid_payment_is_not_settleable(): void
     {
         [$teacher, $buyer, $course] = $this->courseSale();

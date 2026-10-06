@@ -107,13 +107,18 @@ class SettlementLedger
         $settlements = $this->activeSettlements($payment, $items);
         $settled = $this->isSettled($payment, $items, $settlements);
         $latest = $settlements->sortByDesc(fn (Settlement $settlement) => optional($settlement->paid_at)?->timestamp ?? 0)->first();
+        $share = $this->shareBreakdown($payment, $items, $settlements, $settled);
 
         return [
             'id' => $payment->id,
             'uuid' => $payment->uuid,
             'reference_id' => $payment->reference_id,
             'amount' => (int) $payment->amount,
-            'settle_amount' => $this->settleAmount($payment, $items),
+            'settle_amount' => $share['teacher_amount'],
+            'gross_amount' => $share['gross_amount'],
+            'platform_amount' => $share['platform_amount'],
+            'site_percent' => $share['site_percent'],
+            'teacher_percent' => $share['teacher_percent'],
             'discount_amount' => $this->discountAmount($payment, $items),
             'discount_code' => $this->discountCode($payment, $items),
             'status' => (bool) $payment->status,
@@ -147,6 +152,8 @@ class SettlementLedger
             || $viewer->isSuperUser();
 
         $shown = $fullItems ? $payment->items : $items;
+        $share = $this->shareBreakdown($payment, $items, $settlements, $settled);
+        $commission = app(SettlementCommission::class);
 
         return [
             'payment' => $this->row($payment, $teacherId === -1 ? null : $teacherId),
@@ -156,20 +163,49 @@ class SettlementLedger
             'discount_code' => $payment->discount_code,
             'wallet_paid_amount' => (int) ($payment->wallet_paid_amount ?? 0),
             'gateway_paid_amount' => (int) ($payment->gateway_paid_amount ?? 0),
-            'items' => $shown->map(fn (PaymentItem $item) => [
-                'id' => $item->id,
-                'kind' => $this->itemKind($item),
-                'title' => $this->itemTitle($item),
-                'price' => (int) $item->price,
-                'discount_amount' => (int) ($item->discount_amount ?? 0),
-                'discount_code' => $item->discount_code ?: $payment->discount_code,
-                'amount' => TeacherShare::amount($item),
-                'settled' => $this->itemIsSettled($item),
-            ])->values(),
+            'share' => array_merge($share, [
+                'explain' => $commission->explain($share),
+            ]),
+            'items' => $shown->map(function (PaymentItem $item) use ($payment) {
+                $settledItem = $item->activeSettlementItem;
+                $settlement = $settledItem?->settlement;
+                $isSettled = $settlement && $settlement->status === SettlementStatus::SETTLED;
+                if ($isSettled && $settledItem) {
+                    $split = [
+                        'gross_amount' => (int) ($settledItem->gross_amount ?: $settledItem->amount),
+                        'platform_amount' => (int) ($settledItem->platform_amount ?? 0),
+                        'teacher_amount' => (int) $settledItem->amount,
+                        'site_percent' => (float) ($settledItem->site_percent ?? 0),
+                        'teacher_percent' => (float) ($settledItem->teacher_percent ?? 100),
+                    ];
+                } else {
+                    $split = TeacherShare::breakdown($item);
+                }
+
+                return [
+                    'id' => $item->id,
+                    'kind' => $this->itemKind($item),
+                    'title' => $this->itemTitle($item),
+                    'price' => (int) $item->price,
+                    'discount_amount' => (int) ($item->discount_amount ?? 0),
+                    'discount_code' => $item->discount_code ?: $payment->discount_code,
+                    'amount' => $split['teacher_amount'],
+                    'gross_amount' => $split['gross_amount'],
+                    'platform_amount' => $split['platform_amount'],
+                    'site_percent' => $split['site_percent'],
+                    'teacher_percent' => $split['teacher_percent'],
+                    'settled' => $isSettled,
+                ];
+            })->values(),
             'settlements' => $settlements->map(function (Settlement $settlement) use ($viewer) {
                 return [
                     'uuid' => $settlement->uuid,
                     'status' => $settlement->status,
+                    'amount' => (int) $settlement->amount,
+                    'gross_amount' => (int) ($settlement->gross_amount ?: $settlement->amount),
+                    'platform_amount' => (int) ($settlement->platform_amount ?? 0),
+                    'site_percent' => (float) ($settlement->site_percent ?? 0),
+                    'teacher_percent' => (float) ($settlement->teacher_percent ?? 100),
                     'paid_at' => optional($settlement->paid_at)?->toIso8601String(),
                     'settled_by' => $this->personName($settlement->payer),
                     'tracking_number' => $settlement->tracking_number,
@@ -341,13 +377,65 @@ class SettlementLedger
 
     private function settleAmount(Payment $payment, Collection $items): int
     {
+        return $this->shareBreakdown($payment, $items, collect(), false)['teacher_amount'];
+    }
+
+    private function shareBreakdown(Payment $payment, Collection $items, Collection $settlements, bool $settled): array
+    {
+        $commission = app(SettlementCommission::class);
+        $rates = $commission->rates();
+
         if ($items->isNotEmpty()) {
-            return (int) $items->sum(fn (PaymentItem $item) => TeacherShare::amount($item));
+            $gross = 0;
+            $platform = 0;
+            $teacher = 0;
+            $sitePercent = $rates['site_percent'];
+            $teacherPercent = $rates['teacher_percent'];
+            $fromSnapshot = false;
+
+            foreach ($items as $item) {
+                $settledItem = $item->activeSettlementItem;
+                $settlement = $settledItem?->settlement;
+                if ($settlement && $settlement->status === SettlementStatus::SETTLED && $settledItem) {
+                    $gross += (int) ($settledItem->gross_amount ?: $settledItem->amount);
+                    $platform += (int) ($settledItem->platform_amount ?? 0);
+                    $teacher += (int) $settledItem->amount;
+                    $sitePercent = (float) ($settledItem->site_percent ?? $sitePercent);
+                    $teacherPercent = (float) ($settledItem->teacher_percent ?? $teacherPercent);
+                    $fromSnapshot = true;
+                    continue;
+                }
+                $split = TeacherShare::breakdown($item, $rates);
+                $gross += $split['gross_amount'];
+                $platform += $split['platform_amount'];
+                $teacher += $split['teacher_amount'];
+            }
+
+            return [
+                'gross_amount' => $gross,
+                'platform_amount' => $platform,
+                'teacher_amount' => $teacher,
+                'site_percent' => $fromSnapshot || $settled ? $sitePercent : $rates['site_percent'],
+                'teacher_percent' => $fromSnapshot || $settled ? $teacherPercent : $rates['teacher_percent'],
+            ];
+        }
+
+        if ($settled && $settlements->isNotEmpty()) {
+            $latest = $settlements->first();
+
+            return [
+                'gross_amount' => (int) ($latest->gross_amount ?: $latest->amount),
+                'platform_amount' => (int) ($latest->platform_amount ?? 0),
+                'teacher_amount' => (int) $latest->amount,
+                'site_percent' => (float) ($latest->site_percent ?? 0),
+                'teacher_percent' => (float) ($latest->teacher_percent ?? 100),
+            ];
         }
 
         $base = (int) ($payment->base_amount ?? 0);
+        $gross = $base > 0 ? $base : (int) $payment->amount;
 
-        return $base > 0 ? $base : (int) $payment->amount;
+        return $commission->split($gross, $rates);
     }
 
     private function discountAmount(Payment $payment, Collection $items): int
@@ -378,7 +466,7 @@ class SettlementLedger
                 ->whereIn('payable_id', Course::query()->where('teacher_id', $teacherId)->select('id'));
         }
 
-        $sum = (int) $items->sum(DB::raw(TeacherShare::SQL));
+        $sum = (int) $items->sum(DB::raw(TeacherShare::sql()));
         if ($teacherId) {
             return $sum;
         }
@@ -386,6 +474,11 @@ class SettlementLedger
         $empty = (int) (clone $paymentQuery)->reorder()
             ->whereDoesntHave('items')
             ->sum(DB::raw('COALESCE(NULLIF(base_amount, 0), amount, 0)'));
+
+        $rates = app(SettlementCommission::class)->rates();
+        if ($empty > 0 && ($rates['teacher_percent'] ?? 100) < 100) {
+            $empty = (int) round($empty * ((float) $rates['teacher_percent']) / 100);
+        }
 
         return $sum + $empty;
     }

@@ -92,6 +92,7 @@ class PaymentSettlementPresenter
         }
 
         $share = TeacherShare::amount($item);
+        $breakdown = TeacherShare::breakdown($item);
         $active = $item->relationLoaded('activeSettlementItem') ? $item->activeSettlementItem : $item->activeSettlementItem()->first();
         $settlement = $active?->settlement;
         $eligible = $teacher && $share > 0;
@@ -109,6 +110,10 @@ class PaymentSettlementPresenter
                 'name' => trim($teacher->first_name.' '.$teacher->last_name),
             ] : null,
             'teacher_share' => $share,
+            'gross_amount' => $breakdown['gross_amount'],
+            'platform_amount' => $breakdown['platform_amount'],
+            'site_percent' => $breakdown['site_percent'],
+            'teacher_percent' => $breakdown['teacher_percent'],
             'charged_amount' => TeacherShare::chargedAmount($item),
             'eligible' => $eligible && TeacherShare::isPaid($payment),
             'can_settle' => $eligible && TeacherShare::isPaid($payment) && $active === null,

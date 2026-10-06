@@ -7,18 +7,25 @@ use App\Models\Payment;
 use App\Models\PaymentItem;
 
 /**
- * Teacher revenue already stored on payment items.
+ * Teacher revenue based on payment item final price after discount.
  *
- * Sales reports attribute course revenue with:
- * GREATEST(0, COALESCE(final_price, price - discount_amount))
- * Gateway fees are charged on top of that amount and are not part of it.
- * The project does not store a separate teacher/platform commission rate.
+ * Gross = GREATEST(0, COALESCE(final_price, price - discount_amount))
+ * Gateway fees are charged on top and are not part of this base.
+ * Platform/teacher split comes from SettlementCommission (site settings).
  */
 class TeacherShare
 {
-    public const SQL = 'GREATEST(0, COALESCE(payment_items.final_price, payment_items.price - COALESCE(payment_items.discount_amount, 0)))';
+    /**
+     * Gross SQL expression (before platform cut).
+     */
+    public const GROSS_SQL = 'GREATEST(0, COALESCE(payment_items.final_price, payment_items.price - COALESCE(payment_items.discount_amount, 0)))';
 
-    public static function amount(PaymentItem $item): int
+    /**
+     * @deprecated Use sql() — kept for callers that still reference the constant name.
+     */
+    public const SQL = self::GROSS_SQL;
+
+    public static function grossAmount(PaymentItem $item): int
     {
         $final = $item->final_price;
         if ($final === null) {
@@ -28,13 +35,67 @@ class TeacherShare
         return max(0, (int) $final);
     }
 
+    /**
+     * Teacher/user net share after platform cut.
+     */
+    public static function amount(PaymentItem $item): int
+    {
+        return self::breakdown($item)['teacher_amount'];
+    }
+
+    public static function platformAmount(PaymentItem $item): int
+    {
+        return self::breakdown($item)['platform_amount'];
+    }
+
+    /**
+     * @return array{
+     *   gross_amount: int,
+     *   site_percent: float,
+     *   teacher_percent: float,
+     *   platform_amount: int,
+     *   teacher_amount: int,
+     *   charged_amount: int
+     * }
+     */
+    public static function breakdown(PaymentItem $item, ?array $rates = null): array
+    {
+        $commission = app(SettlementCommission::class);
+        $split = $commission->split(self::grossAmount($item), $rates);
+
+        return array_merge($split, [
+            'charged_amount' => self::chargedAmount($item),
+        ]);
+    }
+
+    /**
+     * SQL for teacher net share using current settings.
+     */
+    public static function sql(?array $rates = null): string
+    {
+        $rates ??= app(SettlementCommission::class)->rates();
+        $percent = (float) $rates['teacher_percent'];
+        $gross = self::GROSS_SQL;
+
+        if ($percent >= 100) {
+            return $gross;
+        }
+        if ($percent <= 0) {
+            return '0';
+        }
+
+        $safe = number_format($percent, 2, '.', '');
+
+        return "CAST(ROUND(({$gross}) * {$safe} / 100) AS SIGNED)";
+    }
+
     public static function chargedAmount(PaymentItem $item): int
     {
         if ($item->charged_price !== null) {
             return max(0, (int) $item->charged_price);
         }
 
-        return self::amount($item);
+        return self::grossAmount($item);
     }
 
     public static function isCourse(PaymentItem $item): bool

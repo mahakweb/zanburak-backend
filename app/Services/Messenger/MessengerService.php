@@ -899,12 +899,14 @@ class MessengerService
                 $query->where('type', Message::TYPE_FILE);
                 break;
             case 'links':
+                // Plaintext bodies via LIKE; E2E ciphertext relies on client-set meta.has_link.
                 $query->where(function ($w) {
                     $w->where('body', 'like', '%http://%')
                         ->orWhere('body', 'like', '%https://%')
                         ->orWhere('body', 'like', '%www.%')
                         ->orWhere('body', 'like', '%/messenger/join/%')
-                        ->orWhere('body', 'like', '%/messenger/@%');
+                        ->orWhere('body', 'like', '%/messenger/@%')
+                        ->orWhereRaw("COALESCE((meta->>'has_link')::boolean, false) = true");
                 })->where(function ($w) {
                     $w->whereNull('type')->orWhere('type', '!=', Message::TYPE_SYSTEM);
                 });

@@ -245,6 +245,7 @@ class SettlementController extends Controller
 
         return response()->json([
             'recipients' => $this->settlements->payoutRecipients($user, $data['payment_ids'], $teacherId),
+            'share' => $this->settlements->sharePreview($user, $data['payment_ids'], $teacherId),
         ]);
     }
 
